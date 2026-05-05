@@ -29,40 +29,20 @@ export function Login() {
       }
 
       if (!profileDoc.exists()) {
-        try {
-          await setDoc(doc(db, 'users', user.uid), {
-            email: user.email,
-            role: 'admin',
-            restaurantId: 'default'
-          });
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, userPath);
-        }
-        
-        // Ensure default restaurant exists
-        const restPath = 'restaurants/default';
-        let restDoc;
-        try {
-          restDoc = await getDoc(doc(db, 'restaurants', 'default'));
-        } catch (err) {
-          handleFirestoreError(err, OperationType.GET, restPath);
-        }
-
-        if (!restDoc.exists()) {
-          try {
-            await setDoc(doc(db, 'restaurants', 'default'), {
-              name: 'Original Malay Delights',
-              currency: 'MYR',
-              serviceCharge: 6,
-              sst: 10
-            });
-          } catch (err) {
-            handleFirestoreError(err, OperationType.WRITE, restPath);
-          }
+        await setDoc(doc(db, 'users', user.uid), {
+          email: user.email,
+          role: 'admin',
+          restaurantId: null // User will create one in onboarding
+        });
+        navigate('/onboarding');
+      } else {
+        const data = profileDoc.data();
+        if (data?.restaurantId) {
+          navigate(`/restaurant/${data.restaurantId}/orders`);
+        } else {
+          navigate('/onboarding');
         }
       }
-
-      navigate('/restaurant/default/orders');
     } catch (err: any) {
       console.error("Login failed:", err);
       if (err.code === 'auth/unauthorized-domain') {

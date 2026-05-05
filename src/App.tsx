@@ -11,8 +11,10 @@ import { AdminPanel } from './pages/AdminPanel';
 import { Login } from './pages/Login';
 import { OrderTracker } from './pages/OrderTracker';
 
+import { Onboarding } from './pages/Onboarding';
+
 export default function App() {
-  const { init, loading } = useAuthStore();
+  const { init, loading, user, profile } = useAuthStore();
 
   useEffect(() => {
     init();
@@ -20,7 +22,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50 font-sans">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
       </div>
     );
@@ -28,7 +30,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 md:pl-20">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 md:pl-20 font-sans">
         <Navbar />
         <main className="container mx-auto px-4 py-8">
           <Routes>
@@ -41,11 +43,18 @@ export default function App() {
             <Route path="/restaurant/:restId/kitchen" element={<KitchenDisplay />} />
             <Route path="/restaurant/:restId/admin" element={<AdminPanel />} />
             
-            {/* Auth */}
+            {/* Auth & Setup */}
             <Route path="/login" element={<Login />} />
+            <Route path="/onboarding" element={<Onboarding />} />
             
-            {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/restaurant/default/table/default" replace />} />
+            {/* Catch-all - Dynamic redirect based on auth */}
+            <Route path="*" element={
+              user ? (
+                profile?.restaurantId 
+                  ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
+                  : <Navigate to="/onboarding" replace />
+              ) : <Navigate to="/login" replace />
+            } />
           </Routes>
         </main>
       </div>
