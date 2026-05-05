@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "Details about the restaurant branch",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "currency": { "type": "string", "description": "e.g., MYR" },
+        "serviceCharge": { "type": "number", "description": "Percentage, e.g., 10" },
+        "sst": { "type": "number", "description": "SST percentage, e.g., 6" }
+      },
+      "required": ["name", "currency"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "A table in the restaurant",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Table label, e.g., T1" },
+        "status": { "type": "string", "enum": ["available", "occupied"] }
+      },
+      "required": ["name"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Menu category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "MenuItem": {
+      "title": "Menu Item",
+      "description": "Food or drink item",
+      "type": "object",
+      "properties": {
+        "categoryId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "description": "e.g., Sugar Level" },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "priceDelta": { "type": "number", "default": 0 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": ["categoryId", "name", "price"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order details",
+      "type": "object",
+      "properties": {
+        "tableId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "preparing", "ready", "completed", "cancelled"] },
+        "totalPrice": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["counter", "online"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "menuItemId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" },
+              "options": {
+                 "type": "array",
+                 "items": {
+                   "type": "object",
+                   "properties": {
+                     "optionName": { "type": "string" },
+                     "valueName": { "type": "string" },
+                     "priceDelta": { "type": "number" }
+                   }
+                 }
+              }
+            }
+          }
+        }
+      },
+      "required": ["tableId", "status", "totalPrice", "paymentMethod", "items"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Staff or Admin details",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff", "kitchen"] },
+        "restaurantId": { "type": "string" }
+      },
+      "required": ["email", "role", "restaurantId"]
+    }
+  },
+  "firestore": {
+    "restaurants/{restaurantId}": {
+      "schema": "Restaurant",
+      "description": "Main restaurant data"
+    },
+    "restaurants/{restaurantId}/tables/{tableId}": {
+      "schema": "Table",
+      "description": "Tables belonging to a restaurant"
+    },
+    "restaurants/{restaurantId}/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Categories for the menu"
+    },
+    "restaurants/{restaurantId}/menu_items/{itemId}": {
+      "schema": "MenuItem",
+      "description": "Items in the menu"
+    },
+    "restaurants/{restaurantId}/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Orders received"
+    },
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Staff and admin profiles"
+    }
+  }
+}

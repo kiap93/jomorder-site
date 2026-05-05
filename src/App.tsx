@@ -1,0 +1,54 @@
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthStore } from './store/useAuthStore';
+import { Navbar } from './components/Navbar';
+
+// Pages (to be created)
+import { CustomerMenu } from './pages/CustomerMenu';
+import { PosDashboard } from './pages/PosDashboard';
+import { KitchenDisplay } from './pages/KitchenDisplay';
+import { AdminPanel } from './pages/AdminPanel';
+import { Login } from './pages/Login';
+import { OrderTracker } from './pages/OrderTracker';
+
+export default function App() {
+  const { init, loading } = useAuthStore();
+
+  useEffect(() => {
+    init();
+  }, [init]);
+
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <BrowserRouter>
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 md:pl-20">
+        <Navbar />
+        <main className="container mx-auto px-4 py-8">
+          <Routes>
+            {/* Customer Flow */}
+            <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
+            <Route path="/restaurant/:restId/order/:orderId" element={<OrderTracker />} />
+            
+            {/* Staff Flow */}
+            <Route path="/restaurant/:restId/orders" element={<PosDashboard />} />
+            <Route path="/restaurant/:restId/kitchen" element={<KitchenDisplay />} />
+            <Route path="/restaurant/:restId/admin" element={<AdminPanel />} />
+            
+            {/* Auth */}
+            <Route path="/login" element={<Login />} />
+            
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/restaurant/default/table/default" replace />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
+  );
+}
