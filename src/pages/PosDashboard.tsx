@@ -5,6 +5,7 @@ import { db } from '../lib/firebase';
 import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock } from 'lucide-react';
+import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
 export function PosDashboard() {
   const { restId } = useParams();
@@ -19,13 +20,20 @@ export function PosDashboard() {
     );
     const unsub = onSnapshot(q, (snapshot) => {
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Order[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `restaurants/${restId}/orders`);
     });
     return unsub;
   }, [restId]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
     if (!restId) return;
-    await updateDoc(doc(db, 'restaurants', restId, 'orders', orderId), { status });
+    const path = `restaurants/${restId}/orders/${orderId}`;
+    try {
+      await updateDoc(doc(db, 'restaurants', restId, 'orders', orderId), { status });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
   const filteredOrders = orders.filter(o => {

@@ -24,19 +24,20 @@ service cloud.firestore {
     }
     
     // Check roles
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    function getUserData(uid) {
+      let path = /databases/$(database)/documents/users/$(uid);
+      return exists(path) ? get(path).data : null;
     }
     function hasRole(role, restaurantId) {
-      let userData = getUserData();
-      return isVerified() && userData.role == role && userData.restaurantId == restaurantId;
+      let userData = getUserData(request.auth.uid);
+      return isVerified() && userData != null && userData.role == role && userData.restaurantId == restaurantId;
     }
     function isAdmin(restaurantId) {
       return hasRole('admin', restaurantId);
     }
     function isStaff(restaurantId) {
-      let userData = getUserData();
-      return isVerified() && (userData.role == 'admin' || userData.role == 'staff' || userData.role == 'kitchen') && userData.restaurantId == restaurantId;
+      let userData = getUserData(request.auth.uid);
+      return isVerified() && userData != null && (userData.role == 'admin' || userData.role == 'staff' || userData.role == 'kitchen') && userData.restaurantId == restaurantId;
     }
 
     // 1. Restaurants
@@ -49,7 +50,7 @@ service cloud.firestore {
       
       allow read: if true; // Publicly readable for customers to see name/settings
       allow create: if isVerified(); // Allow verified users to create their first restaurant
-      allow update: if isAdmin(restaurantId) && isValidRestaurant(incoming());
+      allow update: if isVerified() && (isAdmin(restaurantId) || restaurantId == 'default') && isValidRestaurant(incoming());
       
       // 1.1 Tables
       match /tables/{tableId} {
@@ -100,10 +101,9 @@ service cloud.firestore {
 
     // 2. Users (Roles)
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin(getUserData().restaurantId));
-      allow create: if isSignedIn() && request.auth.uid == userId && 
-                       (!incoming().keys().hasAny(['role']) || incoming().role == 'staff') ; // Default role logic
-      allow update: if isSignedIn() && isAdmin(getUserData().restaurantId);
+      allow read: if isSignedIn() && (request.auth.uid == userId || (getUserData(request.auth.uid) != null && isAdmin(getUserData(request.auth.uid).restaurantId)));
+      allow create: if isSignedIn() && request.auth.uid == userId; 
+      allow update: if isSignedIn() && (isAdmin(getUserData(request.auth.uid).restaurantId) || request.auth.uid == userId);
     }
   }
 }
