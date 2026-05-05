@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import { onAuthStateChanged, signOut as firebaseSignOut, User } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
+import { User } from '@supabase/supabase-js';
 import { UserProfile } from '../types';
 
 interface AuthState {
@@ -16,18 +15,50 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   profile: null,
   loading: true,
-  init: () => {
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const profileDoc = await getDoc(doc(db, 'users', user.uid));
-        set({ user, profile: profileDoc.data() as UserProfile, loading: false });
+  init: async () => {
+    // 1. Get initial session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const fetchProfile = async (userId: string) => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (data) {
+        set({ 
+          user: session?.user ?? null, 
+          profile: {
+            id: data.id,
+            email: data.email,
+            role: data.role,
+            restaurantId: data.restaurant_id // mapping snake_case to camelCase
+          } as UserProfile, 
+          loading: false 
+        });
+      } else {
+        set({ user: session?.user ?? null, profile: null, loading: false });
+      }
+    };
+
+    if (session?.user) {
+      await fetchProfile(session.user.id);
+    } else {
+      set({ user: null, profile: null, loading: false });
+    }
+
+    // 2. Listen for auth changes
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await fetchProfile(session.user.id);
       } else {
         set({ user: null, profile: null, loading: false });
       }
     });
   },
   signOut: async () => {
-    await firebaseSignOut(auth);
+    await supabase.auth.signOut();
     set({ user: null, profile: null });
   }
 }));

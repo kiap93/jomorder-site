@@ -1,15 +1,13 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, auth } from '../lib/firebase';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { Store, ArrowRight, Loader2 } from 'lucide-react';
-import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
 export function Onboarding() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const { user, profile } = useAuthStore();
+  const { user } = useAuthStore();
   const navigate = useNavigate();
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -19,25 +17,36 @@ export function Onboarding() {
     setLoading(true);
     try {
       // 1. Create Restaurant
-      const restRef = await addDoc(collection(db, 'restaurants'), {
-        name: name.trim(),
-        currency: 'MYR',
-        serviceCharge: 6,
-        sst: 10,
-        ownerId: user.uid,
-        createdAt: serverTimestamp()
-      });
+      const { data: rest, error: restError } = await supabase
+        .from('restaurants')
+        .insert({
+          name: name.trim(),
+          currency: 'MYR',
+          service_charge: 6,
+          sst: 10,
+          owner_id: user.id
+        })
+        .select()
+        .single();
+
+      if (restError) throw restError;
 
       // 2. Update User Profile
-      await updateDoc(doc(db, 'users', user.uid), {
-        restaurantId: restRef.id,
-        role: 'admin'
-      });
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          restaurant_id: rest.id,
+          role: 'admin'
+        })
+        .eq('id', user.id);
+
+      if (profileError) throw profileError;
 
       // 3. Navigate to Dashboard
-      navigate(`/restaurant/${restRef.id}/orders`);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'restaurants');
+      navigate(`/restaurant/${rest.id}/orders`);
+    } catch (err: any) {
+      console.error("Onboarding failed:", err);
+      alert(err.message || "Failed to create restaurant.");
     } finally {
       setLoading(false);
     }

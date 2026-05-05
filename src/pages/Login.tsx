@@ -1,10 +1,7 @@
 import { useState } from 'react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
-import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
 export function Login() {
   const navigate = useNavigate();
@@ -15,49 +12,20 @@ export function Login() {
     setError(null);
     setIsLoggingIn(true);
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      // Check if user has a profile, if not create a default one
-      const userPath = `users/${user.uid}`;
-      let profileDoc;
-      try {
-        profileDoc = await getDoc(doc(db, 'users', user.uid));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.GET, userPath);
-      }
-
-      if (!profileDoc.exists()) {
-        await setDoc(doc(db, 'users', user.uid), {
-          email: user.email,
-          role: 'admin',
-          restaurantId: null // User will create one in onboarding
-        });
-        navigate('/onboarding');
-      } else {
-        const data = profileDoc.data();
-        if (data?.restaurantId) {
-          navigate(`/restaurant/${data.restaurantId}/orders`);
-        } else {
-          navigate('/onboarding');
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin + '/onboarding'
         }
-      }
+      });
+      
+      if (error) throw error;
+      
+      // Note: Supabase OAuth redirects away from the page, 
+      // so code after this might not run immediately.
     } catch (err: any) {
       console.error("Login failed:", err);
-      if (err.code === 'auth/unauthorized-domain') {
-        setError("This domain is not authorized in Firebase Console -> Authentication -> Settings -> Authorized domains.");
-      } else if (err.message?.includes('auth/popup-closed-by-user')) {
-        setError("Login popup was closed. Please try again.");
-      } else {
-        try {
-          const parsed = JSON.parse(err.message);
-          setError(`Permission Error: ${parsed.operationType} on ${parsed.path}`);
-        } catch {
-          setError("Login failed. " + (err.message || "Please check your connection."));
-        }
-      }
-    } finally {
+      setError(err.message || "Login failed. Please check your connection.");
       setIsLoggingIn(false);
     }
   };
@@ -79,14 +47,15 @@ export function Login() {
         
         <button
           onClick={handleLogin}
-          className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-bold text-lg hover:bg-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95"
+          disabled={isLoggingIn}
+          className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-bold text-lg hover:bg-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 disabled:opacity-50"
         >
           <img src="https://www.gstatic.com/firebase/builtins/pixie/images/grey_g_logo.svg" className="w-6 h-6 bg-white p-1 rounded-full" alt="Google" />
-          Continue with Google
+          {isLoggingIn ? 'Redirecting...' : 'Continue with Google'}
         </button>
         
         <p className="mt-8 text-xs text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
-          Secured by Google Identity
+          Secured by Supabase Identity
         </p>
       </div>
     </div>

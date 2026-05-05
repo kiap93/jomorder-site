@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { collection, query, where, onSnapshot, updateDoc, doc, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Order } from '../types';
+import { supabase } from '../lib/supabase';
+import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Check } from 'lucide-react';
+import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
 
 export function KitchenDisplay() {
   const { restId } = useParams();
@@ -12,126 +11,139 @@ export function KitchenDisplay() {
 
   useEffect(() => {
     if (!restId) return;
-    const q = query(
-      collection(db, 'restaurants', restId, 'orders'),
-      where('status', 'in', ['pending', 'preparing']),
-      orderBy('createdAt', 'asc')
-    );
-    const unsub = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Order[]);
-    });
-    return unsub;
+
+    const fetchOrders = async () => {
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('restaurant_id', restId)
+        .in('status', ['pending', 'preparing'])
+        .order('created_at', { ascending: true });
+
+      if (data) {
+        setOrders(data.map(o => ({
+          id: o.id,
+          tableId: o.table_id,
+          status: o.status as OrderStatus,
+          totalPrice: parseFloat(o.total_price),
+          items: o.items,
+          createdAt: { toDate: () => new Date(o.created_at) }
+        })) as any);
+      }
+    };
+
+    fetchOrders();
+
+    const subscription = supabase
+      .channel('kitchen-orders')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'orders',
+        filter: `restaurant_id=eq.${restId}`
+      }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [restId]);
 
-  const setReady = async (orderId: string) => {
-    if (!restId) return;
-    await updateDoc(doc(db, 'restaurants', restId, 'orders', orderId), { status: 'ready' });
+  const updateStatus = async (orderId: string, status: OrderStatus) => {
+    await supabase.from('orders').update({ status }).eq('id', orderId);
   };
 
   return (
-    <div className="bg-[#0f172a] min-h-screen -m-8 p-6 md:p-12 text-white">
-      <div className="flex justify-between items-center mb-12">
-        <div>
-          <h1 className="text-4xl font-black tracking-tighter">Kitchen Display</h1>
-          <p className="text-slate-400 font-bold uppercase tracking-widest text-xs mt-2">Active Production Line • {orders.length} Orders</p>
+    <div className="h-[calc(100vh-8rem)] flex flex-col gap-8">
+      <header className="flex items-center justify-between bg-gray-900 text-white p-6 rounded-[2rem]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center">
+            <Loader2 className="animate-spin text-white" size={24} />
+          </div>
+          <div>
+            <h1 className="text-xl font-black tracking-tight">KITCHEN MONITOR</h1>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Active Preparations</p>
+          </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-mono font-bold">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-          <div className="text-slate-500 text-sm">Station: Main Hot Kitchen</div>
+          <div className="text-2xl font-black font-mono">{orders.length}</div>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Open Tickets</p>
         </div>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="flex-1 overflow-x-auto pb-4 flex gap-6 scrollbar-thin">
         <AnimatePresence>
-          {orders.map((order, idx) => {
-            const timeDiff = Math.floor((Date.now() - (order.createdAt?.toMillis() || 0)) / 60000);
-            const urgencyColor = timeDiff > 15 ? 'bg-red-600' : timeDiff > 10 ? 'bg-orange-500' : 'bg-slate-800';
-
-            return (
-              <motion.div
-                key={order.id}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.8, opacity: 0, x: 200 }}
-                className={`${urgencyColor} rounded-3xl overflow-hidden shadow-2xl flex flex-col min-h-[400px] border border-white/5`}
-              >
-                <div className="p-4 flex justify-between items-center bg-black/20 border-b border-white/10">
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl font-black">#{idx + 1}</span>
-                    <div className="font-bold">
-                      <div className="text-xs uppercase opacity-60">Table</div>
-                      <div className="text-xl">{order.tableId}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 font-mono text-xl font-bold">
-                    <Clock size={20} className="opacity-60" />
-                    {timeDiff}m
+          {orders.map(order => (
+            <motion.div
+              layout
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              key={order.id}
+              className={`w-80 flex-shrink-0 flex flex-col rounded-[2.5rem] overflow-hidden border-2 shadow-xl ${
+                order.status === 'pending' ? 'bg-white border-yellow-200' : 'bg-orange-50 border-orange-200'
+              }`}
+            >
+              <div className={`p-6 border-b flex justify-between items-center ${
+                order.status === 'pending' ? 'bg-yellow-50/50' : 'bg-orange-100/50'
+              }`}>
+                <div>
+                  <h3 className="font-black text-xl text-gray-900">Table {order.tableId}</h3>
+                  <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
+                    <Clock size={12} />
+                    {(order.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-
-                <div className="p-6 flex-1 space-y-4">
-                  {order.items.map((item, i) => (
-                    <div key={i} className="flex gap-4 items-start">
-                      <div className="bg-white text-slate-900 rounded-lg w-10 h-10 flex items-center justify-center font-black text-xl shrink-0">
-                        {item.quantity}
-                      </div>
-                      <div>
-                        <h4 className="text-xl font-bold leading-tight uppercase">{item.name}</h4>
-                        {item.options.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {item.options.map((opt, oi) => (
-                              <span key={oi} className="bg-black/40 px-2 py-0.5 rounded text-[10px] font-bold text-slate-300">
-                                {opt.valueName}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[10px] font-bold font-mono">
+                  #{order.id.slice(-4).toUpperCase()}
                 </div>
+              </div>
 
-                <button
-                  onClick={() => setReady(order.id)}
-                  className="w-full bg-white/10 hover:bg-white/20 py-6 text-2xl font-black uppercase transition-colors flex items-center justify-center gap-3 border-t border-white/10"
-                >
-                  <Check size={32} />
-                  Ready
-                </button>
-              </motion.div>
-            );
-          })}
+              <div className="p-6 flex-1 space-y-4 overflow-y-auto">
+                {order.items.map((item, idx) => (
+                  <div key={idx} className="flex gap-4">
+                    <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center font-black flex-shrink-0">
+                      {item.quantity}
+                    </div>
+                    <div>
+                      <h4 className="font-black text-gray-900 leading-tight">{item.name}</h4>
+                      {item.options.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {item.options.map((opt, i) => (
+                            <span key={i} className="bg-white text-[10px] font-bold text-gray-400 px-1.5 py-0.5 rounded-md border">
+                              {opt.valueName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-6">
+                {order.status === 'pending' ? (
+                  <button
+                    onClick={() => updateStatus(order.id, 'preparing')}
+                    className="w-full bg-yellow-400 text-yellow-950 py-4 rounded-2xl font-black text-sm hover:bg-yellow-500 transition-all shadow-lg active:scale-95"
+                  >
+                    START PREPARING
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => updateStatus(order.id, 'ready')}
+                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 size={18} /> READY TO SERVE
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          ))}
         </AnimatePresence>
       </div>
-
-      {orders.length === 0 && (
-        <div className="h-[60vh] flex flex-col items-center justify-center text-slate-600">
-          <Utensils size={120} strokeWidth={1} className="mb-6 opacity-20" />
-          <h2 className="text-3xl font-black uppercase tracking-widest">No active orders</h2>
-          <p className="mt-2 font-bold opacity-40">Kitchen is currently clear</p>
-        </div>
-      )}
     </div>
-  );
-}
-
-function Utensils(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
-      <path d="M7 2v20" />
-      <path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
-    </svg>
   );
 }

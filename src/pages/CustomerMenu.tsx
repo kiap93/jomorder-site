@@ -1,324 +1,244 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Category, MenuItem, OrderItem } from '../types';
+import { supabase } from '../lib/supabase';
+import { Category, MenuItem, OrderItem, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, Plus, Minus, X, Info } from 'lucide-react';
-import { useBasketStore } from '../store/useBasketStore';
+import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info } from 'lucide-react';
 
 export function CustomerMenu() {
   const { restId, tableId } = useParams();
   const navigate = useNavigate();
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [itemQuantity, setItemQuantity] = useState(1);
-  const [itemOptions, setItemOptions] = useState<Record<string, string>>({});
-  
-  const { items: basketItems, addItem, clearBasket, getTotal } = useBasketStore();
-  const [isBasketOpen, setIsBasketOpen] = useState(false);
+  const [cart, setCart] = useState<OrderItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (!restId) return;
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [restRes, catsRes, itemsRes] = await Promise.all([
+          supabase.from('restaurants').select('*').eq('id', restId).single(),
+          supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
+          supabase.from('menu_items').select('*').eq('restaurant_id', restId).eq('is_active', true)
+        ]);
 
-    // Fetch categories
-    const catQuery = query(collection(db, 'restaurants', restId, 'categories'), orderBy('order', 'asc'));
-    const unsubCats = onSnapshot(catQuery, (snapshot) => {
-      const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Category[];
-      setCategories(cats);
-      if (cats.length > 0 && !selectedCategory) setSelectedCategory(cats[0].id);
-    });
-
-    // Fetch menu items
-    const itemQuery = query(collection(db, 'restaurants', restId, 'menu_items'), where('isActive', '==', true));
-    const unsubItems = onSnapshot(itemQuery, (snapshot) => {
-      setMenuItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as MenuItem[]);
-    });
-
-    return () => {
-      unsubCats();
-      unsubItems();
+        if (restRes.data) {
+          setRestaurant({
+            id: restRes.data.id,
+            name: restRes.data.name,
+            currency: restRes.data.currency,
+            serviceCharge: parseFloat(restRes.data.service_charge),
+            sst: parseFloat(restRes.data.sst)
+          });
+        }
+        if (catsRes.data) setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
+        if (itemsRes.data) {
+          setMenuItems(itemsRes.data.map(i => ({
+            id: i.id,
+            categoryId: i.category_id,
+            name: i.name,
+            price: parseFloat(i.price),
+            imageUrl: i.image_url,
+            description: i.description,
+            isActive: i.is_active,
+            options: i.options || []
+          })));
+        }
+      } catch (err) {
+        console.error("Fetch data failed:", err);
+      } finally {
+        setLoading(false);
+      }
     };
+    fetchData();
   }, [restId]);
 
-  const addToBasket = () => {
-    if (!selectedItem) return;
-
-    const selectedOptions = (selectedItem.options || []).map(opt => {
-      const valName = itemOptions[opt.name];
-      const val = opt.values.find(v => v.name === valName);
-      return {
-        optionName: opt.name,
-        valueName: valName,
-        priceDelta: val?.priceDelta || 0
-      };
+  const addToCart = (item: MenuItem) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.menuItemId === item.id);
+      if (existing) {
+        return prev.map(i => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, {
+        menuItemId: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: 1,
+        options: []
+      }];
     });
-
-    const orderItem: OrderItem = {
-      menuItemId: selectedItem.id,
-      name: selectedItem.name,
-      price: selectedItem.price,
-      quantity: itemQuantity,
-      options: selectedOptions
-    };
-
-    addItem(orderItem);
-    setSelectedItem(null);
-    setItemQuantity(1);
-    setItemOptions({});
   };
 
-  const placeOrder = async () => {
-    if (!restId || !tableId || basketItems.length === 0) return;
+  const updateQuantity = (menuItemId: string, delta: number) => {
+    setCart(prev => prev.map(i => {
+      if (i.menuItemId === menuItemId) {
+        const newQty = Math.max(0, i.quantity + delta);
+        return { ...i, quantity: newQty };
+      }
+      return i;
+    }).filter(i => i.quantity > 0));
+  };
 
+  const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  
+  const placeOrder = async () => {
+    if (!restId || !tableId || cart.length === 0) return;
+    
     try {
-      const docRef = await addDoc(collection(db, 'restaurants', restId, 'orders'), {
-        tableId,
-        status: 'pending',
-        totalPrice: getTotal(),
-        paymentMethod: 'counter',
-        items: basketItems,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      clearBasket();
-      navigate(`/restaurant/${restId}/order/${docRef.id}`);
-    } catch (error) {
-      console.error("Error placing order:", error);
-      alert("Failed to place order. Please try again.");
+      const { data, error } = await supabase
+        .from('orders')
+        .insert({
+          restaurant_id: restId,
+          table_id: tableId,
+          status: 'pending',
+          total_price: totalPrice,
+          items: cart,
+          payment_method: 'counter'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      navigate(`/restaurant/${restId}/order-tracker/${data.id}`);
+    } catch (err: any) {
+      alert(err.message || "Failed to place order");
     }
   };
 
-  const filteredItems = selectedCategory 
-    ? menuItems.filter(item => item.categoryId === selectedCategory)
-    : menuItems;
+  const filteredItems = menuItems.filter(item => {
+    const matchesCat = selectedCategory === 'all' || item.categoryId === selectedCategory;
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCat && matchesSearch;
+  });
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
 
   return (
-    <div className="max-w-md mx-auto">
+    <div className="max-w-md mx-auto bg-white min-h-screen pb-32">
       {/* Header */}
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Malay Delights</h1>
-        <p className="text-gray-500 text-sm mt-1">Table: {tableId}</p>
-      </header>
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md p-6 border-b border-gray-100">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tighter">{restaurant?.name}</h1>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Table {tableId}</span>
+              <span className="text-gray-400 text-xs font-medium">Ordering now</span>
+            </div>
+          </div>
+          <button className="bg-gray-100 p-2.5 rounded-2xl text-gray-400">
+            <Info size={20} />
+          </button>
+        </div>
 
-      {/* Categories */}
-      <div className="flex space-x-2 overflow-x-auto pb-4 scrollbar-hide">
-        {categories.map(cat => (
+        {/* Search */}
+        <div className="relative mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search for dishes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-gray-50 border-none rounded-2xl py-4 pl-12 pr-4 font-bold text-sm focus:ring-2 focus:ring-orange-500/20 transition-all"
+          />
+        </div>
+
+        {/* Categories Bar */}
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
           <button
-            key={cat.id}
-            onClick={() => setSelectedCategory(cat.id)}
-            className={`px-4 py-2 rounded-full whitespace-nowrap transition-all text-sm font-medium ${
-              selectedCategory === cat.id 
-                ? 'bg-orange-600 text-white shadow-lg shadow-orange-200' 
-                : 'bg-white text-gray-600 border border-gray-100'
+            onClick={() => setSelectedCategory('all')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap transition-all ${
+              selectedCategory === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
             }`}
           >
-            {cat.name}
+            ALL DISHES
           </button>
-        ))}
-      </div>
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap transition-all ${
+                selectedCategory === cat.id ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              {cat.name.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </header>
 
       {/* Menu Grid */}
-      <div className="grid grid-cols-1 gap-4 mt-6">
+      <div className="p-4 space-y-4">
         {filteredItems.map(item => (
           <motion.div
             layout
             key={item.id}
-            onClick={() => setSelectedItem(item)}
-            className="bg-white rounded-2xl p-4 flex gap-4 cursor-pointer hover:shadow-md transition-shadow border border-gray-50"
+            className="bg-white border border-gray-100 rounded-[2rem] p-4 flex gap-4 hover:shadow-lg hover:shadow-orange-100/20 transition-all group"
           >
-            {item.imageUrl && (
-              <img 
-                src={item.imageUrl} 
-                alt={item.name} 
-                className="w-24 h-24 rounded-xl object-cover bg-gray-100" 
-              />
-            )}
-            <div className="flex-1 flex flex-col justify-between">
-              <div>
-                <h3 className="font-semibold text-gray-900">{item.name}</h3>
-                <p className="text-gray-500 text-xs mt-1 line-clamp-2">{item.description}</p>
-              </div>
-              <div className="flex justify-between items-end mt-2">
-                <span className="font-bold text-orange-600">RM {item.price.toFixed(2)}</span>
-                <div className="bg-gray-50 p-1.5 rounded-lg">
-                  <Plus size={16} className="text-gray-400" />
+            <div className="w-24 h-24 rounded-2xl bg-gray-50 flex-shrink-0 overflow-hidden">
+              {item.imageUrl ? (
+                <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-200">
+                  <ShoppingBag size={30} />
                 </div>
+              )}
+            </div>
+            <div className="flex-1 flex flex-col pt-1">
+              <h3 className="font-bold text-gray-800 leading-tight mb-1">{item.name}</h3>
+              <p className="text-[10px] text-gray-400 line-clamp-2 mb-2 font-medium">{item.description}</p>
+              <div className="mt-auto flex justify-between items-center">
+                <span className="font-black text-orange-600 text-sm">RM {item.price.toFixed(2)}</span>
+                
+                {cart.find(i => i.menuItemId === item.id) ? (
+                  <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
+                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 text-gray-500 hover:text-red-500"><Minus size={14} /></button>
+                    <span className="text-xs font-black">{cart.find(i => i.menuItemId === item.id)?.quantity}</span>
+                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 text-gray-500 hover:text-orange-600"><Plus size={14} /></button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => addToCart(item)}
+                    className="bg-orange-50 text-orange-600 p-2 rounded-xl hover:bg-orange-600 hover:text-white transition-all shadow-sm"
+                  >
+                    <Plus size={18} />
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>
         ))}
       </div>
 
-      {/* Floating Cart Button */}
+      {/* Cart Navigation Bar */}
       <AnimatePresence>
-        {basketItems.length > 0 && (
-          <motion.button
+        {cart.length > 0 && (
+          <motion.div
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
-            onClick={() => setIsBasketOpen(true)}
-            className="fixed bottom-24 left-4 right-4 bg-gray-900 text-white rounded-2xl py-4 px-6 flex justify-between items-center shadow-2xl z-40 md:left-auto md:w-80 md:right-8"
+            className="fixed bottom-8 left-4 right-4 z-50"
           >
-            <div className="flex items-center gap-3">
-              <div className="bg-orange-600 rounded-lg p-1 px-2 text-xs font-bold">
-                {basketItems.length}
-              </div>
-              <span className="font-semibold text-sm">View order</span>
-            </div>
-            <span className="font-bold">RM {getTotal().toFixed(2)}</span>
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* Item Detail Modal */}
-      <AnimatePresence>
-        {selectedItem && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
-              onClick={() => setSelectedItem(null)}
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              className="relative bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl"
+            <button
+              onClick={placeOrder}
+              className="w-full bg-gray-900 text-white p-6 rounded-[2.5rem] shadow-2xl flex items-center justify-between group hover:bg-black transition-all"
             >
-              {selectedItem.imageUrl && (
-                <img src={selectedItem.imageUrl} alt={selectedItem.name} className="w-full h-64 object-cover" />
-              )}
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{selectedItem.name}</h2>
-                    <p className="text-gray-500 mt-1">{selectedItem.description}</p>
-                  </div>
-                  <button onClick={() => setSelectedItem(null)} className="p-2 bg-gray-100 rounded-full">
-                    <X size={20} />
-                  </button>
+              <div className="flex items-center gap-4">
+                <div className="bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black animate-pulse">
+                  {cart.reduce((a, b) => a + b.quantity, 0)}
                 </div>
-
-                {/* Options */}
-                {selectedItem.options?.map(opt => (
-                  <div key={opt.name} className="mb-6">
-                    <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest mb-3">{opt.name}</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {opt.values.map(val => (
-                        <button
-                          key={val.name}
-                          onClick={() => setItemOptions(prev => ({ ...prev, [opt.name]: val.name }))}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                            itemOptions[opt.name] === val.name
-                              ? 'bg-orange-50 border-orange-600 text-orange-600'
-                              : 'bg-white border-gray-200 text-gray-600'
-                          }`}
-                        >
-                          {val.name}
-                          {val.priceDelta > 0 && <span className="ml-1 text-xs opacity-60"> (+RM{val.priceDelta})</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-
-                {/* Quantity */}
-                <div className="flex items-center justify-between mb-8 py-4 border-y border-gray-100">
-                  <span className="font-bold text-gray-900">Quantity</span>
-                  <div className="flex items-center gap-4">
-                    <button 
-                      onClick={() => setItemQuantity(q => Math.max(1, q - 1))}
-                      className="p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-                    >
-                      <Minus size={20} />
-                    </button>
-                    <span className="font-bold text-xl w-8 text-center">{itemQuantity}</span>
-                    <button 
-                      onClick={() => setItemQuantity(q => q + 1)}
-                      className="p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-                    >
-                      <Plus size={20} />
-                    </button>
-                  </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">View Basket</p>
+                  <p className="text-lg font-black tracking-tight">RM {totalPrice.toFixed(2)}</p>
                 </div>
-
-                <button
-                  onClick={addToBasket}
-                  className="w-full bg-orange-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-orange-200 active:scale-95 transition-transform"
-                >
-                  Add to basket • RM {(selectedItem.price * itemQuantity).toFixed(2)}
-                </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Basket Modal */}
-      <AnimatePresence>
-        {isBasketOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-md" 
-              onClick={() => setIsBasketOpen(false)}
-            />
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
-            >
-              <div className="p-6 border-b flex justify-between items-center">
-                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-600 to-orange-400">Your Basket</h2>
-                <button onClick={() => setIsBasketOpen(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {basketItems.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start group">
-                    <div className="flex gap-4">
-                      <div className="bg-orange-50 text-orange-600 font-bold p-1 px-2 h-fit rounded-lg text-sm">
-                        {item.quantity}x
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{item.name}</h4>
-                        <p className="text-gray-400 text-xs mt-0.5">
-                          {item.options.map(o => `${o.optionName}: ${o.valueName}`).join(' • ')}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold text-gray-900">RM {item.price.toFixed(2)}</div>
-                      <button onClick={() => useBasketStore.getState().removeItem(idx)} className="text-red-500 text-xs font-semibold mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Remove</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-6 bg-gray-50/50">
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-gray-500 font-medium">Total Amount</span>
-                  <span className="text-2xl font-black text-gray-900">RM {getTotal().toFixed(2)}</span>
-                </div>
-                <button
-                  onClick={placeOrder}
-                  className="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-black transition-colors"
-                >
-                  Complete Order
-                </button>
-              </div>
-            </motion.div>
-          </div>
+              <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

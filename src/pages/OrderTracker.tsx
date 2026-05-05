@@ -1,79 +1,139 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Order } from '../types';
+import { supabase } from '../lib/supabase';
+import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
-import { CheckCircle2, Clock, Utensils, CreditCard } from 'lucide-react';
-
-const STATUS_CONFIG = {
-  pending: { icon: Clock, color: 'text-yellow-500', bg: 'bg-yellow-50', label: 'Order Received' },
-  preparing: { icon: Utensils, color: 'text-orange-500', bg: 'bg-orange-50', label: 'Cooking' },
-  ready: { icon: CheckCircle2, color: 'text-blue-500', bg: 'bg-blue-50', label: 'Ready for Serving' },
-  completed: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-50', label: 'Completed' },
-  cancelled: { icon: CreditCard, color: 'text-red-500', bg: 'bg-red-50', label: 'Cancelled' },
-};
+import { ChefHat, CheckCircle2, Clock, MapPin, Loader2 } from 'lucide-react';
 
 export function OrderTracker() {
-  const { restId, orderId } = useParams();
+  const { orderId } = useParams();
   const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!restId || !orderId) return;
-    const unsub = onSnapshot(doc(db, 'restaurants', restId, 'orders', orderId), (snapshot) => {
-      if (snapshot.exists()) {
-        setOrder({ id: snapshot.id, ...snapshot.data() } as Order);
+    if (!orderId) return;
+
+    const fetchOrder = async () => {
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (data) {
+        setOrder({
+          id: data.id,
+          tableId: data.table_id,
+          status: data.status as OrderStatus,
+          totalPrice: parseFloat(data.total_price),
+          items: data.items,
+          createdAt: { toDate: () => new Date(data.created_at) }
+        } as any);
       }
-    });
-    return unsub;
-  }, [restId, orderId]);
+      setLoading(false);
+    };
 
-  if (!order) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
+    fetchOrder();
 
-  const StatusIcon = STATUS_CONFIG[order.status]?.icon || Clock;
+    const subscription = supabase
+      .channel(`order-${orderId}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'orders',
+        filter: `id=eq.${orderId}`
+      }, () => {
+        fetchOrder();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [orderId]);
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
+  if (!order) return <div className="p-20 text-center font-bold">Order not found.</div>;
+
+  const steps: OrderStatus[] = ['pending', 'preparing', 'ready', 'completed'];
+  const currentIndex = steps.indexOf(order.status);
+
+  const getStatusInfo = (status: OrderStatus) => {
+    switch (status) {
+      case 'pending': return { icon: Clock, text: 'Order Sent', color: 'text-yellow-500' };
+      case 'preparing': return { icon: ChefHat, text: 'Cooking Now', color: 'text-orange-500' };
+      case 'ready': return { icon: CheckCircle2, text: 'Ready to Serve', color: 'text-green-500' };
+      default: return { icon: CheckCircle2, text: 'Enjoy!', color: 'text-gray-900' };
+    }
+  };
+
+  const statusInfo = getStatusInfo(order.status);
 
   return (
-    <div className="max-w-md mx-auto py-12 px-4">
-      <div className="text-center mb-12">
-        <motion.div
-          initial={{ scale: 0.5, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center mb-6 shadow-xl ${STATUS_CONFIG[order.status]?.bg}`}
-        >
-          <StatusIcon className={`w-12 h-12 ${STATUS_CONFIG[order.status]?.color}`} />
-        </motion.div>
-        <h1 className="text-3xl font-black text-gray-900 mb-2">{STATUS_CONFIG[order.status]?.label}</h1>
-        <p className="text-gray-500">Order #{order.id.slice(-6).toUpperCase()}</p>
+    <div className="max-w-md mx-auto min-h-[80vh] flex flex-col items-center justify-center p-6 bg-white text-center">
+      <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 relative">
+        <statusInfo.icon size={48} className={`animate-pulse ${statusInfo.color}`} />
+        <div className="absolute -bottom-2 -right-2 bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">
+          #{order.id.slice(-4).toUpperCase()}
+        </div>
       </div>
 
-      <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 mb-6">
-        <h3 className="font-bold text-gray-900 mb-4 border-b pb-4">Order Summary</h3>
+      <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">{statusInfo.text}</h1>
+      <p className="text-gray-400 font-medium mb-12">Table {order.tableId} • RM {order.totalPrice.toFixed(2)}</p>
+
+      {/* Progress Bar */}
+      <div className="w-full relative py-8 px-4">
+        <div className="h-2 bg-gray-100 w-full rounded-full absolute top-1/2 left-0 -translate-y-1/2" />
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${(currentIndex / (steps.length - 1)) * 100}%` }}
+          className="h-2 bg-orange-500 rounded-full absolute top-1/2 left-0 -translate-y-1/2" 
+        />
+        
+        <div className="relative flex justify-between w-full">
+          {steps.map((step, idx) => {
+            const StepIcon = getStatusInfo(step).icon;
+            const isActive = idx <= currentIndex;
+            return (
+              <div key={idx} className="flex flex-col items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                  isActive ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'bg-white border-2 border-gray-100 text-gray-200'
+                }`}>
+                  <StepIcon size={20} />
+                </div>
+                <span className={`text-[8px] font-black uppercase tracking-widest ${isActive ? 'text-gray-900' : 'text-gray-300'}`}>{step}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="mt-16 bg-gray-50 p-8 rounded-[3rem] w-full text-left">
+        <h3 className="font-black text-gray-900 mb-6 flex items-center gap-2">
+          <MapPin size={18} /> Order Details
+        </h3>
         <div className="space-y-4">
           {order.items.map((item, idx) => (
-            <div key={idx} className="flex justify-between">
-              <div>
-                <span className="font-bold text-sm text-gray-400 mr-2">{item.quantity}x</span>
-                <span className="font-medium text-gray-800">{item.name}</span>
+            <div key={idx} className="flex justify-between items-center group">
+              <div className="flex items-center gap-3">
+                <span className="font-black text-orange-600 bg-orange-100/50 w-7 h-7 flex items-center justify-center rounded-lg text-xs">
+                  {item.quantity}
+                </span>
+                <span className="font-bold text-sm text-gray-700">{item.name}</span>
               </div>
-              <span className="font-bold text-gray-900">RM {(item.price * item.quantity).toFixed(2)}</span>
+              <span className="font-mono text-xs font-bold text-gray-400">RM {(item.price * item.quantity).toFixed(2)}</span>
             </div>
           ))}
         </div>
-        <div className="mt-6 pt-4 border-t flex justify-between items-center text-lg">
-          <span className="font-bold text-gray-500">Total</span>
-          <span className="font-black text-2xl text-orange-600">RM {order.totalPrice.toFixed(2)}</span>
+        <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between items-center">
+            <span className="text-sm font-black text-gray-900">Total Charged</span>
+            <span className="text-xl font-black text-orange-600">RM {order.totalPrice.toFixed(2)}</span>
         </div>
       </div>
-
-      <div className="bg-orange-50 rounded-2xl p-4 flex gap-4 items-start">
-        <div className="bg-white p-2 rounded-lg shadow-sm">
-          <CreditCard className="text-orange-600" size={20} />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-orange-900">Please pay at the counter</p>
-          <p className="text-xs text-orange-700 mt-1 opacity-80">Show your order number to the staff when you finish your meal.</p>
-        </div>
-      </div>
+      
+      <p className="mt-8 text-xs text-gray-400 font-bold uppercase tracking-widest">
+        Need help? Ask our staff
+      </p>
     </div>
   );
 }

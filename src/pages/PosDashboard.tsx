@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { collection, query, onSnapshot, updateDoc, doc, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock } from 'lucide-react';
-import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 
 export function PosDashboard() {
   const { restId } = useParams();
@@ -14,26 +12,53 @@ export function PosDashboard() {
 
   useEffect(() => {
     if (!restId) return;
-    const q = query(
-      collection(db, 'restaurants', restId, 'orders'),
-      orderBy('createdAt', 'desc')
-    );
-    const unsub = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Order[]);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `restaurants/${restId}/orders`);
-    });
-    return unsub;
+
+    // 1. Initial Fetch
+    const fetchOrders = async () => {
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('restaurant_id', restId)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        setOrders(data.map(o => ({
+          id: o.id,
+          tableId: o.table_id,
+          status: o.status as OrderStatus,
+          totalPrice: parseFloat(o.total_price),
+          paymentMethod: o.payment_method,
+          items: o.items,
+          createdAt: { toDate: () => new Date(o.created_at) } // shim for toDate()
+        })) as any);
+      }
+    };
+
+    fetchOrders();
+
+    // 2. Realtime Subscription
+    const subscription = supabase
+      .channel('pos-orders')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'orders',
+        filter: `restaurant_id=eq.${restId}`
+      }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [restId]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
-    if (!restId) return;
-    const path = `restaurants/${restId}/orders/${orderId}`;
-    try {
-      await updateDoc(doc(db, 'restaurants', restId, 'orders', orderId), { status });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    }
+    await supabase
+      .from('orders')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', orderId);
   };
 
   const filteredOrders = orders.filter(o => {
@@ -46,7 +71,7 @@ export function PosDashboard() {
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm">
         <div>
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">Active Orders</h1>
-          <p className="text-gray-500 text-sm">Managing live restaurant traffic</p>
+          <p className="text-gray-500 text-sm font-medium">Managing live restaurant traffic</p>
         </div>
         <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl">
           {['all', 'pending', 'preparing', 'ready'].map(f => (
@@ -74,7 +99,6 @@ export function PosDashboard() {
               key={order.id}
               className="bg-white rounded-3xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
             >
-              {/* Order Header */}
               <div className="p-5 border-b flex justify-between items-center bg-gray-50/50">
                 <div>
                   <div className="flex items-center gap-2">
@@ -84,7 +108,7 @@ export function PosDashboard() {
                     <h3 className="font-bold text-gray-900">Table {order.tableId}</h3>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-widest font-bold">
-                    {order.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {(order.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
                 <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -96,7 +120,6 @@ export function PosDashboard() {
                 </div>
               </div>
 
-              {/* Order Items */}
               <div className="p-5 flex-1 space-y-3">
                 {order.items.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-start">
@@ -115,7 +138,6 @@ export function PosDashboard() {
                 ))}
               </div>
 
-              {/* Order Footer & Actions */}
               <div className="p-5 pt-0 mt-auto">
                 <div className="flex justify-between items-center mb-4 pt-4 border-t border-gray-50">
                   <span className="text-xs font-bold text-gray-400 uppercase">Total amount</span>
