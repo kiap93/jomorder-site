@@ -101,7 +101,11 @@ export function AdminPanel() {
       return;
     }
     if (!editingItem?.categoryId) {
-      alert("Please select a category first. If you don't have categories, create one in the Categories tab.");
+      alert("Please select a category first.");
+      return;
+    }
+    if (editingItem.price === undefined || editingItem.price < 0) {
+      alert("Price must be 0 or a positive number.");
       return;
     }
     if (!restId) return;
@@ -431,6 +435,113 @@ export function AdminPanel() {
                     className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold h-24"
                     placeholder="Freshly prepared coconut rice with crispy chicken..."
                   />
+                </div>
+
+                <div className="pt-4 border-t border-gray-100">
+                  <div className="flex justify-between items-center mb-4">
+                    <label className="block text-sm font-black uppercase text-gray-900 ml-1">Customization Options</label>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const currentOptions = editingItem.options || [];
+                        setEditingItem({ 
+                          ...editingItem, 
+                          options: [...currentOptions, { name: 'New Option', values: [] }] 
+                        });
+                      }}
+                      className="text-xs font-bold bg-orange-50 text-orange-600 px-3 py-2 rounded-xl hover:bg-orange-100 transition-colors flex items-center gap-1"
+                    >
+                      <Plus size={14} /> Add Option Group
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {editingItem.options?.map((opt, optIndex) => (
+                      <div key={optIndex} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3">
+                        <div className="flex gap-2">
+                          <input 
+                            value={opt.name}
+                            onChange={e => {
+                              const newOptions = [...(editingItem.options || [])];
+                              newOptions[optIndex].name = e.target.value;
+                              setEditingItem({ ...editingItem, options: newOptions });
+                            }}
+                            className="flex-1 bg-white px-4 py-2 rounded-xl border-transparent focus:border-orange-500 focus:ring-0 font-bold text-sm"
+                            placeholder="Option Name (e.g. Size)"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newOptions = (editingItem.options || []).filter((_, i) => i !== optIndex);
+                              setEditingItem({ ...editingItem, options: newOptions });
+                            }}
+                            className="p-2 text-gray-400 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {opt.values.map((val, valIndex) => (
+                            <div key={valIndex} className="flex gap-2 items-center">
+                              <input 
+                                value={val.name}
+                                onChange={e => {
+                                  const newOptions = [...(editingItem.options || [])];
+                                  newOptions[optIndex].values[valIndex].name = e.target.value;
+                                  setEditingItem({ ...editingItem, options: newOptions });
+                                }}
+                                className="flex-1 bg-white px-4 py-2 rounded-xl border-transparent focus:border-orange-500 focus:ring-0 font-bold text-xs"
+                                placeholder="Choice name"
+                              />
+                              <div className="relative w-24">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">+</span>
+                                <input 
+                                  type="number"
+                                  value={val.priceDelta || 0}
+                                  onChange={e => {
+                                    const newOptions = [...(editingItem.options || [])];
+                                    newOptions[optIndex].values[valIndex].priceDelta = parseFloat(e.target.value) || 0;
+                                    setEditingItem({ ...editingItem, options: newOptions });
+                                  }}
+                                  className="w-full bg-white pl-5 pr-2 py-2 rounded-xl border-transparent focus:border-orange-500 focus:ring-0 font-mono font-bold text-xs text-orange-600"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newOptions = [...(editingItem.options || [])];
+                                  newOptions[optIndex].values = newOptions[optIndex].values.filter((_, i) => i !== valIndex);
+                                  setEditingItem({ ...editingItem, options: newOptions });
+                                }}
+                                className="p-1 text-gray-300 hover:text-red-400"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newOptions = [...(editingItem.options || [])];
+                              newOptions[optIndex].values.push({ name: '', priceDelta: 0 });
+                              setEditingItem({ ...editingItem, options: newOptions });
+                            }}
+                            className="w-full py-2 rounded-xl border border-dashed border-gray-200 text-[10px] font-black uppercase text-gray-400 hover:border-orange-200 hover:text-orange-500 transition-all"
+                          >
+                            + Add Choice
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {(!editingItem.options || editingItem.options.length === 0) && (
+                      <div className="text-center py-6 border-2 border-dashed border-gray-100 rounded-3xl">
+                        <p className="text-xs font-bold text-gray-400 italic">No customizations added yet</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="p-8 bg-gray-50 flex gap-3">

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Category, MenuItem, OrderItem, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X } from 'lucide-react';
 
 export function CustomerMenu() {
   const { restId, tableId } = useParams();
@@ -15,6 +15,8 @@ export function CustomerMenu() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedItemForOptions, setSelectedItemForOptions] = useState<MenuItem | null>(null);
+  const [currentOptionSelections, setCurrentOptionSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!restId) return;
@@ -58,30 +60,72 @@ export function CustomerMenu() {
     fetchData();
   }, [restId]);
 
-  const addToCart = (item: MenuItem) => {
+  const addToCart = (item: MenuItem, selectedOptions?: Record<string, string>) => {
+    const hasOptions = item.options && item.options.length > 0;
+    
+    if (hasOptions && !selectedOptions) {
+      setSelectedItemForOptions(item);
+      const initialSelections: Record<string, string> = {};
+      item.options?.forEach(opt => {
+        if (opt.values.length > 0) {
+          initialSelections[opt.name] = opt.values[0].name;
+        }
+      });
+      setCurrentOptionSelections(initialSelections);
+      return;
+    }
+
+    const orderOptions = item.options?.map(opt => {
+      const selectedValueName = selectedOptions?.[opt.name];
+      const val = opt.values.find(v => v.name === selectedValueName);
+      return {
+        optionName: opt.name,
+        valueName: selectedValueName || '',
+        priceDelta: val?.priceDelta || 0
+      };
+    }) || [];
+
+    const itemTotalPrice = item.price + orderOptions.reduce((sum, o) => sum + o.priceDelta, 0);
+
     setCart(prev => {
-      const existing = prev.find(i => i.menuItemId === item.id);
-      if (existing) {
-        return prev.map(i => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      // Check if item with exact same options already exists
+      const existingIndex = prev.findIndex(i => {
+        if (i.menuItemId !== item.id) return false;
+        if (i.options.length !== orderOptions.length) return false;
+        return orderOptions.every(oo => {
+          const matched = i.options.find(io => io.optionName === oo.optionName);
+          return matched && matched.valueName === oo.valueName;
+        });
+      });
+
+      if (existingIndex > -1) {
+        const newCart = [...prev];
+        newCart[existingIndex].quantity += 1;
+        return newCart;
       }
+
       return [...prev, {
         menuItemId: item.id,
         name: item.name,
-        price: item.price,
+        price: itemTotalPrice,
         quantity: 1,
-        options: []
+        options: orderOptions
       }];
     });
+
+    setSelectedItemForOptions(null);
   };
 
-  const updateQuantity = (menuItemId: string, delta: number) => {
-    setCart(prev => prev.map(i => {
-      if (i.menuItemId === menuItemId) {
-        const newQty = Math.max(0, i.quantity + delta);
-        return { ...i, quantity: newQty };
+  const updateQuantity = (index: number, delta: number) => {
+    setCart(prev => {
+      const newCart = [...prev];
+      const newQty = Math.max(0, newCart[index].quantity + delta);
+      if (newQty === 0) {
+        return newCart.filter((_, i) => i !== index);
       }
-      return i;
-    }).filter(i => i.quantity > 0));
+      newCart[index].quantity = newQty;
+      return newCart;
+    });
   };
 
   const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -194,11 +238,10 @@ export function CustomerMenu() {
               <div className="mt-auto flex justify-between items-center">
                 <span className="font-black text-orange-600 text-sm">RM {item.price.toFixed(2)}</span>
                 
-                {cart.find(i => i.menuItemId === item.id) ? (
+                {cart.some(i => i.menuItemId === item.id) ? (
                   <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
-                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 text-gray-500 hover:text-red-500"><Minus size={14} /></button>
-                    <span className="text-xs font-black">{cart.find(i => i.menuItemId === item.id)?.quantity}</span>
-                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 text-gray-500 hover:text-orange-600"><Plus size={14} /></button>
+                    <span className="text-xs font-black">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)} in bag</span>
+                    <button onClick={() => addToCart(item)} className="p-1 text-gray-500 hover:text-orange-600 font-black"><Plus size={14} /></button>
                   </div>
                 ) : (
                   <button
@@ -213,6 +256,75 @@ export function CustomerMenu() {
           </motion.div>
         ))}
       </div>
+
+      {/* Options Modal */}
+      <AnimatePresence>
+        {selectedItemForOptions && (
+          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedItemForOptions(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="relative w-full max-w-md bg-white rounded-t-[3rem] sm:rounded-[3rem] p-8 overflow-hidden shadow-2xl"
+            >
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-gray-900">{selectedItemForOptions.name}</h3>
+                  <p className="text-orange-600 font-bold">RM {selectedItemForOptions.price.toFixed(2)}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedItemForOptions(null)}
+                  className="bg-gray-100 p-2 rounded-full text-gray-400 hover:text-gray-600"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 scrollbar-thin">
+                {selectedItemForOptions.options?.map(opt => (
+                  <div key={opt.name} className="space-y-3">
+                    <label className="text-xs font-black uppercase text-gray-400 tracking-widest">{opt.name}</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {opt.values.map(val => (
+                        <button
+                          key={val.name}
+                          onClick={() => setCurrentOptionSelections(prev => ({ ...prev, [opt.name]: val.name }))}
+                          className={`flex justify-between items-center p-4 rounded-2xl border-2 transition-all font-bold ${
+                            currentOptionSelections[opt.name] === val.name
+                              ? 'border-orange-500 bg-orange-50 text-orange-900'
+                              : 'border-transparent bg-gray-50 text-gray-500 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span>{val.name}</span>
+                          {val.priceDelta > 0 && (
+                            <span className="text-[10px] font-black uppercase tracking-tighter opacity-60">
+                              + RM {val.priceDelta.toFixed(2)}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => addToCart(selectedItemForOptions, currentOptionSelections)}
+                className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-bold text-lg mt-8 hover:bg-black transition-all shadow-xl hover:shadow-orange-200/40"
+              >
+                Add to Basket
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Cart Navigation Bar */}
       <AnimatePresence>
