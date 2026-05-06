@@ -108,9 +108,33 @@ export function AdminPanel() {
     
     setLoading(true);
     try {
+      let finalCategoryId = editingItem.categoryId;
+
+      // Handle direct category creation
+      if (finalCategoryId === 'CREATE_NEW' && editingItem.newCategoryName?.trim()) {
+        const { data: newCat, error: catError } = await supabase
+          .from('categories')
+          .insert({
+            restaurant_id: restId,
+            name: editingItem.newCategoryName.trim(),
+            sort_order: categories.length
+          })
+          .select()
+          .single();
+        
+        if (catError) throw catError;
+        finalCategoryId = newCat.id;
+      }
+
+      if (!finalCategoryId || finalCategoryId === 'CREATE_NEW') {
+        alert("Please select or create a category.");
+        setLoading(false);
+        return;
+      }
+
       const itemData = {
         restaurant_id: restId,
-        category_id: editingItem.categoryId,
+        category_id: finalCategoryId,
         name: editingItem.name.trim(),
         price: editingItem.price || 0,
         image_url: editingItem.imageUrl || '',
@@ -369,9 +393,27 @@ export function AdminPanel() {
                     >
                       <option value="">Select Category</option>
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                      <option value="CREATE_NEW" className="text-orange-600 font-bold">+ Create New Category</option>
                     </select>
                   </div>
                 </div>
+
+                {editingItem.categoryId === 'CREATE_NEW' && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="overflow-hidden"
+                  >
+                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">New Category Name</label>
+                    <input
+                      autoFocus
+                      value={(editingItem as any).newCategoryName || ''}
+                      onChange={e => setEditingItem({ ...editingItem, newCategoryName: e.target.value } as any)}
+                      className="w-full px-5 py-4 rounded-2xl bg-orange-50 border-2 border-orange-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                      placeholder="e.g. Signature Mains"
+                    />
+                  </motion.div>
+                )}
                 <div>
                   <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Image URL</label>
                   <input
