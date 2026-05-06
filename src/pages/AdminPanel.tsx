@@ -96,29 +96,45 @@ export function AdminPanel() {
   };
 
   const saveMenuItem = async () => {
-    if (!editingItem?.name || !editingItem?.categoryId || !restId) return;
-    
-    const itemData = {
-      restaurant_id: restId,
-      category_id: editingItem.categoryId,
-      name: editingItem.name,
-      price: editingItem.price || 0,
-      image_url: editingItem.imageUrl || '',
-      description: editingItem.description || '',
-      is_active: editingItem.isActive !== false,
-      options: editingItem.options || []
-    };
-
-    if (editingItem.id) {
-      const { error } = await supabase.from('menu_items').update(itemData).eq('id', editingItem.id);
-      if (error) console.error(error);
-    } else {
-      const { data, error } = await supabase.from('menu_items').insert(itemData).select().single();
-      if (error) console.error(error);
+    if (!editingItem?.name?.trim()) {
+      alert("Please enter a dish name.");
+      return;
     }
+    if (!editingItem?.categoryId) {
+      alert("Please select a category first. If you don't have categories, create one in the Categories tab.");
+      return;
+    }
+    if (!restId) return;
     
-    setEditingItem(null);
-    fetchData();
+    setLoading(true);
+    try {
+      const itemData = {
+        restaurant_id: restId,
+        category_id: editingItem.categoryId,
+        name: editingItem.name.trim(),
+        price: editingItem.price || 0,
+        image_url: editingItem.imageUrl || '',
+        description: editingItem.description || '',
+        is_active: editingItem.isActive !== false,
+        options: editingItem.options || []
+      };
+
+      if (editingItem.id) {
+        const { error } = await supabase.from('menu_items').update(itemData).eq('id', editingItem.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert(itemData);
+        if (error) throw error;
+      }
+      
+      setEditingItem(null);
+      await fetchData();
+    } catch (err: any) {
+      console.error("Save failed:", err);
+      alert(err.message || "Failed to save dish. Please check your permissions.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteMenuItem = async (id: string) => {
