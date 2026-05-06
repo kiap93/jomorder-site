@@ -31,14 +31,16 @@ export function Onboarding() {
 
       if (restError) throw restError;
 
-      // 2. Update User Profile
+      // 2. Sync User Profile (using upsert to ensure it exists)
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: user.id,
+          email: user.email,
           restaurant_id: rest.id,
-          role: 'admin'
-        })
-        .eq('id', user.id);
+          role: 'admin',
+          updated_at: new Date().toISOString()
+        });
 
       if (profileError) throw profileError;
 

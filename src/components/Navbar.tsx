@@ -1,9 +1,10 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export function Navbar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, profile, signOut } = useAuthStore();
   
   // Extract restId from path: /restaurant/:restId/...
@@ -12,6 +13,11 @@ export function Navbar() {
   const urlRestId = restIndex !== -1 ? pathParts[restIndex + 1] : null;
   
   const restId = urlRestId || profile?.restaurantId;
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-3 flex justify-around items-center md:top-0 md:bottom-auto md:flex-col md:w-20 md:h-full md:border-t-0 md:border-r z-50">
@@ -46,7 +52,7 @@ export function Navbar() {
       )}
       
       {user && (
-        <button onClick={() => signOut()} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-500 hover:text-red-600">
+        <button onClick={handleSignOut} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-500 hover:text-red-600">
           <LogOut size={24} />
         </button>
       )}

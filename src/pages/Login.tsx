@@ -1,13 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, AlertCircle } from 'lucide-react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
+import { useAuthStore } from '../store/useAuthStore';
 
 export function Login() {
   const navigate = useNavigate();
+  const { user, profile } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      if (profile?.restaurantId) {
+        navigate(`/restaurant/${profile.restaurantId}/orders`);
+      } else {
+        navigate('/onboarding');
+      }
+    }
+  }, [user, profile, navigate]);
 
   const isSupabaseMissing = import.meta.env.VITE_SUPABASE_URL?.includes('missing-project-id') || !import.meta.env.VITE_SUPABASE_URL;
   const isGoogleMissing = !import.meta.env.VITE_GOOGLE_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID === "";
