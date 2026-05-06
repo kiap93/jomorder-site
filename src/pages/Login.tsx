@@ -7,19 +7,19 @@ import { useAuthStore } from '../store/useAuthStore';
 
 export function Login() {
   const navigate = useNavigate();
-  const { user, profile } = useAuthStore();
+  const { user, profile, loading } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (!loading && user) {
       if (profile?.restaurantId) {
         navigate(`/restaurant/${profile.restaurantId}/orders`);
       } else {
         navigate('/onboarding');
       }
     }
-  }, [user, profile, navigate]);
+  }, [user, profile, loading, navigate]);
 
   const isSupabaseMissing = import.meta.env.VITE_SUPABASE_URL?.includes('missing-project-id') || !import.meta.env.VITE_SUPABASE_URL;
   const isGoogleMissing = !import.meta.env.VITE_GOOGLE_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID === "";
@@ -40,9 +40,6 @@ export function Login() {
 
       if (error) throw error;
       
-      if (data.session) {
-        navigate('/onboarding');
-      }
     } catch (err: any) {
       console.error("Supabase authentication failed:", err);
       setError(err.message || "Failed to sync Google account with portal.");
