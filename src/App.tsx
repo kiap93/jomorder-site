@@ -12,6 +12,7 @@ import { Login } from './pages/Login';
 import { OrderTracker } from './pages/OrderTracker';
 
 import { Onboarding } from './pages/Onboarding';
+import { Landing } from './pages/Landing';
 
 export default function App() {
   const { init, loading, user, profile } = useAuthStore();
@@ -34,6 +35,9 @@ export default function App() {
         <Navbar />
         <main className="container mx-auto px-4 py-8">
           <Routes>
+            {/* Main Landing */}
+            <Route path="/" element={<Landing />} />
+
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
             <Route path="/restaurant/:restId/order/:orderId" element={<OrderTracker />} />
@@ -53,7 +57,7 @@ export default function App() {
                 profile?.restaurantId 
                   ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
                   : <Navigate to="/onboarding" replace />
-              ) : <Navigate to="/login" replace />
+              ) : <Navigate to="/" replace />
             } />
           </Routes>
         </main>

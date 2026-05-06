@@ -18,6 +18,8 @@ export function CustomerMenu() {
   const [selectedItemForOptions, setSelectedItemForOptions] = useState<MenuItem | null>(null);
   const [currentOptionSelections, setCurrentOptionSelections] = useState<Record<string, string>>({});
 
+  const [isReviewingOrder, setIsReviewingOrder] = useState(false);
+
   useEffect(() => {
     if (!restId) return;
     const fetchData = async () => {
@@ -128,11 +130,15 @@ export function CustomerMenu() {
     });
   };
 
-  const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const serviceCharge = subtotal * (restaurant?.serviceCharge || 0);
+  const sst = (subtotal + serviceCharge) * (restaurant?.sst || 0);
+  const total = subtotal + serviceCharge + sst;
   
-  const placeOrder = async () => {
+  const confirmOrder = async () => {
     if (!restId || !tableId || cart.length === 0) return;
     
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('orders')
@@ -140,7 +146,7 @@ export function CustomerMenu() {
           restaurant_id: restId,
           table_id: tableId,
           status: 'pending',
-          total_price: totalPrice,
+          total_price: total,
           items: cart,
           payment_method: 'counter'
         })
@@ -148,9 +154,10 @@ export function CustomerMenu() {
         .single();
 
       if (error) throw error;
-      navigate(`/restaurant/${restId}/order-tracker/${data.id}`);
+      navigate(`/restaurant/${restId}/order/${data.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
+      setLoading(false);
     }
   };
 
@@ -328,7 +335,7 @@ export function CustomerMenu() {
 
       {/* Cart Navigation Bar */}
       <AnimatePresence>
-        {cart.length > 0 && (
+        {cart.length > 0 && !isReviewingOrder && (
           <motion.div
             initial={{ y: 100 }}
             animate={{ y: 0 }}
@@ -336,7 +343,7 @@ export function CustomerMenu() {
             className="fixed bottom-8 left-4 right-4 z-50"
           >
             <button
-              onClick={placeOrder}
+              onClick={() => setIsReviewingOrder(true)}
               className="w-full bg-gray-900 text-white p-6 rounded-[2.5rem] shadow-2xl flex items-center justify-between group hover:bg-black transition-all"
             >
               <div className="flex items-center gap-4">
@@ -345,11 +352,115 @@ export function CustomerMenu() {
                 </div>
                 <div className="text-left">
                   <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">View Basket</p>
-                  <p className="text-lg font-black tracking-tight">RM {totalPrice.toFixed(2)}</p>
+                  <p className="text-lg font-black tracking-tight">RM {subtotal.toFixed(2)}</p>
                 </div>
               </div>
-              <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-widest bg-white/10 px-4 py-2 rounded-full">Checkout</span>
+                <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+              </div>
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Order Review Overlay */}
+      <AnimatePresence>
+        {isReviewingOrder && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-white flex flex-col"
+          >
+            <header className="p-6 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0">
+              <button 
+                onClick={() => setIsReviewingOrder(false)}
+                className="p-2 bg-gray-50 rounded-2xl text-gray-400 hover:text-gray-900 transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <h2 className="text-xl font-black text-gray-900">Your Order</h2>
+              <div className="w-10" /> {/* Spacer */}
+            </header>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="space-y-4">
+                {cart.map((item, index) => (
+                  <div key={index} className="flex gap-4 items-start pb-4 border-b border-gray-50 last:border-0">
+                    <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 font-bold">
+                      {item.quantity}x
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h4 className="font-bold text-gray-900 leading-tight">{item.name}</h4>
+                        <span className="font-black text-sm text-gray-900">RM {(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                      {item.options.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {item.options.map((opt, i) => (
+                            <span key={i} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">
+                              {opt.optionName}: {opt.valueName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-4 mt-3">
+                        <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
+                          <button onClick={() => updateQuantity(index, -1)} className="p-1 text-gray-500 hover:text-red-500"><Minus size={14} /></button>
+                          <span className="text-xs font-black">{item.quantity}</span>
+                          <button onClick={() => updateQuantity(index, 1)} className="p-1 text-gray-500 hover:text-orange-600"><Plus size={14} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-orange-50 rounded-[2.5rem] p-8 space-y-4">
+                <div className="flex justify-between text-sm font-bold text-gray-500">
+                  <span>Subtotal</span>
+                  <span>RM {subtotal.toFixed(2)}</span>
+                </div>
+                {serviceCharge > 0 && (
+                  <div className="flex justify-between text-sm font-bold text-gray-500">
+                    <span>Service Charge ({(restaurant?.serviceCharge || 0) * 100}%)</span>
+                    <span>RM {serviceCharge.toFixed(2)}</span>
+                  </div>
+                )}
+                {sst > 0 && (
+                  <div className="flex justify-between text-sm font-bold text-gray-500">
+                    <span>SST ({(restaurant?.sst || 0) * 100}%)</span>
+                    <span>RM {sst.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="pt-4 border-t-2 border-orange-200 flex justify-between items-center">
+                  <span className="text-xl font-black text-gray-900 uppercase tracking-tighter">Total</span>
+                  <span className="text-2xl font-black text-orange-600">RM {total.toFixed(2)}</span>
+                </div>
+              </div>
+              
+              <div className="p-4 flex gap-3 text-start bg-gray-50 rounded-2xl">
+                <Info className="text-gray-400 shrink-0" size={20} />
+                <p className="text-[11px] font-bold text-gray-400 leading-relaxed">
+                  Your order will be sent to the kitchen once you confirm. You can pay at the counter later.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-100 bg-white">
+              <button
+                onClick={confirmOrder}
+                disabled={loading || cart.length === 0}
+                className="w-full bg-gray-900 text-white py-6 rounded-[2rem] font-bold text-xl hover:bg-black transition-all shadow-2xl disabled:bg-gray-400 disabled:shadow-none relative overflow-hidden"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                ) : (
+                  "Confirm & Order Now"
+                )}
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

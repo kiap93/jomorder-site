@@ -14,6 +14,13 @@ export function Navbar() {
   
   const restId = urlRestId || profile?.restaurantId;
 
+  // Don't show Navbar on landing page
+  if (location.pathname === '/') return null;
+
+  // Don't show Navbar for customers on mobile (they have their own navigation in CustomerMenu)
+  const isCustomerPath = location.pathname.includes('/table/') || location.pathname.includes('/order/');
+  if (isCustomerPath && !user) return null;
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
