@@ -16,45 +16,41 @@ export const useAuthStore = create<AuthState>((set) => ({
   profile: null,
   loading: true,
   init: async () => {
-    // 1. Get initial session
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    const fetchProfile = async (userId: string) => {
+    const fetchProfile = async (currentUser: User | null) => {
+      if (!currentUser) {
+        set({ user: null, profile: null, loading: false });
+        return;
+      }
+
       const { data } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq('id', currentUser.id)
         .single();
       
       if (data) {
         set({ 
-          user: session?.user ?? null, 
+          user: currentUser, 
           profile: {
             id: data.id,
             email: data.email,
             role: data.role,
-            restaurantId: data.restaurant_id // mapping snake_case to camelCase
+            restaurantId: data.restaurant_id
           } as UserProfile, 
           loading: false 
         });
       } else {
-        set({ user: session?.user ?? null, profile: null, loading: false });
+        set({ user: currentUser, profile: null, loading: false });
       }
     };
 
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    } else {
-      set({ user: null, profile: null, loading: false });
-    }
+    // 1. Get initial session
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetchProfile(session?.user ?? null);
 
     // 2. Listen for auth changes
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      } else {
-        set({ user: null, profile: null, loading: false });
-      }
+    supabase.auth.onAuthStateChange(async (_event, session) => {
+      await fetchProfile(session?.user ?? null);
     });
   },
   signOut: async () => {

@@ -12,18 +12,26 @@ export function KitchenDisplay() {
   useEffect(() => {
     if (!restId) return;
 
+    let fetchTimeout: NodeJS.Timeout;
+
     const fetchOrders = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('orders')
         .select('*')
         .eq('restaurant_id', restId)
-        .in('status', ['pending', 'preparing'])
+        .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
         .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching kitchen orders:', error);
+        return;
+      }
 
       if (data) {
         setOrders(data.map(o => ({
           id: o.id,
           tableId: o.table_id,
+          orderType: o.order_type,
           status: o.status as OrderStatus,
           totalPrice: parseFloat(o.total_price),
           items: o.items,
@@ -32,21 +40,28 @@ export function KitchenDisplay() {
       }
     };
 
+    const debouncedFetch = () => {
+      clearTimeout(fetchTimeout);
+      fetchTimeout = setTimeout(fetchOrders, 300);
+    };
+
     fetchOrders();
 
+    const channelName = `kitchen-${restId}`;
     const subscription = supabase
-      .channel('kitchen-orders')
+      .channel(channelName)
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'orders',
         filter: `restaurant_id=eq.${restId}`
       }, () => {
-        fetchOrders();
+        debouncedFetch();
       })
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(subscription);
     };
   }, [restId]);
@@ -77,9 +92,8 @@ export function KitchenDisplay() {
         <AnimatePresence>
           {orders.map(order => (
             <motion.div
-              layout
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9 }}
               key={order.id}
               className={`w-80 flex-shrink-0 flex flex-col rounded-[2.5rem] overflow-hidden border-2 shadow-xl ${
@@ -90,7 +104,14 @@ export function KitchenDisplay() {
                 order.status === 'pending' ? 'bg-yellow-50/50' : 'bg-orange-100/50'
               }`}>
                 <div>
-                  <h3 className="font-black text-xl text-gray-900">Table {order.tableId}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-xl text-gray-900">Table {order.tableId}</h3>
+                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
+                       order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                    }`}>
+                      {order.orderType || 'dine-in'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
                     <Clock size={12} />
                     {(order.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -124,20 +145,34 @@ export function KitchenDisplay() {
               </div>
 
               <div className="p-6">
-                {order.status === 'pending' ? (
+                {order.status === 'pending' && (
                   <button
-                    onClick={() => updateStatus(order.id, 'preparing')}
+                    onClick={() => updateStatus(order.id, 'confirmed')}
                     className="w-full bg-yellow-400 text-yellow-950 py-4 rounded-2xl font-black text-sm hover:bg-yellow-500 transition-all shadow-lg active:scale-95"
                   >
-                    START PREPARING
+                    ACCEPT ORDER
                   </button>
-                ) : (
+                )}
+                {order.status === 'confirmed' && (
+                  <button
+                    onClick={() => updateStatus(order.id, 'cooking')}
+                    className="w-full bg-orange-100 text-orange-900 py-4 rounded-2xl font-black text-sm hover:bg-orange-200 transition-all shadow-lg active:scale-95"
+                  >
+                    START COOKING
+                  </button>
+                )}
+                {order.status === 'cooking' && (
                   <button
                     onClick={() => updateStatus(order.id, 'ready')}
                     className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <CheckCircle2 size={18} /> READY TO SERVE
+                    <CheckCircle2 size={18} /> MARK READY
                   </button>
+                )}
+                {order.status === 'ready' && (
+                   <div className="text-center py-4 bg-green-50 rounded-2xl text-green-700 font-black text-xs uppercase tracking-widest border border-green-100">
+                     Waiting for Handover
+                   </div>
                 )}
               </div>
             </motion.div>

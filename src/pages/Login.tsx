@@ -69,7 +69,7 @@ export function Login() {
               <h3>Setup Required</h3>
             </div>
             <p className="text-red-700 text-[10px] leading-relaxed font-medium mb-4">
-              To use Google Auth, add these variables in <strong>Settings (Gear icon)</strong>:
+              To use Google Auth, add these variables in <strong>Settings (Gear icon)</strong> and ensure the <strong>Authorized JavaScript origins</strong> in Google Cloud Console includes the current URL.
             </p>
             <ul className="text-[10px] space-y-2 text-red-600 font-mono bg-white/50 p-3 rounded-xl border border-red-100">
               <li className="flex justify-between">
@@ -95,12 +95,18 @@ export function Login() {
         )}
         
         <div className="w-full flex justify-center py-2">
-          {!isConfigMissing ? (
+          {loading || isLoggingIn ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-600"></div>
+              <p className="text-xs font-bold text-gray-400 animate-pulse uppercase tracking-widest">Verifying Account...</p>
+            </div>
+          ) : !isConfigMissing ? (
             <div className="scale-125 origin-center">
               <GoogleLogin
                 onSuccess={handleGoogleSuccess}
                 onError={handleGoogleError}
                 useOneTap
+                use_fedcm_for_prompt={false}
                 theme="outline"
                 shape="pill"
                 size="large"

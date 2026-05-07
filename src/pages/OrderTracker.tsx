@@ -24,6 +24,7 @@ export function OrderTracker() {
         setOrder({
           id: data.id,
           tableId: data.table_id,
+          orderType: data.order_type || 'dine-in',
           status: data.status as OrderStatus,
           totalPrice: parseFloat(data.total_price),
           items: data.items,
@@ -55,15 +56,18 @@ export function OrderTracker() {
   if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
   if (!order) return <div className="p-20 text-center font-bold">Order not found.</div>;
 
-  const steps: OrderStatus[] = ['pending', 'preparing', 'ready', 'completed'];
+  const steps: OrderStatus[] = ['pending', 'confirmed', 'cooking', 'ready', 'served', 'completed'];
   const currentIndex = steps.indexOf(order.status);
 
   const getStatusInfo = (status: OrderStatus) => {
     switch (status) {
       case 'pending': return { icon: Clock, text: 'Order Sent', color: 'text-yellow-500' };
-      case 'preparing': return { icon: ChefHat, text: 'Cooking Now', color: 'text-orange-500' };
-      case 'ready': return { icon: CheckCircle2, text: 'Ready to Serve', color: 'text-green-500' };
-      default: return { icon: CheckCircle2, text: 'Enjoy!', color: 'text-gray-900' };
+      case 'confirmed': return { icon: CheckCircle2, text: 'Accepted', color: 'text-blue-500' };
+      case 'cooking': return { icon: ChefHat, text: 'Cooking Now', color: 'text-orange-500' };
+      case 'ready': return { icon: CheckCircle2, text: 'Ready', color: 'text-green-500' };
+      case 'served': return { icon: CheckCircle2, text: order.orderType === 'takeaway' ? 'Picked Up' : 'Served', color: 'text-gray-900' };
+      case 'completed': return { icon: CheckCircle2, text: 'Enjoy!', color: 'text-gray-900' };
+      default: return { icon: Clock, text: 'Wait...', color: 'text-gray-400' };
     }
   };
 

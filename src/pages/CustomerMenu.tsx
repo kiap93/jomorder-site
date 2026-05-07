@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Category, MenuItem, OrderItem, Restaurant } from '../types';
+import { Category, MenuItem, OrderItem, Restaurant, Table } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle } from 'lucide-react';
 
 export function CustomerMenu() {
   const { restId, tableId } = useParams();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [table, setTable] = useState<Table | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<OrderItem[]>([]);
@@ -19,16 +20,18 @@ export function CustomerMenu() {
   const [currentOptionSelections, setCurrentOptionSelections] = useState<Record<string, string>>({});
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
+  const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
 
   useEffect(() => {
     if (!restId) return;
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [restRes, catsRes, itemsRes] = await Promise.all([
+        const [restRes, catsRes, itemsRes, tableRes] = await Promise.all([
           supabase.from('restaurants').select('*').eq('id', restId).single(),
           supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-          supabase.from('menu_items').select('*').eq('restaurant_id', restId).eq('is_active', true)
+          supabase.from('menu_items').select('*').eq('restaurant_id', restId).eq('is_active', true),
+          tableId !== 'default' ? supabase.from('tables').select('*').eq('id', tableId).single() : Promise.resolve({ data: null })
         ]);
 
         if (restRes.data) {
@@ -40,6 +43,9 @@ export function CustomerMenu() {
             sst: parseFloat(restRes.data.sst)
           });
         }
+        if (tableRes.data) {
+          setTable({ id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
+        }
         if (catsRes.data) setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
         if (itemsRes.data) {
           setMenuItems(itemsRes.data.map(i => ({
@@ -50,6 +56,7 @@ export function CustomerMenu() {
             imageUrl: i.image_url,
             description: i.description,
             isActive: i.is_active,
+            status: i.status || 'Available',
             options: i.options || []
           })));
         }
@@ -60,7 +67,29 @@ export function CustomerMenu() {
       }
     };
     fetchData();
-  }, [restId]);
+
+    // Subscribe to table changes if it's a specific table
+    let subscription: any;
+    if (tableId && tableId !== 'default') {
+      subscription = supabase
+        .channel(`table-${tableId}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'tables',
+          filter: `id=eq.${tableId}`
+        }, (payload) => {
+          if (payload.new) {
+            setTable(prev => ({ ...prev!, status: payload.new.status }));
+          }
+        })
+        .subscribe();
+    }
+
+    return () => {
+      if (subscription) supabase.removeChannel(subscription);
+    };
+  }, [restId, tableId]);
 
   const addToCart = (item: MenuItem, selectedOptions?: Record<string, string>) => {
     const hasOptions = item.options && item.options.length > 0;
@@ -145,6 +174,7 @@ export function CustomerMenu() {
         .insert({
           restaurant_id: restId,
           table_id: tableId,
+          order_type: orderType,
           status: 'pending',
           total_price: total,
           items: cart,
@@ -162,15 +192,77 @@ export function CustomerMenu() {
   };
 
   const filteredItems = menuItems.filter(item => {
+    if (item.status === 'Hidden') return false;
     const matchesCat = selectedCategory === 'all' || item.categoryId === selectedCategory;
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
 
   if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
+  if (tableId === 'default') {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-12 text-center font-sans">
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="w-32 h-32 bg-orange-100 rounded-[2.5rem] flex items-center justify-center text-orange-600 mb-10 shadow-inner"
+        >
+          <Camera size={56} strokeWidth={1.5} />
+        </motion.div>
+        
+        <div className="space-y-4 mb-12">
+          <h1 className="text-4xl font-black text-gray-900 tracking-tighter leading-none">
+            Scan to Order
+          </h1>
+          <p className="text-gray-500 font-bold text-lg leading-relaxed max-w-[18rem] mx-auto">
+            Please scan the QR code on your table to browse our delicious menu.
+          </p>
+        </div>
+
+        <div className="w-full max-w-xs relative group">
+          <div className="absolute -inset-4 bg-gradient-to-br from-orange-400 to-orange-600 rounded-[3.5rem] opacity-20 blur-2xl group-hover:opacity-30 transition-opacity"></div>
+          <div className="relative bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-2xl flex flex-col items-center justify-center gap-6">
+            <div className="relative">
+              <div className="absolute -inset-1 rounded-2xl bg-orange-100/50 animate-pulse"></div>
+              <QrCode size={160} strokeWidth={1} className="text-gray-200 relative" />
+              
+              {/* Corner Accents */}
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-orange-500 rounded-tl-xl"></div>
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-orange-500 rounded-tr-xl"></div>
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-orange-500 rounded-bl-xl"></div>
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-orange-500 rounded-br-xl"></div>
+            </div>
+            
+            <div className="bg-gray-900 px-6 py-2 rounded-full shadow-lg">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">READY FOR SCAN</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-16 text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">
+          JomOrder System • Branch v1.0
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto bg-white min-h-screen pb-32">
+      {/* Table Status Bar */}
+      <AnimatePresence>
+        {table?.status === 'occupied' && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-orange-600 text-white overflow-hidden py-3 px-6 flex items-center justify-center gap-2"
+          >
+            <AlertCircle size={14} className="animate-pulse" />
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">This table is currently marked as OCCUPIED</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md p-6 border-b border-gray-100">
         <div className="flex justify-between items-start mb-6">
@@ -230,7 +322,7 @@ export function CustomerMenu() {
             key={item.id}
             className="bg-white border border-gray-100 rounded-[2rem] p-4 flex gap-4 hover:shadow-lg hover:shadow-orange-100/20 transition-all group"
           >
-            <div className="w-24 h-24 rounded-2xl bg-gray-50 flex-shrink-0 overflow-hidden">
+            <div className="w-24 h-24 rounded-2xl bg-gray-50 flex-shrink-0 overflow-hidden relative">
               {item.imageUrl ? (
                 <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
               ) : (
@@ -238,14 +330,26 @@ export function CustomerMenu() {
                   <ShoppingBag size={30} />
                 </div>
               )}
+              {item.status !== 'Available' && (
+                <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-1">
+                  <p className="text-[7px] text-center font-black text-white uppercase tracking-[0.15em]">{item.status}</p>
+                </div>
+              )}
             </div>
-            <div className="flex-1 flex flex-col pt-1">
-              <h3 className="font-bold text-gray-800 leading-tight mb-1">{item.name}</h3>
+            <div className={`flex-1 flex flex-col pt-1 ${(item.status === 'Out of Stock' || item.status === 'Paused') ? 'opacity-50' : ''}`}>
+              <div className="flex justify-between items-start mb-1">
+                <h3 className="font-bold text-gray-800 leading-tight">{item.name}</h3>
+                {item.status === 'Low Stock' && <span className="text-[8px] bg-yellow-100 text-yellow-700 font-black px-1.5 py-0.5 rounded-full uppercase ml-2 flex-shrink-0">Low</span>}
+              </div>
               <p className="text-[10px] text-gray-400 line-clamp-2 mb-2 font-medium">{item.description}</p>
               <div className="mt-auto flex justify-between items-center">
                 <span className="font-black text-orange-600 text-sm">RM {item.price.toFixed(2)}</span>
                 
-                {cart.some(i => i.menuItemId === item.id) ? (
+                {(item.status === 'Out of Stock' || item.status === 'Paused') ? (
+                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-xl">
+                    Unavailable
+                  </div>
+                ) : cart.some(i => i.menuItemId === item.id) ? (
                   <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
                     <span className="text-xs font-black">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)} in bag</span>
                     <button onClick={() => addToCart(item)} className="p-1 text-gray-500 hover:text-orange-600 font-black"><Plus size={14} /></button>
@@ -385,6 +489,26 @@ export function CustomerMenu() {
             </header>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Order Type Selector */}
+              <div className="grid grid-cols-2 gap-3 p-1.5 bg-gray-100 rounded-[2rem]">
+                <button
+                  onClick={() => setOrderType('dine-in')}
+                  className={`py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest transition-all ${
+                    orderType === 'dine-in' ? 'bg-white shadow-md text-gray-900' : 'text-gray-400'
+                  }`}
+                >
+                  🧍 Dine In
+                </button>
+                <button
+                  onClick={() => setOrderType('takeaway')}
+                  className={`py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest transition-all ${
+                    orderType === 'takeaway' ? 'bg-white shadow-md text-gray-900' : 'text-gray-400'
+                  }`}
+                >
+                  🚶 Takeaway
+                </button>
+              </div>
+
               <div className="space-y-4">
                 {cart.map((item, index) => (
                   <div key={index} className="flex gap-4 items-start pb-4 border-b border-gray-50 last:border-0">

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Category, MenuItem, Table, Restaurant } from '../types';
-import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -12,12 +12,14 @@ export function AdminPanel() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'settings'>('menu');
   const [loading, setLoading] = useState(true);
   
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingItem, setEditingItem] = useState<Partial<MenuItem> | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   useEffect(() => {
     if (!restId) return;
@@ -39,8 +41,8 @@ export function AdminPanel() {
           id: restRes.data.id,
           name: restRes.data.name,
           currency: restRes.data.currency,
-          serviceCharge: parseFloat(restRes.data.service_charge),
-          sst: parseFloat(restRes.data.sst)
+          serviceCharge: parseFloat(restRes.data.service_charge || 0),
+          sst: parseFloat(restRes.data.sst || 0)
         });
       }
 
@@ -57,6 +59,7 @@ export function AdminPanel() {
           imageUrl: i.image_url,
           description: i.description,
           isActive: i.is_active,
+          status: i.status || 'Available',
           options: i.options || []
         })));
       }
@@ -68,6 +71,31 @@ export function AdminPanel() {
       console.error("Fetch data failed:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateRestaurantSettings = async () => {
+    if (!restaurant || !restId) return;
+    setSavingSettings(true);
+    try {
+      const { error } = await supabase
+        .from('restaurants')
+        .update({
+          name: restaurant.name,
+          service_charge: restaurant.serviceCharge,
+          sst: restaurant.sst,
+          currency: restaurant.currency
+        })
+        .eq('id', restId);
+
+      if (error) throw error;
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (err: any) {
+      console.error("Save settings failed:", err);
+      alert(err.message || "Failed to save settings");
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -144,6 +172,7 @@ export function AdminPanel() {
         image_url: editingItem.imageUrl || '',
         description: editingItem.description || '',
         is_active: editingItem.isActive !== false,
+        status: editingItem.status || 'Available',
         options: editingItem.options || []
       };
 
@@ -187,6 +216,17 @@ export function AdminPanel() {
     if (!error) setTables(tables.filter(t => t.id !== id));
   };
 
+  const updateTableStatus = async (id: string, status: 'available' | 'occupied') => {
+    const { error } = await supabase
+      .from('tables')
+      .update({ status })
+      .eq('id', id);
+    
+    if (!error) {
+      setTables(tables.map(t => t.id === id ? { ...t, status } : t));
+    }
+  };
+
   if (loading) return <div className="flex justify-center p-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
 
   return (
@@ -203,7 +243,8 @@ export function AdminPanel() {
           { id: 'menu', icon: UtensilsCrossed, label: 'Menu Items' },
           { id: 'categories', icon: List, label: 'Categories' },
           { id: 'tables', icon: Monitor, label: 'Tables / QR' },
-          { id: 'analytics', icon: BarChart2, label: 'Analytics' }
+          { id: 'analytics', icon: BarChart2, label: 'Analytics' },
+          { id: 'settings', icon: Save, label: 'Settings' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -223,7 +264,7 @@ export function AdminPanel() {
            <div className="flex justify-between items-center mb-8">
             <h2 className="text-xl font-black text-gray-900">Items List</h2>
             <button
-              onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, options: [] })}
+              onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', options: [] })}
               className="bg-gray-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-lg"
             >
               <Plus size={20} /> Add Dish
@@ -244,15 +285,33 @@ export function AdminPanel() {
                     <button onClick={() => setEditingItem(item)} className="bg-white/90 backdrop-blur p-2 rounded-xl shadow-sm text-gray-600 hover:text-orange-600"><Edit2 size={16} /></button>
                     <button onClick={() => deleteMenuItem(item.id)} className="bg-white/90 backdrop-blur p-2 rounded-xl shadow-sm text-gray-600 hover:text-red-600"><Trash2 size={16} /></button>
                   </div>
+                  <div className="absolute bottom-4 left-4">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm border ${
+                      item.status === 'Available' ? 'bg-green-500 text-white border-green-400' :
+                      item.status === 'Low Stock' ? 'bg-yellow-500 text-white border-yellow-400' :
+                      item.status === 'Out of Stock' ? 'bg-red-500 text-white border-red-400' :
+                      item.status === 'Paused' ? 'bg-gray-500 text-white border-gray-400' :
+                      item.status === 'Hidden' ? 'bg-black text-white border-gray-700' :
+                      item.status === 'Scheduled' ? 'bg-blue-500 text-white border-blue-400' :
+                      'bg-purple-500 text-white border-purple-400'
+                    }`}>
+                      {item.status}
+                    </span>
+                  </div>
                 </div>
                 <div className="p-5">
                   <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-black text-gray-900">{item.name}</h3>
+                    <h3 className="font-black text-gray-900 line-clamp-1">{item.name}</h3>
                     <span className="font-mono font-bold text-orange-600">RM{item.price.toFixed(2)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">
-                    {categories.find(c => c.id === item.categoryId)?.name || 'Uncategorized'}
-                  </p>
+                  <div className="flex justify-between items-end">
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                      {categories.find(c => c.id === item.categoryId)?.name || 'Uncategorized'}
+                    </p>
+                    {item.description && (
+                      <p className="text-[10px] text-gray-400 italic line-clamp-1 max-w-[60%]">{item.description}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -321,8 +380,30 @@ export function AdminPanel() {
               </div>
               <h3 className="font-black text-xl text-gray-900 mb-1">Table {table.name}</h3>
               <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-6">Scan to order</p>
-              <div className="flex gap-2 w-full">
-                <button onClick={() => deleteTable(table.id)} className="flex-1 p-2 bg-gray-50 text-gray-400 rounded-xl hover:text-red-500 transition-colors"><Trash2 size={16} className="mx-auto" /></button>
+              
+              <div className="flex flex-col gap-3 w-full">
+                <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-2xl">
+                  <button
+                    onClick={() => updateTableStatus(table.id, 'available')}
+                    className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                      table.status === 'available' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400'
+                    }`}
+                  >
+                    Available
+                  </button>
+                  <button
+                    onClick={() => updateTableStatus(table.id, 'occupied')}
+                    className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                      table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400'
+                    }`}
+                  >
+                    Occupied
+                  </button>
+                </div>
+                <button onClick={() => deleteTable(table.id)} className="w-full p-2 bg-gray-50 text-gray-400 rounded-xl hover:text-red-500 transition-colors flex items-center justify-center gap-2">
+                  <Trash2 size={14} />
+                  <span className="text-[10px] font-bold uppercase">Delete</span>
+                </button>
               </div>
             </div>
           ))}
@@ -353,8 +434,95 @@ export function AdminPanel() {
         </div>
       )}
 
+      {activeTab === 'settings' && restaurant && (
+        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 max-w-2xl">
+          <h2 className="text-xl font-black text-gray-900 mb-8">Branch Settings</h2>
+          <div className="space-y-6">
+            <div>
+              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Restaurant Name</label>
+              <input
+                value={restaurant.name}
+                onChange={e => setRestaurant({ ...restaurant, name: e.target.value })}
+                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Service Charge (%)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={restaurant.serviceCharge * 100}
+                    onChange={e => setRestaurant({ ...restaurant, serviceCharge: parseFloat(e.target.value) / 100 })}
+                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    placeholder="10"
+                  />
+                  <span className="absolute right-5 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">SST (%)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={restaurant.sst * 100}
+                    onChange={e => setRestaurant({ ...restaurant, sst: parseFloat(e.target.value) / 100 })}
+                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    placeholder="6"
+                  />
+                  <span className="absolute right-5 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Currency</label>
+              <input
+                value={restaurant.currency}
+                onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
+                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                placeholder="RM"
+              />
+            </div>
+
+            <button
+              onClick={updateRestaurantSettings}
+              disabled={savingSettings}
+              className="w-full mt-4 bg-gray-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all shadow-xl disabled:bg-gray-400"
+            >
+              {savingSettings ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              ) : (
+                <>
+                  <Save size={20} />
+                  Save Settings
+                </>
+              )}
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Edit Modal */}
       <AnimatePresence>
+        {showSuccessToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-8 py-4 rounded-3xl shadow-2xl z-50 flex items-center gap-3 border border-white/10"
+          >
+            <div className="bg-green-500 rounded-full p-1">
+              <CheckCircle2 size={16} className="text-white" />
+            </div>
+            <span className="font-bold text-sm">Settings saved successfully</span>
+          </motion.div>
+        )}
+
         {editingItem && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
@@ -399,6 +567,26 @@ export function AdminPanel() {
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                       <option value="CREATE_NEW" className="text-orange-600 font-bold">+ Create New Category</option>
                     </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Status</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {['Available', 'Low Stock', 'Out of Stock', 'Paused', 'Hidden', 'Scheduled', 'Seasonal'].map(status => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => setEditingItem({ ...editingItem, status: status as any })}
+                        className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border-2 ${
+                          editingItem.status === status 
+                            ? 'bg-gray-900 text-white border-gray-900 shadow-md' 
+                            : 'bg-white text-gray-400 border-gray-100 hover:border-gray-200'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
                   </div>
                 </div>
 

@@ -1,4 +1,4 @@
-export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'cooking' | 'ready' | 'served' | 'completed' | 'cancelled';
 
 export interface Restaurant {
   id: string;
@@ -30,6 +30,8 @@ export interface MenuOption {
   values: MenuOptionValue[];
 }
 
+export type MenuItemStatus = 'Available' | 'Low Stock' | 'Out of Stock' | 'Paused' | 'Hidden' | 'Scheduled' | 'Seasonal';
+
 export interface MenuItem {
   id: string;
   categoryId: string;
@@ -38,6 +40,7 @@ export interface MenuItem {
   imageUrl?: string;
   description?: string;
   isActive: boolean;
+  status: MenuItemStatus;
   options?: MenuOption[];
 }
 
@@ -58,6 +61,7 @@ export interface OrderItem {
 export interface Order {
   id: string;
   tableId: string;
+  orderType: 'dine-in' | 'takeaway';
   status: OrderStatus;
   totalPrice: number;
   paymentMethod: 'counter' | 'online';
