@@ -13,6 +13,7 @@ import { OrderTracker } from './pages/OrderTracker';
 
 import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
+import { InternalReview } from './pages/InternalReview';
 
 export default function App() {
   const { init, loading, user, profile } = useAuthStore();
@@ -50,6 +51,9 @@ export default function App() {
             {/* Auth & Setup */}
             <Route path="/login" element={<Login />} />
             <Route path="/onboarding" element={<Onboarding />} />
+            
+            {/* Internal Audit */}
+            <Route path="/internal/audit-hub" element={<InternalReview />} />
             
             {/* Catch-all - Dynamic redirect based on auth */}
             <Route path="*" element={

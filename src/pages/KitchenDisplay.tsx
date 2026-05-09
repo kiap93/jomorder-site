@@ -5,6 +5,8 @@ import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
 
+import { flattenSelections } from '../lib/configEngine';
+
 export function KitchenDisplay() {
   const { restId } = useParams();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -17,7 +19,7 @@ export function KitchenDisplay() {
     const fetchOrders = async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, tables!table_id(name)')
         .eq('restaurant_id', restId)
         .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
         .order('created_at', { ascending: true });
@@ -31,6 +33,7 @@ export function KitchenDisplay() {
         setOrders(data.map(o => ({
           id: o.id,
           tableId: o.table_id,
+          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
           orderType: o.order_type,
           status: o.status as OrderStatus,
           totalPrice: parseFloat(o.total_price),
@@ -105,7 +108,7 @@ export function KitchenDisplay() {
               }`}>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-xl text-gray-900">Table {order.tableId}</h3>
+                    <h3 className="font-black text-xl text-gray-900">Table {order.tableName || order.tableId}</h3>
                     <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
                        order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                     }`}>
@@ -126,11 +129,25 @@ export function KitchenDisplay() {
                 {order.items.map((item, idx) => (
                   <div key={idx} className="flex gap-4">
                     <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center font-black flex-shrink-0">
-                      {item.quantity}
+                      {item.quantity}x
                     </div>
                     <div>
-                      <h4 className="font-black text-gray-900 leading-tight">{item.name}</h4>
-                      {item.options.length > 0 && (
+                      <h4 className="font-black text-gray-900 leading-tight">
+                        {item.kitchenName || item.name}
+                      </h4>
+                      {item.smartRenderedLines?.kds ? (
+                        <div className="mt-2 space-y-1">
+                          {item.smartRenderedLines.kds.map((line, i) => (
+                            <p key={i} className="text-[11px] text-orange-600 font-black leading-none">{line}</p>
+                          ))}
+                        </div>
+                      ) : item.selection ? (
+                        <div className="mt-2 space-y-1">
+                          {flattenSelections(item.selection).map((line, i) => (
+                            <p key={i} className="text-[11px] text-gray-500 font-bold leading-none">{line}</p>
+                          ))}
+                        </div>
+                      ) : item.options.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
                           {item.options.map((opt, i) => (
                             <span key={i} className="bg-white text-[10px] font-bold text-gray-400 px-1.5 py-0.5 rounded-md border">

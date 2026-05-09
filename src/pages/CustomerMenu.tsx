@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Category, MenuItem, OrderItem, Restaurant, Table } from '../types';
+import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe } from 'lucide-react';
+import { resolveMenuTranslations, resolveCategoryTranslations, TranslationContext, getKitchenCanonical } from '../lib/translationEngine';
+import { calculateSelectionPrice, validateSelection, flattenSelections } from '../lib/configEngine';
+import { ProductConfigurator } from '../components/ProductConfigurator';
+import { getVisibleModifiers } from '../lib/modifierEngine';
 
 export function CustomerMenu() {
   const { restId, tableId } = useParams();
@@ -11,57 +15,202 @@ export function CustomerMenu() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [table, setTable] = useState<Table | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [originalCategories, setOriginalCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [originalMenuItems, setOriginalMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedItemForOptions, setSelectedItemForOptions] = useState<MenuItem | null>(null);
-  const [currentOptionSelections, setCurrentOptionSelections] = useState<Record<string, string>>({});
+  const [selectedItemForDetail, setSelectedItemForDetail] = useState<MenuItem | null>(null);
+  const [selectionState, setSelectionState] = useState<ProductSelection | null>(null);
+  
+  const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('en');
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
+  const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}`));
+
+  const languages: { code: LanguageCode, label: string }[] = [
+    { code: 'en', label: 'English' },
+    { code: 'zh', label: '中文' },
+    { code: 'ms', label: 'Melayu' }
+  ];
+
+  const initializeSelection = (item: MenuItem) => {
+    const initialState: ProductSelection = {
+      productId: item.id,
+      selections: {}
+    };
+
+    // Auto-select defaults
+    item.groups?.forEach(group => {
+      const defaults = group.items?.filter(i => i.defaultSelected) || [];
+      if (defaults.length > 0) {
+        initialState.selections[group.id] = defaults.map(d => ({
+          groupItemId: d.id,
+          productId: d.childProductId,
+          name: d.childProduct?.name || 'Option',
+          priceDelta: d.priceDelta
+        }));
+      }
+    });
+
+    setSelectionState(initialState);
+  };
+
+  const getCartItemIndex = (itemId: string, selections?: Record<string, string>, selectionState?: ProductSelection | null) => {
+    return cart.findIndex(i => {
+      if (i.menuItemId !== itemId) return false;
+      
+      if (selectionState && i.selection) {
+        return JSON.stringify(i.selection) === JSON.stringify(selectionState);
+      }
+
+      if (selections && !i.selection) {
+        // Get current item options to match selections
+        const item = menuItems.find(m => m.id === itemId);
+        if (!item) return false;
+
+        const selectionOptions = Object.entries(selections).map(([optName, valName]) => {
+          const opt = item.options?.find(o => o.name === optName);
+          const val = opt?.values.find(v => v.name === valName);
+          return {
+            optionName: optName,
+            valueName: valName,
+            priceDelta: val?.priceDelta || 0
+          };
+        });
+
+        if (i.options.length !== selectionOptions.length) return false;
+        return selectionOptions.every(so => {
+          const matched = i.options.find(io => io.optionName === so.optionName);
+          return matched && matched.valueName === so.valueName;
+        });
+      }
+
+      return false;
+    });
+  };
 
   useEffect(() => {
     if (!restId) return;
     const fetchData = async () => {
       setLoading(true);
+      setError(null);
+      
       try {
-        const [restRes, catsRes, itemsRes, tableRes] = await Promise.all([
-          supabase.from('restaurants').select('*').eq('id', restId).single(),
+        const fetchPromise = Promise.all([
+          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).single(),
           supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-          supabase.from('menu_items').select('*').eq('restaurant_id', restId).eq('is_active', true),
-          tableId !== 'default' ? supabase.from('tables').select('*').eq('id', tableId).single() : Promise.resolve({ data: null })
+          supabase.from('menu_items')
+            .select(`
+              *,
+              groups:product_groups (
+                *,
+                items:product_group_items (
+                  *,
+                  child_product:menu_items (*)
+                )
+              )
+            `)
+            .eq('restaurant_id', restId)
+            .eq('is_active', true),
+          tableId !== 'default' && tableId ? supabase.from('tables').select('*').eq('id', tableId).single() : Promise.resolve({ data: null, error: null })
         ]);
 
-        if (restRes.data) {
-          setRestaurant({
-            id: restRes.data.id,
-            name: restRes.data.name,
-            currency: restRes.data.currency,
-            serviceCharge: parseFloat(restRes.data.service_charge),
-            sst: parseFloat(restRes.data.sst)
-          });
-        }
-        if (tableRes.data) {
-          setTable({ id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
-        }
-        if (catsRes.data) setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
-        if (itemsRes.data) {
-          setMenuItems(itemsRes.data.map(i => ({
+        const [restRes, catsRes, itemsRes, tableRes] = await fetchPromise;
+
+        if (restRes.error) throw restRes.error;
+        if (catsRes.error) throw catsRes.error;
+        
+        // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
+        let processedItems = [];
+        if (itemsRes?.data) {
+          processedItems = itemsRes.data.map((i: any) => ({
             id: i.id,
+            restaurantId: i.restaurant_id,
             categoryId: i.category_id,
             name: i.name,
-            price: parseFloat(i.price),
+            price: parseFloat(i.price || i.base_price || 0),
+            basePrice: parseFloat(i.base_price || i.price || 0),
             imageUrl: i.image_url,
             description: i.description,
             isActive: i.is_active,
             status: i.status || 'Available',
-            options: i.options || []
-          })));
+            productType: i.product_type || 'single',
+            groups: i.groups?.map((g: any) => ({
+              id: g.id,
+              name: g.name,
+              description: g.description,
+              groupType: g.group_type,
+              required: g.required,
+              minSelect: g.min_select,
+              maxSelect: g.max_select,
+              sortOrder: g.sort_order,
+              items: g.items?.map((gi: any) => ({
+                id: gi.id,
+                groupId: gi.group_id,
+                childProductId: gi.child_product_id,
+                priceDelta: parseFloat(gi.price_delta || 0),
+                defaultSelected: gi.default_selected,
+                sortOrder: gi.sort_order,
+                childProduct: gi.child_product ? {
+                  id: gi.child_product.id,
+                  name: gi.child_product.name,
+                  basePrice: parseFloat(gi.child_product.base_price || 0)
+                } : undefined
+              })) || []
+            })) || []
+          }));
+        } else if (itemsRes?.error || !itemsRes?.data) {
+          console.warn("Complex items fetch failed or empty, trying simple list.");
+          const simpleRes = await supabase.from('menu_items')
+            .select('*')
+            .eq('restaurant_id', restId)
+            .eq('is_active', true);
+          
+          if (simpleRes.error) throw simpleRes.error;
+          processedItems = (simpleRes.data || []).map((i: any) => ({
+            id: i.id,
+            restaurantId: i.restaurant_id,
+            categoryId: i.category_id,
+            name: i.name,
+            price: parseFloat(i.price || i.base_price || 0),
+            basePrice: parseFloat(i.base_price || i.price || 0),
+            imageUrl: i.image_url,
+            description: i.description,
+            isActive: i.is_active,
+            status: i.status || 'Available',
+            productType: i.product_type || 'single'
+          }));
         }
-      } catch (err) {
+
+        if (!restRes.data) throw new Error("Restaurant not found");
+        
+        setRestaurant({
+          id: restRes.data.id,
+          name: restRes.data.name,
+          currency: restRes.data.currency,
+          serviceCharge: parseFloat(restRes.data.service_charge),
+          sst: parseFloat(restRes.data.sst),
+          franchiseId: restRes.data.franchise_id
+        } as any);
+        
+        if (tableRes.data) {
+          setTable({ id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
+        }
+        if (catsRes.data) {
+          const processedCats = catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order }));
+          setOriginalCategories(processedCats);
+          setCategories(processedCats);
+        }
+        setOriginalMenuItems(processedItems);
+        setMenuItems(processedItems);
+      } catch (err: any) {
         console.error("Fetch data failed:", err);
+        setError(err.message || "Failed to load menu data");
       } finally {
         setLoading(false);
       }
@@ -91,47 +240,46 @@ export function CustomerMenu() {
     };
   }, [restId, tableId]);
 
-  const addToCart = (item: MenuItem, selectedOptions?: Record<string, string>) => {
-    const hasOptions = item.options && item.options.length > 0;
-    
-    if (hasOptions && !selectedOptions) {
-      setSelectedItemForOptions(item);
-      const initialSelections: Record<string, string> = {};
-      item.options?.forEach(opt => {
-        if (opt.values.length > 0) {
-          initialSelections[opt.name] = opt.values[0].name;
-        }
-      });
-      setCurrentOptionSelections(initialSelections);
-      return;
-    }
+  // Handle translation updates
+  useEffect(() => {
+    if (!restaurant || (originalMenuItems.length === 0 && originalCategories.length === 0)) return;
 
-    const orderOptions = item.options?.map(opt => {
-      const selectedValueName = selectedOptions?.[opt.name];
-      const val = opt.values.find(v => v.name === selectedValueName);
-      return {
-        optionName: opt.name,
-        valueName: selectedValueName || '',
-        priceDelta: val?.priceDelta || 0
+    const translateMenu = async () => {
+      const context: TranslationContext = {
+        restaurantId: restaurant.id,
+        franchiseId: (restaurant as any).franchiseId,
+        targetLanguage: currentLanguage
       };
-    }) || [];
 
-    const itemTotalPrice = item.price + orderOptions.reduce((sum, o) => sum + o.priceDelta, 0);
+      const [translatedItems, translatedCats] = await Promise.all([
+        resolveMenuTranslations(originalMenuItems, context),
+        resolveCategoryTranslations(originalCategories, context)
+      ]);
+      
+      setMenuItems(translatedItems);
+      setCategories(translatedCats);
+    };
+
+    const timeoutId = setTimeout(translateMenu, 100);
+    return () => clearTimeout(timeoutId);
+  }, [currentLanguage, originalMenuItems, originalCategories, restaurant]);
+
+  const addToCart = (item: MenuItem, selection: ProductSelection) => {
+    const itemTotalPrice = calculateSelectionPrice(item, selection);
 
     setCart(prev => {
-      // Check if item with exact same options already exists
       const existingIndex = prev.findIndex(i => {
         if (i.menuItemId !== item.id) return false;
-        if (i.options.length !== orderOptions.length) return false;
-        return orderOptions.every(oo => {
-          const matched = i.options.find(io => io.optionName === oo.optionName);
-          return matched && matched.valueName === oo.valueName;
-        });
+        return i.selection && JSON.stringify(i.selection) === JSON.stringify(selection);
       });
 
       if (existingIndex > -1) {
         const newCart = [...prev];
-        newCart[existingIndex].quantity += 1;
+        const existingItem = newCart[existingIndex];
+        newCart[existingIndex] = {
+          ...existingItem,
+          quantity: existingItem.quantity + 1
+        };
         return newCart;
       }
 
@@ -140,21 +288,27 @@ export function CustomerMenu() {
         name: item.name,
         price: itemTotalPrice,
         quantity: 1,
-        options: orderOptions
+        options: [],
+        selection: selection
       }];
     });
-
-    setSelectedItemForOptions(null);
   };
 
   const updateQuantity = (index: number, delta: number) => {
     setCart(prev => {
-      const newCart = [...prev];
-      const newQty = Math.max(0, newCart[index].quantity + delta);
+      const existingItem = prev[index];
+      if (!existingItem) return prev;
+      
+      const newQty = Math.max(0, existingItem.quantity + delta);
       if (newQty === 0) {
-        return newCart.filter((_, i) => i !== index);
+        return prev.filter((_, i) => i !== index);
       }
-      newCart[index].quantity = newQty;
+      
+      const newCart = [...prev];
+      newCart[index] = {
+        ...existingItem,
+        quantity: newQty
+      };
       return newCart;
     });
   };
@@ -169,6 +323,40 @@ export function CustomerMenu() {
     
     setLoading(true);
     try {
+      // Resolve kitchen names and smart modifier lines for order
+      const itemsWithMetadata = await Promise.all(cart.map(async (item) => {
+        const canonical = await getKitchenCanonical(item.menuItemId);
+        const product = menuItems.find(m => m.id === item.menuItemId);
+        
+        const smartLines: OrderItem['smartRenderedLines'] = {
+          kds: [],
+          customer: [],
+          receipt: []
+        };
+
+        if (product && item.selection) {
+          const kdsMods = getVisibleModifiers(product, item.selection, 'kds');
+          smartLines.kds = kdsMods.map(m => `• ${m.name}`);
+          
+          const customerMods = getVisibleModifiers(product, item.selection, 'qr_cart');
+          smartLines.customer = customerMods.map(m => `• ${m.name}`);
+
+          const receiptMods = getVisibleModifiers(product, item.selection, 'receipt');
+          smartLines.receipt = receiptMods.map(m => `• ${m.name}`);
+        } else {
+          // Fallback to basic flattening if product info is missing
+          smartLines.customer = item.selection ? flattenSelections(item.selection) : [];
+          smartLines.kds = smartLines.customer;
+          smartLines.receipt = smartLines.customer;
+        }
+
+        return {
+          ...item,
+          kitchenName: canonical || item.name,
+          smartRenderedLines: smartLines
+        };
+      }));
+
       const { data, error } = await supabase
         .from('orders')
         .insert({
@@ -177,13 +365,15 @@ export function CustomerMenu() {
           order_type: orderType,
           status: 'pending',
           total_price: total,
-          items: cart,
+          items: itemsWithMetadata,
           payment_method: 'counter'
         })
         .select()
         .single();
 
       if (error) throw error;
+      localStorage.setItem(`last_order_${restId}`, data.id);
+      setLastOrderId(data.id);
       navigate(`/restaurant/${restId}/order/${data.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
@@ -198,7 +388,28 @@ export function CustomerMenu() {
     return matchesCat && matchesSearch;
   });
 
-  if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
+  if (loading) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white gap-4">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
+      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Loading Menu...</p>
+    </div>
+  );
+
+  if (error) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white p-8 text-center">
+      <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6">
+        <AlertCircle size={40} />
+      </div>
+      <h2 className="text-2xl font-black text-gray-900 mb-2">Oops! Something went wrong</h2>
+      <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
+      <button 
+        onClick={() => window.location.reload()}
+        className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl"
+      >
+        Try Again
+      </button>
+    </div>
+  );
   if (tableId === 'default') {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-12 text-center font-sans">
@@ -248,6 +459,27 @@ export function CustomerMenu() {
 
   return (
     <div className="max-w-md mx-auto bg-white min-h-screen pb-32">
+      {/* Language Shell */}
+      <div className="bg-gray-50/50 px-6 py-2 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-gray-400">
+          <Globe size={12} strokeWidth={2.5} />
+          <span className="text-[10px] font-black uppercase tracking-widest leading-none">Language</span>
+        </div>
+        <div className="flex gap-4">
+          {languages.map(lang => (
+            <button
+              key={lang.code}
+              onClick={() => setCurrentLanguage(lang.code)}
+              className={`text-[10px] font-black uppercase tracking-[0.1em] transition-all relative ${
+                currentLanguage === lang.code ? 'text-orange-600 after:absolute after:-bottom-2 after:left-0 after:right-0 after:h-0.5 after:bg-orange-600' : 'text-gray-300 hover:text-gray-500'
+              }`}
+            >
+              {lang.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Table Status Bar */}
       <AnimatePresence>
         {table?.status === 'occupied' && (
@@ -269,7 +501,7 @@ export function CustomerMenu() {
           <div>
             <h1 className="text-3xl font-black text-gray-900 tracking-tighter">{restaurant?.name}</h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Table {tableId}</span>
+              <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Table {table?.name || tableId}</span>
               <span className="text-gray-400 text-xs font-medium">Ordering now</span>
             </div>
           </div>
@@ -320,7 +552,15 @@ export function CustomerMenu() {
           <motion.div
             layout
             key={item.id}
-            className="bg-white border border-gray-100 rounded-[2rem] p-4 flex gap-4 hover:shadow-lg hover:shadow-orange-100/20 transition-all group"
+            onClick={() => {
+              if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
+                addToCart(item, { productId: item.id, selections: {} });
+                return;
+              }
+              setSelectedItemForDetail(item);
+              initializeSelection(item);
+            }}
+            className="bg-white border border-gray-100 rounded-[2rem] p-4 flex gap-4 hover:shadow-lg hover:shadow-orange-100/20 transition-all group cursor-pointer"
           >
             <div className="w-24 h-24 rounded-2xl bg-gray-50 flex-shrink-0 overflow-hidden relative">
               {item.imageUrl ? (
@@ -349,18 +589,53 @@ export function CustomerMenu() {
                   <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-xl">
                     Unavailable
                   </div>
-                ) : cart.some(i => i.menuItemId === item.id) ? (
-                  <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
-                    <span className="text-xs font-black">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)} in bag</span>
-                    <button onClick={() => addToCart(item)} className="p-1 text-gray-500 hover:text-orange-600 font-black"><Plus size={14} /></button>
-                  </div>
                 ) : (
-                  <button
-                    onClick={() => addToCart(item)}
-                    className="bg-orange-50 text-orange-600 p-2 rounded-xl hover:bg-orange-600 hover:text-white transition-all shadow-sm"
-                  >
-                    <Plus size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {item.productType !== 'single' && (
+                      <span className="text-[8px] font-black text-gray-300 uppercase tracking-widest">
+                        {item.productType === 'combo' ? 'Bundle' : 'Custom'}
+                      </span>
+                    )}
+                    {cart.some(i => i.menuItemId === item.id) ? (
+                      <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-2 py-1">
+                        <span className="text-[9px] font-black">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)}</span>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
+                              addToCart(item, { productId: item.id, selections: {} });
+                              return;
+                            }
+                            setSelectedItemForDetail(item);
+                            initializeSelection(item);
+                          }} 
+                          className="p-1 text-gray-500 hover:text-orange-600 font-black"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
+                            addToCart(item, { productId: item.id, selections: {} });
+                            return;
+                          }
+                          setSelectedItemForDetail(item);
+                          initializeSelection(item);
+                        }}
+                        className={`p-2 rounded-xl transition-all shadow-sm flex items-center gap-2 ${
+                          item.productType === 'single' 
+                            ? 'bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white' 
+                            : 'bg-gray-900 text-white hover:bg-black'
+                        }`}
+                      >
+                        <Plus size={18} />
+                        {item.productType !== 'single' && <span className="text-[10px] font-black uppercase tracking-wider pr-1">Customize</span>}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -368,72 +643,163 @@ export function CustomerMenu() {
         ))}
       </div>
 
-      {/* Options Modal */}
+      {/* Item Detail Configurator */}
       <AnimatePresence>
-        {selectedItemForOptions && (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedItemForOptions(null)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              className="relative w-full max-w-md bg-white rounded-t-[3rem] sm:rounded-[3rem] p-8 overflow-hidden shadow-2xl"
-            >
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h3 className="text-xl font-black text-gray-900">{selectedItemForOptions.name}</h3>
-                  <p className="text-orange-600 font-bold">RM {selectedItemForOptions.price.toFixed(2)}</p>
-                </div>
-                <button 
-                  onClick={() => setSelectedItemForOptions(null)}
-                  className="bg-gray-100 p-2 rounded-full text-gray-400 hover:text-gray-600"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 scrollbar-thin">
-                {selectedItemForOptions.options?.map(opt => (
-                  <div key={opt.name} className="space-y-3">
-                    <label className="text-xs font-black uppercase text-gray-400 tracking-widest">{opt.name}</label>
-                    <div className="grid grid-cols-1 gap-2">
-                      {opt.values.map(val => (
-                        <button
-                          key={val.name}
-                          onClick={() => setCurrentOptionSelections(prev => ({ ...prev, [opt.name]: val.name }))}
-                          className={`flex justify-between items-center p-4 rounded-2xl border-2 transition-all font-bold ${
-                            currentOptionSelections[opt.name] === val.name
-                              ? 'border-orange-500 bg-orange-50 text-orange-900'
-                              : 'border-transparent bg-gray-50 text-gray-500 hover:bg-gray-100'
-                          }`}
-                        >
-                          <span>{val.name}</span>
-                          {val.priceDelta > 0 && (
-                            <span className="text-[10px] font-black uppercase tracking-tighter opacity-60">
-                              + RM {val.priceDelta.toFixed(2)}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => addToCart(selectedItemForOptions, currentOptionSelections)}
-                className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-bold text-lg mt-8 hover:bg-black transition-all shadow-xl hover:shadow-orange-200/40"
+        {selectedItemForDetail && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex flex-col md:max-w-md md:mx-auto h-[100dvh]"
+          >
+            {/* Header / Hero */}
+            <div className="relative h-[35vh] shrink-0 overflow-hidden">
+              <motion.button
+                onClick={() => setSelectedItemForDetail(null)}
+                className="absolute top-6 left-6 z-20 bg-white/10 backdrop-blur-md p-3 rounded-2xl text-white hover:bg-white/20 border border-white/10"
+                whileTap={{ scale: 0.9 }}
               >
-                Add to Basket
-              </button>
-            </motion.div>
-          </div>
+                <X size={24} />
+              </motion.button>
+              
+              {selectedItemForDetail.imageUrl ? (
+                <img 
+                  src={selectedItemForDetail.imageUrl} 
+                  className="w-full h-full object-cover opacity-60"
+                  alt={selectedItemForDetail.name}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-800">
+                  <ShoppingBag size={100} strokeWidth={1} />
+                </div>
+              )}
+
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+              
+              <div className="absolute bottom-8 left-8 right-8 text-white">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="bg-orange-500 text-white text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-[0.2em] shadow-[0_0_15px_rgba(249,115,22,0.4)]">
+                    {selectedItemForDetail.productType}
+                  </span>
+                  {selectedItemForDetail.status !== 'Available' && (
+                    <span className="bg-zinc-800 text-zinc-400 text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-[0.2em] border border-white/5">
+                      {selectedItemForDetail.status}
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-4xl font-black tracking-tight leading-none mb-2">{selectedItemForDetail.name}</h2>
+                <p className="text-zinc-500 text-xs font-medium line-clamp-2">{selectedItemForDetail.description}</p>
+              </div>
+            </div>
+
+            {/* Configurator Body */}
+            <div className="flex-1 overflow-y-auto px-8 py-10 space-y-12 scrollbar-hide">
+              <div className="flex justify-between items-center bg-white/[0.03] border border-white/[0.05] p-6 rounded-[2rem]">
+                <div>
+                  <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Configuration Total</p>
+                  <p className="text-3xl font-black text-white leading-none">
+                    <span className="text-lg opacity-40 font-bold mr-1">{restaurant?.currency || 'RM'}</span>
+                    {selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end">
+                  <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Base Price</p>
+                  <p className="font-bold text-zinc-400">{restaurant?.currency} {selectedItemForDetail.price.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {selectionState ? (
+                <ProductConfigurator 
+                  product={selectedItemForDetail} 
+                  selection={selectionState} 
+                  onChange={setSelectionState}
+                  currency={restaurant?.currency || 'RM'}
+                />
+              ) : (
+                <div className="text-center py-20 text-zinc-700 font-black uppercase tracking-widest text-xs">
+                  Simple product (no options)
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-8 bg-black/60 backdrop-blur-2xl border-t border-white/5">
+              {(() => {
+                const validation = selectionState ? validateSelection(selectedItemForDetail, selectionState) : { isValid: true, errors: [] };
+                const isValid = validation.isValid;
+                const cartIndex = selectionState ? getCartItemIndex(selectedItemForDetail.id, undefined, selectionState) : -1;
+                const quantity = cartIndex > -1 ? cart[cartIndex].quantity : 0;
+
+                return (
+                  <div className="space-y-4">
+                    {!isValid && (
+                      <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-start gap-3">
+                        <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Attention Required</p>
+                          <div className="space-y-0.5">
+                            {validation.errors.map((err, i) => (
+                              <p key={i} className="text-xs text-white/70 font-medium">{err}</p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {quantity > 0 ? (
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 flex items-center justify-between bg-white/5 border border-white/10 p-2 rounded-[2.5rem]">
+                          <button 
+                            onClick={() => updateQuantity(cartIndex, -1)}
+                            className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-red-500/20 hover:text-red-500 transition-all font-black"
+                          >
+                            <Minus size={24} />
+                          </button>
+                          <div className="text-center">
+                            <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">In Basket</p>
+                            <p className="text-2xl font-black text-white">{quantity}</p>
+                          </div>
+                          <button 
+                            onClick={() => updateQuantity(cartIndex, 1)}
+                            className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-orange-500/20 hover:text-orange-500 transition-all font-black"
+                          >
+                            <Plus size={24} />
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => setSelectedItemForDetail(null)}
+                          className="bg-white text-black px-10 h-18 rounded-[2.5rem] font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-all shadow-xl"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        disabled={!isValid}
+                        onClick={() => {
+                          if (selectionState) {
+                            addToCart(selectedItemForDetail, selectionState);
+                          } else if (selectedItemForDetail.productType === 'single') {
+                            addToCart(selectedItemForDetail, { productId: selectedItemForDetail.id, selections: {} });
+                          }
+                        }}
+                        className={`w-full py-7 rounded-[2.5rem] font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98] ${
+                          isValid 
+                            ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20' 
+                            : 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
+                        }`}
+                      >
+                        {isValid ? <Plus size={24} strokeWidth={3} /> : <AlertCircle size={24} />}
+                        {isValid 
+                          ? (selectedItemForDetail.productType === 'single' ? 'Add to Basket' : `Add to Basket • ${restaurant?.currency}${selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}`)
+                          : 'Incomplete Selection'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -520,7 +886,19 @@ export function CustomerMenu() {
                         <h4 className="font-bold text-gray-900 leading-tight">{item.name}</h4>
                         <span className="font-black text-sm text-gray-900">RM {(item.price * item.quantity).toFixed(2)}</span>
                       </div>
-                      {item.options.length > 0 && (
+                      {item.smartRenderedLines?.customer ? (
+                        <div className="mt-1 space-y-0.5">
+                          {item.smartRenderedLines.customer.map((line, i) => (
+                            <p key={i} className="text-[10px] text-zinc-400 font-bold leading-tight">{line}</p>
+                          ))}
+                        </div>
+                      ) : item.selection ? (
+                        <div className="mt-1 space-y-0.5">
+                          {flattenSelections(item.selection).map((line, i) => (
+                            <p key={i} className="text-[10px] text-zinc-400 font-bold leading-tight">{line}</p>
+                          ))}
+                        </div>
+                      ) : item.options.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {item.options.map((opt, i) => (
                             <span key={i} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">

@@ -22,31 +22,46 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', currentUser.id)
-        .single();
-      
-      if (data) {
-        set({ 
-          user: currentUser, 
-          profile: {
-            id: data.id,
-            email: data.email,
-            role: data.role,
-            restaurantId: data.restaurant_id
-          } as UserProfile, 
-          loading: false 
-        });
-      } else {
+      try {
+        // Fetch profile without aggressive timeout
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+        if (error) throw error;
+        
+        if (data) {
+          set({ 
+            user: currentUser, 
+            profile: {
+              id: data.id,
+              email: data.email,
+              role: data.role,
+              restaurantId: data.restaurant_id
+            } as UserProfile, 
+            loading: false 
+          });
+        } else {
+          // No profile found - this is a valid state (user needs onboarding)
+          set({ user: currentUser, profile: null, loading: false });
+        }
+      } catch (err) {
+        console.error("Profile fetch failed:", err);
         set({ user: currentUser, profile: null, loading: false });
       }
     };
 
     // 1. Get initial session
-    const { data: { session } } = await supabase.auth.getSession();
-    await fetchProfile(session?.user ?? null);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      await fetchProfile(session?.user ?? null);
+    } catch (err) {
+      console.error("Auth init failed:", err);
+      set({ loading: false });
+    }
 
     // 2. Listen for auth changes
     supabase.auth.onAuthStateChange(async (_event, session) => {

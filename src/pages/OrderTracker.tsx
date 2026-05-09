@@ -1,22 +1,25 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
-import { ChefHat, CheckCircle2, Clock, MapPin, Loader2 } from 'lucide-react';
+import { ChefHat, CheckCircle2, Clock, MapPin, Plus } from 'lucide-react';
+import { flattenSelections } from '../lib/configEngine';
 
 export function OrderTracker() {
-  const { orderId } = useParams();
+  const { orderId, restId } = useParams();
+  const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || !restId) return;
+    localStorage.setItem(`last_order_${restId}`, orderId);
 
     const fetchOrder = async () => {
       const { data } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, tables!table_id(name)')
         .eq('id', orderId)
         .single();
 
@@ -24,6 +27,7 @@ export function OrderTracker() {
         setOrder({
           id: data.id,
           tableId: data.table_id,
+          tableName: (data as any).tables?.name || data.table_id.slice(-4).toUpperCase(),
           orderType: data.order_type || 'dine-in',
           status: data.status as OrderStatus,
           totalPrice: parseFloat(data.total_price),
@@ -83,7 +87,7 @@ export function OrderTracker() {
       </div>
 
       <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">{statusInfo.text}</h1>
-      <p className="text-gray-400 font-medium mb-12">Table {order.tableId} • RM {order.totalPrice.toFixed(2)}</p>
+      <p className="text-gray-400 font-medium mb-12">Table {order.tableName || order.tableId} • RM {order.totalPrice.toFixed(2)}</p>
 
       {/* Progress Bar */}
       <div className="w-full relative py-8 px-4">
@@ -118,14 +122,23 @@ export function OrderTracker() {
         </h3>
         <div className="space-y-4">
           {order.items.map((item, idx) => (
-            <div key={idx} className="flex justify-between items-center group">
-              <div className="flex items-center gap-3">
-                <span className="font-black text-orange-600 bg-orange-100/50 w-7 h-7 flex items-center justify-center rounded-lg text-xs">
-                  {item.quantity}
-                </span>
-                <span className="font-bold text-sm text-gray-700">{item.name}</span>
+            <div key={idx} className="space-y-1">
+              <div className="flex justify-between items-center group">
+                <div className="flex items-center gap-3">
+                  <span className="font-black text-orange-600 bg-orange-100/50 w-7 h-7 flex items-center justify-center rounded-lg text-xs">
+                    {item.quantity}x
+                  </span>
+                  <span className="font-bold text-sm text-gray-700">{item.name}</span>
+                </div>
+                <span className="font-mono text-xs font-bold text-gray-400">RM {(item.price * item.quantity).toFixed(2)}</span>
               </div>
-              <span className="font-mono text-xs font-bold text-gray-400">RM {(item.price * item.quantity).toFixed(2)}</span>
+              {item.selection && (
+                <div className="pl-10 space-y-0.5">
+                  {flattenSelections(item.selection).map((line, i) => (
+                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none">{line}</p>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -135,7 +148,15 @@ export function OrderTracker() {
         </div>
       </div>
       
-      <p className="mt-8 text-xs text-gray-400 font-bold uppercase tracking-widest">
+      <button
+        onClick={() => navigate(`/restaurant/${restId}/table/${order.tableId}`)}
+        className="mt-8 mb-4 w-full bg-gray-900 text-white py-6 rounded-[2.5rem] font-black text-lg hover:bg-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"
+      >
+        <Plus size={20} />
+        Add More Items
+      </button>
+
+      <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
         Need help? Ask our staff
       </p>
     </div>

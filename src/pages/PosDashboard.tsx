@@ -5,10 +5,13 @@ import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock } from 'lucide-react';
 
+import { flattenSelections } from '../lib/configEngine';
+
 export function PosDashboard() {
   const { restId } = useParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<string>('all');
+  const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!restId) return;
@@ -19,7 +22,7 @@ export function PosDashboard() {
     const fetchOrders = async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, tables!table_id(name)')
         .eq('restaurant_id', restId)
         .order('created_at', { ascending: false });
 
@@ -32,6 +35,7 @@ export function PosDashboard() {
         setOrders(data.map(o => ({
           id: o.id,
           tableId: o.table_id,
+          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
           orderType: o.order_type,
           status: o.status as OrderStatus,
           totalPrice: parseFloat(o.total_price),
@@ -119,7 +123,7 @@ export function PosDashboard() {
                     <span className="bg-gray-900 text-white rounded-lg px-2 py-0.5 text-xs font-bold font-mono">
                       {order.id.slice(-4).toUpperCase()}
                     </span>
-                    <h3 className="font-bold text-gray-900">Table {order.tableId}</h3>
+                    <h3 className="font-bold text-gray-900">Table {order.tableName || order.tableId}</h3>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">
@@ -148,13 +152,27 @@ export function PosDashboard() {
                   <div key={idx} className="flex justify-between items-start">
                     <div className="flex gap-3">
                       <span className="font-black text-sm text-gray-900 bg-gray-100 px-1.5 rounded-md h-fit">
-                        {item.quantity}
+                        {item.quantity}x
                       </span>
                       <div>
                         <h4 className="text-sm font-bold text-gray-800 leading-none">{item.name}</h4>
-                        <p className="text-[10px] text-gray-400 mt-1 italic">
-                          {item.options.map(o => o.valueName).join(', ')}
-                        </p>
+                        {item.smartRenderedLines?.customer ? (
+                          <div className="mt-1 space-y-0.5">
+                            {item.smartRenderedLines.customer.map((line, i) => (
+                              <p key={i} className="text-[10px] text-gray-400 font-bold leading-tight">{line}</p>
+                            ))}
+                          </div>
+                        ) : item.selection ? (
+                          <div className="mt-1 space-y-0.5">
+                            {flattenSelections(item.selection).map((line, i) => (
+                              <p key={i} className="text-[10px] text-gray-400 font-bold leading-tight">{line}</p>
+                            ))}
+                          </div>
+                        ) : item.options.length > 0 ? (
+                          <p className="text-[10px] text-gray-400 mt-1 italic">
+                            {item.options.map(o => o.valueName).join(', ')}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -208,12 +226,33 @@ export function PosDashboard() {
                         Complete
                       </button>
                     )}
-                    <button
-                      onClick={() => updateStatus(order.id, 'cancelled')}
-                      className="p-3 bg-gray-100 text-gray-500 rounded-xl hover:bg-red-50 hover:text-red-500 transition-colors"
-                    >
-                      <X size={18} />
-                    </button>
+                    {confirmingCancel === order.id ? (
+                      <div className="flex gap-1 animate-in fade-in slide-in-from-right-2 duration-300">
+                        <button
+                          onClick={() => {
+                            updateStatus(order.id, 'cancelled');
+                            setConfirmingCancel(null);
+                          }}
+                          className="px-4 py-3 bg-red-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg active:scale-95"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setConfirmingCancel(null)}
+                          className="p-3 bg-gray-100 text-gray-400 rounded-xl hover:bg-gray-200 transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmingCancel(order.id)}
+                        className="p-3 bg-gray-100 text-gray-500 rounded-xl hover:bg-red-50 hover:text-red-500 transition-colors"
+                        title="Cancel Order"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

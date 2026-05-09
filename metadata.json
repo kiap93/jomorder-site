@@ -1,6 +1,6 @@
 {
-  "name": "JomOrder: Restaurant POS & QR System",
-  "description": "A production-ready POS and real-time QR ordering system tailored for the Malaysian market. Features multi-branch support, KDS, and automated analytics.",
+  "name": "JomOrder: AI-Powered Multi-Tenant Localization Hub",
+  "description": "An enterprise-grade restaurant localization and multi-tenant translation engine. Features AI-powered culinary translation, real-time multilingual QR ordering, and a hierarchical translation resolution system (Branch/Franchise/Global).",
   "requestFramePermissions": ["identity-credentials-get"],
   "majorCapabilities": []
 }

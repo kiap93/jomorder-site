@@ -6,6 +6,7 @@ export interface Restaurant {
   currency: string;
   serviceCharge: number;
   sst: number;
+  franchiseId?: string;
 }
 
 export interface Table {
@@ -32,16 +33,73 @@ export interface MenuOption {
 
 export type MenuItemStatus = 'Available' | 'Low Stock' | 'Out of Stock' | 'Paused' | 'Hidden' | 'Scheduled' | 'Seasonal';
 
-export interface MenuItem {
+export type ProductType = 'single' | 'combo' | 'configurable';
+export type GroupType = 'required' | 'optional' | 'nested';
+export type DisplayBehavior = 'always' | 'only_if_changed' | 'hidden' | 'kitchen_only' | 'receipt_only';
+
+export interface ProductGroupItem {
   id: string;
+  groupId: string;
+  childProductId?: string;
+  customName?: string;
+  priceDelta: number;
+  defaultSelected: boolean;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+  childProduct?: Product; // For display
+}
+
+export interface ProductGroup {
+  id: string;
+  productId: string;
+  name: string;
+  description?: string;
+  groupType: GroupType;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+  items?: ProductGroupItem[];
+}
+
+export type LanguageCode = 'en' | 'zh' | 'ms' | 'th' | 'ja' | 'ko';
+
+export interface TranslationMapping {
+  [languageCode: string]: string;
+}
+
+export interface Product {
+  id: string;
+  restaurantId: string;
   categoryId: string;
   name: string;
-  price: number;
-  imageUrl?: string;
   description?: string;
+  basePrice: number;
+  price: number; // Backward compatibility
+  imageUrl?: string;
   isActive: boolean;
+  productType: ProductType;
   status: MenuItemStatus;
-  options?: MenuOption[];
+  groups?: ProductGroup[];
+  options?: MenuOption[]; // Legacy
+  translations?: Record<string, TranslationMapping>; // field -> { lang -> value }
+}
+
+export type MenuItem = Product;
+
+// Selection state for the engine
+export interface SelectedGroupItem {
+  groupItemId: string;
+  productId: string;
+  name: string;
+  priceDelta: number;
+  nestedSelections?: Record<string, SelectedGroupItem[]>; // Recursive
+}
+
+export interface ProductSelection {
+  productId: string;
+  selections: Record<string, SelectedGroupItem[]>; // groupId -> selected items
 }
 
 export interface OrderItemOption {
@@ -56,11 +114,18 @@ export interface OrderItem {
   price: number;
   quantity: number;
   options: OrderItemOption[];
+  selection?: ProductSelection;
+  smartRenderedLines?: {
+    kds?: string[];
+    receipt?: string[];
+    customer?: string[];
+  };
 }
 
 export interface Order {
   id: string;
   tableId: string;
+  tableName?: string;
   orderType: 'dine-in' | 'takeaway';
   status: OrderStatus;
   totalPrice: number;
