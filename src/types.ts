@@ -115,6 +115,7 @@ export interface OrderItemOption {
 export interface OrderItem {
   menuItemId: string;
   name: string;
+  kitchenName?: string;
   price: number;
   quantity: number;
   options: OrderItemOption[];

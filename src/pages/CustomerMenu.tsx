@@ -706,18 +706,18 @@ export function CustomerMenu() {
             </div>
 
             {/* Configurator Body */}
-            <div className="flex-1 overflow-y-auto px-8 py-10 space-y-12 scrollbar-hide">
-              <div className="flex justify-between items-center bg-white/[0.03] border border-white/[0.05] p-6 rounded-[2rem]">
+            <div className="flex-1 overflow-y-auto px-5 py-8 space-y-10 scrollbar-hide">
+              <div className="flex justify-between items-center bg-white/[0.03] border border-white/[0.05] p-5 rounded-[2rem]">
                 <div>
                   <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Configuration Total</p>
-                  <p className="text-3xl font-black text-white leading-none">
-                    <span className="text-lg opacity-40 font-bold mr-1">{restaurant?.currency || 'RM'}</span>
+                  <p className="text-2xl font-black text-white leading-none">
+                    <span className="text-base opacity-40 font-bold mr-1">{restaurant?.currency || 'RM'}</span>
                     {selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}
                   </p>
                 </div>
                 <div className="flex flex-col items-end">
                   <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Base Price</p>
-                  <p className="font-bold text-zinc-400">{restaurant?.currency} {selectedItemForDetail.price.toFixed(2)}</p>
+                  <p className="text-sm font-bold text-zinc-400">{restaurant?.currency} {selectedItemForDetail.price.toFixed(2)}</p>
                 </div>
               </div>
 
@@ -736,7 +736,7 @@ export function CustomerMenu() {
             </div>
 
             {/* Footer */}
-            <div className="p-8 bg-black/60 backdrop-blur-2xl border-t border-white/5">
+            <div className="p-6 bg-black/60 backdrop-blur-2xl border-t border-white/5">
               {(() => {
                 const validation = selectionState ? validateSelection(selectedItemForDetail, selectionState) : { isValid: true, errors: [] };
                 const isValid = validation.isValid;

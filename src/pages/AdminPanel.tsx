@@ -21,7 +21,7 @@ export function AdminPanel() {
   
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [editingItem, setEditingItem] = useState<Partial<MenuItem> | null>(null);
+  const [editingItem, setEditingItem] = useState<Partial<MenuItem & { newCategoryName?: string }> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -83,6 +83,7 @@ export function AdminPanel() {
           stats.revenue += parseFloat(order.total_price);
           
           order.items?.forEach((item: any) => {
+            if (!item || typeof item.price !== 'number' || typeof item.quantity !== 'number') return;
             const current = itemMap.get(item.name) || { count: 0, revenue: 0 };
             itemMap.set(item.name, {
               count: current.count + item.quantity,
@@ -115,11 +116,11 @@ export function AdminPanel() {
         supabase.from('menu_items')
           .select(`
             *,
-            groups:product_groups (
+            product_groups (
               *,
-              items:product_group_items (
+              product_group_items (
                 *,
-                child_product:menu_items (*)
+                menu_items (*)
               )
             )
           `)
@@ -128,6 +129,7 @@ export function AdminPanel() {
       ]);
 
       if (restRes.error) throw restRes.error;
+      
       if (itemsRes.error) {
         console.warn("Complex items fetch failed in admin, falling back:", itemsRes.error);
         const simpleRes = await supabase.from('menu_items')
@@ -154,6 +156,7 @@ export function AdminPanel() {
       if (itemsRes.data) {
         setMenuItems(itemsRes.data.map((i: any) => ({
           id: i.id,
+          restaurantId: restId,
           categoryId: i.category_id,
           name: i.name,
           price: parseFloat(i.price || i.base_price || 0),
@@ -163,8 +166,9 @@ export function AdminPanel() {
           isActive: i.is_active,
           status: i.status || 'Available',
           productType: (i.product_type || 'single') as ProductType,
-          groups: i.groups?.map((g: any) => ({
+          groups: i.product_groups?.map((g: any) => ({
             id: g.id,
+            productId: g.product_id,
             name: g.name,
             description: g.description,
             groupType: g.group_type,
@@ -174,21 +178,22 @@ export function AdminPanel() {
             displayBehavior: g.display_behavior,
             importance: g.importance as RenderImportance,
             sortOrder: g.sort_order,
-            items: g.items?.map((gi: any) => ({
+            items: g.product_group_items?.map((gi: any) => ({
               id: gi.id,
               groupId: gi.group_id,
               childProductId: gi.child_product_id,
+              customName: gi.custom_name,
               priceDelta: parseFloat(gi.price_delta || 0),
               defaultSelected: gi.default_selected,
               displayBehavior: gi.display_behavior,
               importance: gi.importance as RenderImportance,
               sortOrder: gi.sort_order,
-              childProduct: gi.child_product ? {
-                id: gi.child_product.id,
-                name: gi.child_product.name,
-                basePrice: parseFloat(gi.child_product.base_price || 0)
+              childProduct: gi.menu_items ? {
+                id: gi.menu_items.id,
+                name: gi.menu_items.name,
+                basePrice: parseFloat(gi.menu_items.base_price || 0)
               } : undefined
-            }))
+            })) || []
           })) || []
         })));
       }
@@ -281,6 +286,7 @@ export function AdminPanel() {
         .single();
       
       if (error) throw error;
+      if (!data) throw new Error("Failed to create MODIFIERS category: No data returned");
       modCatId = data.id;
       // We don't update local categories state yet because we'll refetch or it's just for this save
     }
@@ -319,6 +325,7 @@ export function AdminPanel() {
               .single();
             
             if (error) throw error;
+            if (!data) throw new Error("Failed to create modifier item: No data returned");
             existingMod = data;
           }
 
@@ -354,7 +361,7 @@ export function AdminPanel() {
     // 🚀 Circular Dependency Protection
     if (editingItem.productType === 'configurable' && editingItem.groups) {
       if (hasCircularDependency(editingItem as Product, menuItems)) {
-        alert("Configuration Error: Circular dependency detected in modifier groups. A product cannot be a modifier for itself (directly or indirectly).");
+        setSaveError("Configuration Error: Circular dependency detected. A product cannot be a modifier for itself (directly or indirectly).");
         return;
       }
     }
@@ -412,6 +419,7 @@ export function AdminPanel() {
       } else {
         const { data, error } = await supabase.from('menu_items').insert(itemData).select().single();
         if (error) throw error;
+        if (!data) throw new Error("Failed to create menu item: No data returned");
         itemId = data.id;
       }
 
@@ -449,13 +457,15 @@ export function AdminPanel() {
               .single();
             
             if (groupError) throw groupError;
+            if (!newGroup) throw new Error("Failed to create product group: No data returned");
 
             if (group.items && group.items.length > 0) {
               const itemsToInsert = group.items
-                .filter(item => item.childProductId && item.childProductId.trim() !== '')
+                .filter(item => (item.childProductId && item.childProductId.trim() !== '') || (item.customName && item.customName.trim() !== ''))
                 .map((item, idx) => ({
                   group_id: newGroup.id,
-                  child_product_id: item.childProductId,
+                  child_product_id: (item.childProductId && item.childProductId.trim() !== '') ? item.childProductId : null,
+                  custom_name: item.customName || null,
                   price_delta: item.priceDelta || 0,
                   default_selected: item.defaultSelected || false,
                   display_behavior: item.displayBehavior || null,
@@ -1278,168 +1288,173 @@ export function AdminPanel() {
                             
                             <div className="grid gap-2">
                               {group.items?.map((item, itemIdx) => (
-                                <div key={itemIdx} className="flex gap-3 items-center bg-white p-3 rounded-2xl shadow-sm border border-gray-50 group/item">
-                                  <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-300 group-hover/item:text-orange-500 transition-colors">
+                                <div key={itemIdx} className="flex gap-3 items-start bg-white p-4 rounded-3xl shadow-sm border border-gray-50 group/item">
+                                  <div className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-300 group-hover/item:text-orange-500 transition-colors mt-1">
                                     {itemIdx + 1}
                                   </div>
-                                  <div className="flex-1 flex gap-2">
-                                    {editingItem.productType === 'configurable' && !item.childProductId ? (
-                                      <input 
-                                        value={item.customName || ''}
-                                        onChange={e => {
+                                  <div className="flex-1 space-y-2.5">
+                                    <div className="flex gap-2 items-center">
+                                      {editingItem.productType === 'configurable' && !item.childProductId ? (
+                                        <input 
+                                          value={item.customName || ''}
+                                          onChange={e => {
+                                            const newGroups = [...(editingItem.groups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            newItems[itemIdx] = {
+                                              ...newItems[itemIdx],
+                                              customName: e.target.value
+                                            };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                          }}
+                                          className="flex-1 bg-white border border-purple-100 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm"
+                                          placeholder="Modifier Name (e.g. 50% Sugar)"
+                                        />
+                                      ) : (
+                                        <select
+                                          value={item.childProductId || ''}
+                                          onChange={e => {
+                                            const newGroups = [...(editingItem.groups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            const child = menuItems.find(mi => mi.id === e.target.value);
+                                            newItems[itemIdx] = {
+                                              ...newItems[itemIdx],
+                                              childProductId: e.target.value,
+                                              childProduct: child,
+                                              customName: undefined
+                                            };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                          }}
+                                          className="flex-1 bg-gray-50 px-4 py-2.5 rounded-xl border-transparent text-[11px] font-black uppercase tracking-wider"
+                                        >
+                                          <option value="">{editingItem.productType === 'combo' ? 'Choose Item...' : 'Link to Item...'}</option>
+                                          {menuItems.filter(mi => mi.id !== editingItem.id).map(mi => (
+                                            <option key={mi.id} value={mi.id}>{mi.name}</option>
+                                          ))}
+                                        </select>
+                                      )}
+
+                                      <div className="relative w-24 shrink-0">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">+$</span>
+                                        <input 
+                                          type="number"
+                                          value={item.priceDelta}
+                                          step="0.1"
+                                          onChange={e => {
+                                            const newGroups = [...(editingItem.groups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            newItems[itemIdx] = {
+                                              ...newItems[itemIdx],
+                                              priceDelta: parseFloat(e.target.value) || 0
+                                            };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                          }}
+                                          className="w-full bg-gray-50 pl-8 pr-3 py-2.5 rounded-xl border-transparent text-xs font-mono font-black text-orange-600"
+                                          placeholder="0.00"
+                                        />
+                                      </div>
+
+                                      {editingItem.productType === 'configurable' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const newGroups = [...(editingItem.groups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            if (item.childProductId) {
+                                              newItems[itemIdx] = { ...newItems[itemIdx], childProductId: undefined, customName: item.childProduct?.name || '' };
+                                            } else {
+                                              newItems[itemIdx] = { ...newItems[itemIdx], childProductId: '' };
+                                            }
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                          }}
+                                          className="p-2.5 bg-gray-50 text-gray-400 hover:text-purple-600 rounded-xl transition-colors shrink-0"
+                                          title={item.childProductId ? "Switch to Manual Name" : "Switch to Linked Item"}
+                                        >
+                                          <RefreshCw size={14} />
+                                        </button>
+                                      )}
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
                                           const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = [...(newGroups[groupIdx].items || [])];
-                                          newItems[itemIdx] = {
-                                            ...newItems[itemIdx],
-                                            customName: e.target.value
-                                          };
+                                          const newItems = (newGroups[groupIdx].items || []).filter((_, i) => i !== itemIdx);
                                           newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                           setEditingItem({ ...editingItem, groups: newGroups });
                                         }}
-                                        className="flex-1 bg-white border border-purple-200 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider"
-                                        placeholder="Modifier Name (e.g. 50% Sugar)"
-                                      />
-                                    ) : (
-                                      <select
-                                        value={item.childProductId || ''}
-                                        onChange={e => {
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = [...(newGroups[groupIdx].items || [])];
-                                          const child = menuItems.find(mi => mi.id === e.target.value);
-                                          newItems[itemIdx] = {
-                                            ...newItems[itemIdx],
-                                            childProductId: e.target.value,
-                                            childProduct: child,
-                                            customName: undefined
-                                          };
-                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
-                                        }}
-                                        className="flex-1 bg-gray-50 px-4 py-2.5 rounded-xl border-transparent text-[11px] font-black uppercase tracking-wider"
+                                        className="p-2.5 text-gray-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all shrink-0"
                                       >
-                                        <option value="">{editingItem.productType === 'combo' ? 'Choose Item...' : 'Link to Item...'}</option>
-                                        {menuItems.filter(mi => mi.id !== editingItem.id).map(mi => (
-                                          <option key={mi.id} value={mi.id}>{mi.name}</option>
-                                        ))}
-                                      </select>
-                                    )}
-                                    {editingItem.productType === 'configurable' && (
+                                        <X size={16} />
+                                      </button>
+                                    </div>
+                                    <div className="flex gap-2 items-center flex-wrap">
                                       <button
                                         type="button"
                                         onClick={() => {
                                           const newGroups = [...(editingItem.groups || [])];
                                           const newItems = [...(newGroups[groupIdx].items || [])];
-                                          if (item.childProductId) {
-                                            newItems[itemIdx] = { ...newItems[itemIdx], childProductId: undefined, customName: item.childProduct?.name || '' };
+                                          const isSingleSelect = group.maxSelect === 1;
+                                          if (isSingleSelect) {
+                                            newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
                                           } else {
-                                            newItems[itemIdx] = { ...newItems[itemIdx], childProductId: '' };
+                                            newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
                                           }
                                           newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                           setEditingItem({ ...editingItem, groups: newGroups });
                                         }}
-                                        className="px-2 text-gray-400 hover:text-purple-600 transition-colors"
-                                        title={item.childProductId ? "Switch to Manual Name" : "Switch to Linked Item"}
+                                        className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 shrink-0 ${
+                                          item.defaultSelected 
+                                            ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
+                                            : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
+                                        }`}
                                       >
-                                        <RefreshCw size={14} />
+                                        Default
                                       </button>
-                                    )}
+                                      <select
+                                        value={item.displayBehavior || ''}
+                                        onChange={e => {
+                                          const newGroups = [...(editingItem.groups || [])];
+                                          const newItems = [...(newGroups[groupIdx].items || [])];
+                                          newItems[itemIdx] = { 
+                                            ...newItems[itemIdx], 
+                                            displayBehavior: (e.target.value || undefined) as any 
+                                          };
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                          setEditingItem({ ...editingItem, groups: newGroups });
+                                        }}
+                                        className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
+                                        title="Display Behavior"
+                                      >
+                                        <option value="">Visibility</option>
+                                        <option value="always">Always</option>
+                                        <option value="only_if_changed">Change</option>
+                                        <option value="hidden">Hide</option>
+                                        <option value="kitchen_only">Kitchen</option>
+                                      </select>
+                                      <select
+                                        value={item.importance || ''}
+                                        onChange={e => {
+                                          const newGroups = [...(editingItem.groups || [])];
+                                          const newItems = [...(newGroups[groupIdx].items || [])];
+                                          newItems[itemIdx] = { 
+                                            ...newItems[itemIdx], 
+                                            importance: (e.target.value || undefined) as any 
+                                          };
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                          setEditingItem({ ...editingItem, groups: newGroups });
+                                        }}
+                                        className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
+                                        title="Importance"
+                                      >
+                                        <option value="">Imp.</option>
+                                        <option value="normal">Norm</option>
+                                        <option value="critical">Crit</option>
+                                        <option value="silent">Sile</option>
+                                      </select>
+                                    </div>
                                   </div>
-                                  <div className="relative w-28">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">+</span>
-                                    <input 
-                                      type="number"
-                                      value={item.priceDelta}
-                                      step="0.1"
-                                      onChange={e => {
-                                        const newGroups = [...(editingItem.groups || [])];
-                                        const newItems = [...(newGroups[groupIdx].items || [])];
-                                        newItems[itemIdx] = {
-                                          ...newItems[itemIdx],
-                                          priceDelta: parseFloat(e.target.value) || 0
-                                        };
-                                        newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                        setEditingItem({ ...editingItem, groups: newGroups });
-                                      }}
-                                      className="w-full bg-gray-50 pl-7 pr-3 py-2.5 rounded-xl border-transparent text-xs font-mono font-black text-orange-600"
-                                      placeholder="0.00"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      const newItems = [...(newGroups[groupIdx].items || [])];
-                                      // If it's a single select group, toggle others off
-                                      const isSingleSelect = group.maxSelect === 1;
-                                      if (isSingleSelect) {
-                                        newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
-                                      } else {
-                                        newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
-                                      }
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 ${
-                                      item.defaultSelected 
-                                        ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
-                                        : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
-                                    }`}
-                                  >
-                                    Default
-                                  </button>
-                                  <select
-                                    value={item.displayBehavior || ''}
-                                    onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      const newItems = [...(newGroups[groupIdx].items || [])];
-                                      newItems[itemIdx] = { 
-                                        ...newItems[itemIdx], 
-                                        displayBehavior: (e.target.value || undefined) as any 
-                                      };
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-16"
-                                    title="Display Behavior"
-                                  >
-                                    <option value="">Inherit</option>
-                                    <option value="always">Always</option>
-                                    <option value="only_if_changed">Change</option>
-                                    <option value="hidden">Hide</option>
-                                    <option value="kitchen_only">Kitchen</option>
-                                  </select>
-                                  <select
-                                    value={item.importance || ''}
-                                    onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      const newItems = [...(newGroups[groupIdx].items || [])];
-                                      newItems[itemIdx] = { 
-                                        ...newItems[itemIdx], 
-                                        importance: (e.target.value || undefined) as any 
-                                      };
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-16"
-                                    title="Importance"
-                                  >
-                                    <option value="">Inherit</option>
-                                    <option value="normal">Normal</option>
-                                    <option value="critical">Critical</option>
-                                    <option value="silent">Silent</option>
-                                  </select>
-                                  <button 
-                                    type="button"
-                                    onClick={() => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      const newItems = (newGroups[groupIdx].items || []).filter((_, i) => i !== itemIdx);
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className="p-2.5 text-gray-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all"
-                                  >
-                                    <X size={16} />
-                                  </button>
                                 </div>
                               ))}
                             </div>
