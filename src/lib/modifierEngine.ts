@@ -13,11 +13,13 @@ export interface RenderedModifier {
 /**
  * Intelligent Modifier Rendering Engine
  * Decides which modifiers to show based on context and behavior settings.
+ * Supports recursive traversal of the configuration tree.
  */
 export const getVisibleModifiers = (
   product: Product,
-  selection: ProductSelection,
-  context: RenderingContext
+  selection: { selections: Record<string, SelectedGroupItem[]> },
+  context: RenderingContext,
+  depth = 0
 ): RenderedModifier[] => {
   const visible: RenderedModifier[] = [];
 
@@ -25,33 +27,60 @@ export const getVisibleModifiers = (
 
   product.groups.forEach(group => {
     const selectedItems = selection.selections[group.id] || [];
-    const groupBehavior = group.display_behavior || 'only_if_changed';
+    const groupBehavior = group.displayBehavior || 'only_if_changed';
 
     // 1. Check if group itself is hidden in this context
     if (shouldHideByContext(groupBehavior, context)) return;
 
     selectedItems.forEach(selected => {
       const groupItem = group.items?.find(item => item.id === selected.groupItemId);
-      const itemBehavior = groupItem?.display_behavior || groupBehavior; // Inherit group behavior if not set on item
+      // Item behavior inherits from group behavior if not set on item
+      const itemBehavior = groupItem?.displayBehavior || groupBehavior; 
 
-      // 2. Check if item is hidden in this context
-      if (shouldHideByContext(itemBehavior, context)) return;
+      const isHiddenContext = shouldHideByContext(itemBehavior, context);
 
-      // 3. Intelligent "only_if_changed" logic
-      if (itemBehavior === 'only_if_changed') {
-        const isDefault = groupItem?.defaultSelected ?? false;
-        // If it's a default item, we only show it if the selection for this group is NOT just the defaults
-        // BUT for a specific item, if it IS the default, we usually hide it to reduce noise.
-        if (isDefault) return;
+      // 2. Add current item if visible
+      if (!isHiddenContext) {
+        let shouldShow = true;
+        const importance = groupItem?.importance || group.importance || 'normal';
+
+        // 3. Intelligent Rendering Logic with Importance Support
+        if (importance === 'critical') {
+          // Critical items (e.g. Allergy alerts, specific soup bases) always show regardless of default state
+          shouldShow = true;
+        } else if (importance === 'silent') {
+          // Silent items only show if they are NOT the default
+          const isDefault = groupItem?.defaultSelected ?? false;
+          if (isDefault) shouldShow = false;
+        } else {
+          // Normal items: apply display behavior logic
+          if (itemBehavior === 'only_if_changed') {
+            const isDefault = groupItem?.defaultSelected ?? false;
+            if (isDefault) shouldShow = false;
+          }
+        }
+
+        if (shouldShow) {
+          visible.push({
+            id: selected.groupItemId,
+            name: selected.name,
+            priceDelta: selected.priceDelta,
+            groupId: group.id,
+            groupName: group.name
+          });
+        }
       }
 
-      visible.push({
-        id: selected.groupItemId,
-        name: selected.name,
-        priceDelta: selected.priceDelta,
-        groupId: group.id,
-        groupName: group.name
-      });
+      // 4. Recurse into nested selections
+      if (selected.nestedSelections && selected.childProduct) {
+        const nestedVisible = getVisibleModifiers(
+          selected.childProduct,
+          { selections: selected.nestedSelections },
+          context,
+          depth + 1
+        );
+        visible.push(...nestedVisible);
+      }
     });
   });
 
@@ -59,6 +88,7 @@ export const getVisibleModifiers = (
 };
 
 const shouldHideByContext = (behavior: DisplayBehavior, context: RenderingContext): boolean => {
+  if (behavior === 'always') return false;
   if (behavior === 'hidden') return true;
   
   if (context === 'kds') {

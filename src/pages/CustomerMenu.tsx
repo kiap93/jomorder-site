@@ -266,6 +266,17 @@ export function CustomerMenu() {
 
   const addToCart = (item: MenuItem, selection: ProductSelection) => {
     const itemTotalPrice = calculateSelectionPrice(item, selection);
+    
+    // Generate smart lines for local display
+    const kdsMods = getVisibleModifiers(item as any as Product, selection, 'kds');
+    const customerMods = getVisibleModifiers(item as any as Product, selection, 'qr_cart');
+    const receiptMods = getVisibleModifiers(item as any as Product, selection, 'receipt');
+
+    const smartLines = {
+      kds: kdsMods.map(m => `• ${m.name}`),
+      customer: customerMods.map(m => `• ${m.name}`),
+      receipt: receiptMods.map(m => `• ${m.name}`)
+    };
 
     setCart(prev => {
       const existingIndex = prev.findIndex(i => {
@@ -278,7 +289,8 @@ export function CustomerMenu() {
         const existingItem = newCart[existingIndex];
         newCart[existingIndex] = {
           ...existingItem,
-          quantity: existingItem.quantity + 1
+          quantity: existingItem.quantity + 1,
+          smartRenderedLines: smartLines
         };
         return newCart;
       }
@@ -289,7 +301,8 @@ export function CustomerMenu() {
         price: itemTotalPrice,
         quantity: 1,
         options: [],
-        selection: selection
+        selection: selection,
+        smartRenderedLines: smartLines
       }];
     });
   };

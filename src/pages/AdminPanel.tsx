@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product } from '../types';
+import { hasCircularDependency } from '../lib/graphUtils';
+import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -169,6 +171,8 @@ export function AdminPanel() {
             required: g.required,
             minSelect: g.min_select,
             maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            importance: g.importance as RenderImportance,
             sortOrder: g.sort_order,
             items: g.items?.map((gi: any) => ({
               id: gi.id,
@@ -176,6 +180,8 @@ export function AdminPanel() {
               childProductId: gi.child_product_id,
               priceDelta: parseFloat(gi.price_delta || 0),
               defaultSelected: gi.default_selected,
+              displayBehavior: gi.display_behavior,
+              importance: gi.importance as RenderImportance,
               sortOrder: gi.sort_order,
               childProduct: gi.child_product ? {
                 id: gi.child_product.id,
@@ -344,6 +350,14 @@ export function AdminPanel() {
       return;
     }
     if (!restId) return;
+
+    // 🚀 Circular Dependency Protection
+    if (editingItem.productType === 'configurable' && editingItem.groups) {
+      if (hasCircularDependency(editingItem as Product, menuItems)) {
+        alert("Configuration Error: Circular dependency detected in modifier groups. A product cannot be a modifier for itself (directly or indirectly).");
+        return;
+      }
+    }
     
     setLoading(true);
     try {
@@ -428,6 +442,7 @@ export function AdminPanel() {
                 min_select: group.minSelect || 0,
                 max_select: group.maxSelect || 1,
                 display_behavior: group.displayBehavior || 'only_if_changed',
+                importance: group.importance || 'normal',
                 sort_order: group.sortOrder || 0
               })
               .select()
@@ -444,6 +459,7 @@ export function AdminPanel() {
                   price_delta: item.priceDelta || 0,
                   default_selected: item.defaultSelected || false,
                   display_behavior: item.displayBehavior || null,
+                  importance: item.importance || 'normal',
                   sort_order: item.sortOrder !== undefined ? item.sortOrder : idx
                 }));
 
@@ -1200,6 +1216,22 @@ export function AdminPanel() {
                                   </select>
                                 </div>
                                 <div className="space-y-1.5">
+                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Importance</label>
+                                  <select 
+                                    value={group.importance || 'normal'}
+                                    onChange={e => {
+                                      const newGroups = [...(editingItem.groups || [])];
+                                      newGroups[groupIdx] = { ...newGroups[groupIdx], importance: e.target.value as any };
+                                      setEditingItem({ ...editingItem, groups: newGroups });
+                                    }}
+                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black uppercase tracking-wider shadow-sm"
+                                  >
+                                    <option value="normal">Normal</option>
+                                    <option value="critical">Critical (All Alerts)</option>
+                                    <option value="silent">Silent (Hide Defaults)</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-1.5">
                                   <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Min Select</label>
                                   <input 
                                     type="number"
@@ -1368,13 +1400,33 @@ export function AdminPanel() {
                                       setEditingItem({ ...editingItem, groups: newGroups });
                                     }}
                                     className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-16"
-                                    title="Item-level display behavior override"
+                                    title="Display Behavior"
                                   >
                                     <option value="">Inherit</option>
                                     <option value="always">Always</option>
                                     <option value="only_if_changed">Change</option>
                                     <option value="hidden">Hide</option>
                                     <option value="kitchen_only">Kitchen</option>
+                                  </select>
+                                  <select
+                                    value={item.importance || ''}
+                                    onChange={e => {
+                                      const newGroups = [...(editingItem.groups || [])];
+                                      const newItems = [...(newGroups[groupIdx].items || [])];
+                                      newItems[itemIdx] = { 
+                                        ...newItems[itemIdx], 
+                                        importance: (e.target.value || undefined) as any 
+                                      };
+                                      newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                      setEditingItem({ ...editingItem, groups: newGroups });
+                                    }}
+                                    className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-16"
+                                    title="Importance"
+                                  >
+                                    <option value="">Inherit</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="critical">Critical</option>
+                                    <option value="silent">Silent</option>
                                   </select>
                                   <button 
                                     type="button"

@@ -23,40 +23,43 @@ export const calculateSelectionPrice = (product: Product, selection: ProductSele
 
 /**
  * Validates if a selection meets all group constraints (required, min/max).
+ * This is a recursive validation that follows the active selection tree.
  */
 export const validateSelection = (product: Product, selection: ProductSelection): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
 
-  const checkGroups = (groups: ProductGroup[] | undefined, currentSelections: Record<string, SelectedGroupItem[]>) => {
-    if (!groups) return;
+  const checkGroups = (currentProduct: Product | undefined, currentSelections: Record<string, SelectedGroupItem[]>) => {
+    if (!currentProduct?.groups) return;
 
-    groups.forEach(group => {
+    currentProduct.groups.forEach(group => {
       const selectedItems = currentSelections[group.id] || [];
       const count = selectedItems.length;
 
+      // Only validate required groups if they are "active" in the current product context
       if (group.required && count === 0) {
-        errors.push(`${group.name} is required.`);
+        errors.push(`${currentProduct.name}: ${group.name} is required.`);
       }
 
       if (count < group.minSelect) {
-        errors.push(`${group.name} requires at least ${group.minSelect} selections.`);
+        errors.push(`${currentProduct.name}: ${group.name} requires at least ${group.minSelect} selections.`);
       }
 
       if (count > group.maxSelect) {
-        errors.push(`${group.name} allows at most ${group.maxSelect} selections.`);
+        errors.push(`${currentProduct.name}: ${group.name} allows at most ${group.maxSelect} selections.`);
       }
 
-      // Recursively check nested selections
+      // Recursively check nested selections ONLY for items that are actually selected
       selectedItems.forEach(item => {
-        if (item.nestedSelections) {
-          // Note: In a real system, we'd need the Product definition for the child to check its groups
-          // For now, we assume the engine manages this via recursive UI components
+        // We need the child product definition to validate its groups
+        // In the UI, this is often passed down. In the engine, we look at the item.childProduct
+        if (item.nestedSelections && item.childProduct) {
+          checkGroups(item.childProduct, item.nestedSelections);
         }
       });
     });
   };
 
-  checkGroups(product.groups, selection.selections);
+  checkGroups(product, selection.selections);
 
   return {
     isValid: errors.length === 0,

@@ -36,6 +36,7 @@ export type MenuItemStatus = 'Available' | 'Low Stock' | 'Out of Stock' | 'Pause
 export type ProductType = 'single' | 'combo' | 'configurable';
 export type GroupType = 'required' | 'optional' | 'nested';
 export type DisplayBehavior = 'always' | 'only_if_changed' | 'hidden' | 'kitchen_only' | 'receipt_only';
+export type RenderImportance = 'critical' | 'normal' | 'silent';
 
 export interface ProductGroupItem {
   id: string;
@@ -45,6 +46,7 @@ export interface ProductGroupItem {
   priceDelta: number;
   defaultSelected: boolean;
   displayBehavior?: DisplayBehavior;
+  importance?: RenderImportance;
   sortOrder: number;
   childProduct?: Product; // For display
 }
@@ -59,6 +61,7 @@ export interface ProductGroup {
   minSelect: number;
   maxSelect: number;
   displayBehavior?: DisplayBehavior;
+  importance?: RenderImportance;
   sortOrder: number;
   items?: ProductGroupItem[];
 }
@@ -95,6 +98,7 @@ export interface SelectedGroupItem {
   name: string;
   priceDelta: number;
   nestedSelections?: Record<string, SelectedGroupItem[]>; // Recursive
+  childProduct?: Product; // Snapshot of the child product for validation and display
 }
 
 export interface ProductSelection {
