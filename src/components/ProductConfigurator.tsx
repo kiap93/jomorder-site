@@ -7,7 +7,14 @@ import { calculateSelectionPrice, validateSelection } from '../lib/configEngine'
 const shouldHideForCustomer = (behavior?: DisplayBehavior, parentBehavior?: DisplayBehavior): boolean => {
   const effective = behavior || parentBehavior;
   if (!effective) return false;
-  return effective === 'hidden' || effective === 'kitchen_only' || effective === 'receipt_only';
+  
+  if (typeof effective === 'object' && 'visible_in' in effective) {
+    return !effective.visible_in.product_configurator;
+  }
+
+  // Normalize and check all kitchen/receipt exclusion cases for backward compatibility strings
+  const b = String(effective).toLowerCase();
+  return b === 'hidden' || b === 'kitchen_only' || b === 'kitchen' || b === 'receipt_only' || b === 'receipt';
 };
 
 interface Props {
@@ -19,27 +26,34 @@ interface Props {
 }
 
 export const ProductConfigurator: React.FC<Props> = ({ product, selection, onChange, currency, depth = 0 }) => {
-  const toggleItem = (group: ProductGroup, item: ProductGroupItem) => {
+  const toggleItem = (group: any, item: any, type: 'combo' | 'modifier' | 'legacy') => {
     const currentSelected = selection.selections[group.id] || [];
-    const isSelected = currentSelected.some(i => i.groupItemId === item.id);
+    const isSelected = currentSelected.some(i => i.id === item.id || i.groupItemId === item.id);
 
     let newSelected: SelectedGroupItem[];
 
     if (isSelected) {
-      newSelected = currentSelected.filter(i => i.groupItemId !== item.id);
+      newSelected = currentSelected.filter(i => i.id !== item.id && i.groupItemId !== item.id);
     } else {
       const newItem: SelectedGroupItem = {
-        groupItemId: item.id,
+        id: item.id,
+        groupItemId: item.id, // backward compat
         productId: item.childProductId || '',
-        name: item.customName || item.childProduct?.name || 'Option',
+        name: item.name || item.customName || item.childProduct?.name || 'Option',
         priceDelta: item.priceDelta || 0,
         nestedSelections: {},
-        childProduct: item.childProduct // Important for recursive validation
+        childProduct: item.childProduct 
       };
+      
+      if (type === 'modifier') {
+        newItem.modifierId = item.id;
+      } else if (type === 'combo') {
+        newItem.comboItemId = item.id;
+      }
 
       if (group.maxSelect === 1) {
         newSelected = [newItem];
-      } else if (currentSelected.length < group.maxSelect) {
+      } else if (currentSelected.length < (group.maxSelect || 1)) {
         newSelected = [...currentSelected, newItem];
       } else {
         return;
@@ -55,9 +69,9 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
     });
   };
 
-  const updateNestedSelection = (groupId: string, groupItemId: string, nestedSelection: ProductSelection) => {
+  const updateNestedSelection = (groupId: string, id: string, nestedSelection: ProductSelection) => {
     const groupSelections = [...(selection.selections[groupId] || [])];
-    const itemIndex = groupSelections.findIndex(i => i.groupItemId === groupItemId);
+    const itemIndex = groupSelections.findIndex(i => i.id === id || i.groupItemId === id);
     
     if (itemIndex > -1) {
       groupSelections[itemIndex] = {
@@ -77,7 +91,13 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
 
   if (depth > 5) return <div className="p-4 text-zinc-500 text-[10px]">Maximum configuration depth reached.</div>;
 
-  const visibleGroups = product.groups?.filter(g => !shouldHideForCustomer(g.displayBehavior)) || [];
+  const allGroups = [
+    ...(product.groups || []).map(g => ({ ...g, type: 'legacy' as const })),
+    ...(product.comboGroups || []).map(g => ({ ...g, type: 'combo' as const })),
+    ...(product.modifierGroups || []).map(g => ({ ...g, type: 'modifier' as const }))
+  ];
+
+  const visibleGroups = allGroups.filter(g => !shouldHideForCustomer(g.displayBehavior)) || [];
 
   return (
     <div className={`space-y-8 ${depth > 0 ? 'mt-6 border-l border-white/10 ml-1 pl-2 relative' : 'relative'}`}>
@@ -85,7 +105,12 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
         const selectedCount = selection.selections[group.id]?.length || 0;
         const isSatisfied = selectedCount >= group.minSelect;
         
-        const visibleItems = group.items?.filter(i => !shouldHideForCustomer(i.displayBehavior, group.displayBehavior)) || [];
+        let items: any[] = [];
+        if (group.type === 'legacy') items = (group as any).items || [];
+        else if (group.type === 'combo') items = (group as any).items || [];
+        else if (group.type === 'modifier') items = (group as any).modifiers || [];
+
+        const visibleItems = items.filter((i: any) => !shouldHideForCustomer(i.displayBehavior, group.displayBehavior)) || [];
 
         return (
           <section key={group.id} className="space-y-4 group/section overflow-hidden">
@@ -115,7 +140,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
               </div>
               <div className="text-right shrink-0">
                 <span className={`text-[9px] font-black tracking-widest px-2.5 py-1 rounded-full tabular-nums transition-all ${
-                  isSatisfied ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-500 border border-white/5'
+                   isSatisfied ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-500 border border-white/5'
                 }`}>
                   {selectedCount} <span className="opacity-30">/</span> {group.maxSelect}
                 </span>
@@ -123,17 +148,17 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
             </div>
 
             <div className={`grid gap-2 ${depth === 0 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
-              {visibleItems.sort((a, b) => a.sortOrder - b.sortOrder).map(item => {
-                const isSelected = (selection.selections[group.id] || []).some(i => i.groupItemId === item.id);
+              {visibleItems.sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((item: any) => {
+                const isSelected = (selection.selections[group.id] || []).some(i => i.id === item.id || i.groupItemId === item.id);
                 const isMaxReached = selectedCount >= group.maxSelect && !isSelected && group.maxSelect > 1;
                 
-                const selectedItemState = (selection.selections[group.id] || []).find(i => i.groupItemId === item.id);
+                const selectedItemState = (selection.selections[group.id] || []).find(i => i.id === item.id || i.groupItemId === item.id);
 
                 return (
                   <div key={item.id} className={`${(group.maxSelect === 1 && depth === 0) ? 'col-span-full' : ''} space-y-2 min-w-0`}>
                     <button
                       disabled={isMaxReached}
-                      onClick={() => toggleItem(group, item)}
+                      onClick={() => toggleItem(group, item, group.type)}
                       className={`w-full group/btn relative flex items-center justify-between p-3 rounded-xl border transition-all duration-300 active:scale-[0.98] ${
                         isSelected 
                           ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_10px_20px_rgba(0,0,0,0.2)] z-10' 
@@ -163,7 +188,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
                         </div>
                         <div className="text-left min-w-0">
                           <p className={`font-black text-[10px] transition-colors tracking-wider uppercase break-words leading-tight ${isSelected ? 'text-zinc-900' : 'text-zinc-400'}`}>
-                            {item.customName || item.childProduct?.name || 'Standard Selection'}
+                            {item.name || item.customName || item.childProduct?.name || 'Standard Selection'}
                           </p>
                           {item.priceDelta !== 0 && (
                             <p className={`text-[8px] font-black tabular-nums tracking-tighter ${isSelected ? 'text-zinc-500' : 'text-zinc-600'}`}>
@@ -173,7 +198,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
                         </div>
                       </div>
                       
-                      {isSelected && item.childProduct?.groups && item.childProduct.groups.length > 0 && (
+                      {isSelected && (item.childProduct?.groups || item.childProduct?.modifierGroups) && (
                          <div className="bg-zinc-900 p-1 rounded-full text-white shrink-0 ml-2">
                            <ChevronRight size={10} strokeWidth={3} className="rotate-90" />
                          </div>
@@ -182,7 +207,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
 
                     {/* Nested Configuration */}
                     <AnimatePresence mode="wait">
-                      {isSelected && item.childProduct?.groups && item.childProduct.groups.length > 0 && (
+                      {isSelected && item.childProduct && (
                         <motion.div
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}

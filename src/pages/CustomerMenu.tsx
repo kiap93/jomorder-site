@@ -44,14 +44,29 @@ export function CustomerMenu() {
       selections: {}
     };
 
-    // Auto-select defaults
-    item.groups?.forEach(group => {
+    // Auto-select defaults for Combo Groups
+    item.comboGroups?.forEach(group => {
       const defaults = group.items?.filter(i => i.defaultSelected) || [];
       if (defaults.length > 0) {
         initialState.selections[group.id] = defaults.map(d => ({
-          groupItemId: d.id,
+          id: d.id,
+          comboItemId: d.id,
           productId: d.childProductId,
-          name: d.childProduct?.name || 'Option',
+          name: d.customName || d.childProduct?.name || 'Option',
+          priceDelta: d.priceDelta,
+          childProduct: d.childProduct
+        }));
+      }
+    });
+
+    // Auto-select defaults for Modifier Groups
+    item.modifierGroups?.forEach(group => {
+      const defaults = group.modifiers?.filter(i => i.isDefault) || [];
+      if (defaults.length > 0) {
+        initialState.selections[group.id] = defaults.map(d => ({
+          id: d.id,
+          modifierId: d.id,
+          name: d.name || 'Option',
           priceDelta: d.priceDelta
         }));
       }
@@ -107,12 +122,27 @@ export function CustomerMenu() {
           supabase.from('menu_items')
             .select(`
               *,
-              groups:product_groups (
+              display_behavior,
+              combo_groups (
                 *,
-                items:product_group_items (
+                items:combo_group_items (
                   *,
-                  child_product:menu_items (*)
+                  child_product:menu_items (
+                    *,
+                    combo_groups (
+                      *,
+                      items:combo_group_items (*)
+                    ),
+                    modifier_groups (
+                      *,
+                      modifiers!modifiers_group_id_fkey (*)
+                    )
+                  )
                 )
+              ),
+              modifier_groups (
+                *,
+                modifiers!modifiers_group_id_fkey (*)
               )
             `)
             .eq('restaurant_id', restId)
@@ -139,15 +169,17 @@ export function CustomerMenu() {
             description: i.description,
             isActive: i.is_active,
             status: i.status || 'Available',
+            displayBehavior: i.display_behavior,
             productType: i.product_type || 'single',
-            groups: i.groups?.map((g: any) => ({
+            comboGroups: i.combo_groups?.map((g: any) => ({
               id: g.id,
               name: g.name,
               description: g.description,
-              groupType: g.group_type,
               required: g.required,
               minSelect: g.min_select,
               maxSelect: g.max_select,
+              displayBehavior: g.display_behavior,
+              importance: g.importance,
               sortOrder: g.sort_order,
               items: g.items?.map((gi: any) => ({
                 id: gi.id,
@@ -155,12 +187,74 @@ export function CustomerMenu() {
                 childProductId: gi.child_product_id,
                 priceDelta: parseFloat(gi.price_delta || 0),
                 defaultSelected: gi.default_selected,
+                displayBehavior: gi.display_behavior,
+                importance: gi.importance,
                 sortOrder: gi.sort_order,
                 childProduct: gi.child_product ? {
                   id: gi.child_product.id,
                   name: gi.child_product.name,
-                  basePrice: parseFloat(gi.child_product.base_price || 0)
+                  basePrice: parseFloat(gi.child_product.base_price || 0),
+                  productType: gi.child_product.product_type,
+                  comboGroups: gi.child_product.combo_groups?.map((ng: any) => ({
+                    id: ng.id,
+                    name: ng.name,
+                    description: ng.description,
+                    required: ng.required,
+                    minSelect: ng.min_select,
+                    maxSelect: ng.max_select,
+                    displayBehavior: ng.display_behavior,
+                    importance: ng.importance,
+                    sortOrder: ng.sort_order,
+                    items: ng.items?.map((ni: any) => ({
+                      id: ni.id,
+                      groupId: ni.group_id,
+                      childProductId: ni.child_product_id,
+                      priceDelta: parseFloat(ni.price_delta || 0),
+                      defaultSelected: ni.default_selected,
+                      displayBehavior: ni.display_behavior,
+                      importance: ni.importance,
+                      sortOrder: ni.sort_order
+                    })) || []
+                  })),
+                  modifierGroups: gi.child_product.modifier_groups?.map((ng: any) => ({
+                    id: ng.id,
+                    name: ng.name,
+                    required: ng.required,
+                    minSelect: ng.min_select,
+                    maxSelect: ng.max_select,
+                    displayBehavior: ng.display_behavior,
+                    sortOrder: ng.sort_order,
+                    modifiers: ng.modifiers?.map((nm: any) => ({
+                      id: nm.id,
+                      groupId: nm.group_id,
+                      name: nm.name,
+                      priceDelta: parseFloat(nm.price_delta || 0),
+                      isDefault: nm.is_default,
+                      renderImportance: nm.render_importance,
+                      displayBehavior: nm.display_behavior,
+                      sortOrder: nm.sort_order
+                    })) || []
+                  }))
                 } : undefined
+              })) || []
+            })) || [],
+            modifierGroups: i.modifier_groups?.map((g: any) => ({
+              id: g.id,
+              name: g.name,
+              required: g.required,
+              minSelect: g.min_select,
+              maxSelect: g.max_select,
+              displayBehavior: g.display_behavior,
+              sortOrder: g.sort_order,
+              modifiers: g.modifiers?.map((m: any) => ({
+                id: m.id,
+                groupId: m.group_id,
+                name: m.name,
+                priceDelta: parseFloat(m.price_delta || 0),
+                isDefault: m.is_default,
+                renderImportance: m.render_importance,
+                displayBehavior: m.display_behavior,
+                sortOrder: m.sort_order
               })) || []
             })) || []
           }));
@@ -396,6 +490,7 @@ export function CustomerMenu() {
 
   const filteredItems = menuItems.filter(item => {
     if (item.status === 'Hidden') return false;
+    
     const matchesCat = selectedCategory === 'all' || item.categoryId === selectedCategory;
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
@@ -423,55 +518,64 @@ export function CustomerMenu() {
       </button>
     </div>
   );
-  if (tableId === 'default') {
-    return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-12 text-center font-sans">
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="w-32 h-32 bg-orange-100 rounded-[2.5rem] flex items-center justify-center text-orange-600 mb-10 shadow-inner"
-        >
-          <Camera size={56} strokeWidth={1.5} />
-        </motion.div>
-        
-        <div className="space-y-4 mb-12">
-          <h1 className="text-4xl font-black text-gray-900 tracking-tighter leading-none">
-            Scan to Order
-          </h1>
-          <p className="text-gray-500 font-bold text-lg leading-relaxed max-w-[18rem] mx-auto">
-            Please scan the QR code on your table to browse our delicious menu.
-          </p>
-        </div>
+  // if (tableId === 'default') {
+  //   return (
+  //     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-12 text-center font-sans">
+  //       <motion.div
+  //         initial={{ scale: 0.8, opacity: 0 }}
+  //         animate={{ scale: 1, opacity: 1 }}
+  //         className="w-32 h-32 bg-orange-100 rounded-[2.5rem] flex items-center justify-center text-orange-600 mb-10 shadow-inner"
+  //       >
+  //         <Camera size={56} strokeWidth={1.5} />
+  //       </motion.div>
+  //       
+  //       <div className="space-y-4 mb-12">
+  //         <h1 className="text-4xl font-black text-gray-900 tracking-tighter leading-none">
+  //           Scan to Order
+  //         </h1>
+  //         <p className="text-gray-500 font-bold text-lg leading-relaxed max-w-[18rem] mx-auto">
+  //           Please scan the QR code on your table to browse our delicious menu.
+  //         </p>
+  //       </div>
 
-        <div className="w-full max-w-xs relative group">
-          <div className="absolute -inset-4 bg-gradient-to-br from-orange-400 to-orange-600 rounded-[3.5rem] opacity-20 blur-2xl group-hover:opacity-30 transition-opacity"></div>
-          <div className="relative bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-2xl flex flex-col items-center justify-center gap-6">
-            <div className="relative">
-              <div className="absolute -inset-1 rounded-2xl bg-orange-100/50 animate-pulse"></div>
-              <QrCode size={160} strokeWidth={1} className="text-gray-200 relative" />
-              
-              {/* Corner Accents */}
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-orange-500 rounded-tl-xl"></div>
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-orange-500 rounded-tr-xl"></div>
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-orange-500 rounded-bl-xl"></div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-orange-500 rounded-br-xl"></div>
-            </div>
-            
-            <div className="bg-gray-900 px-6 py-2 rounded-full shadow-lg">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">READY FOR SCAN</span>
-            </div>
-          </div>
-        </div>
+  //       <div className="w-full max-w-xs relative group">
+  //         <div className="absolute -inset-4 bg-gradient-to-br from-orange-400 to-orange-600 rounded-[3.5rem] opacity-20 blur-2xl group-hover:opacity-30 transition-opacity"></div>
+  //         <div className="relative bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-2xl flex flex-col items-center justify-center gap-6">
+  //           <div className="relative">
+  //             <div className="absolute -inset-1 rounded-2xl bg-orange-100/50 animate-pulse"></div>
+  //             <QrCode size={160} strokeWidth={1} className="text-gray-200 relative" />
+  //             
+  //             {/* Corner Accents */}
+  //             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-orange-500 rounded-tl-xl"></div>
+  //             <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-orange-500 rounded-tr-xl"></div>
+  //             <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-orange-500 rounded-bl-xl"></div>
+  //             <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-orange-500 rounded-br-xl"></div>
+  //           </div>
+  //           
+  //           <div className="bg-gray-900 px-6 py-2 rounded-full shadow-lg">
+  //             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">READY FOR SCAN</span>
+  //           </div>
+  //         </div>
+  //       </div>
 
-        <div className="mt-16 text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">
-          JomOrder System • Branch v1.0
-        </div>
-      </div>
-    );
-  }
+  //       <div className="mt-16 text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">
+  //         JomOrder System • Branch v1.0
+  //       </div>
+  //     </div>
+  //   );
+  // }
+
+  const isPreviewMode = tableId === 'default';
 
   return (
     <div className="max-w-md mx-auto bg-white min-h-screen pb-32">
+      {/* Preview Mode Banner */}
+      {isPreviewMode && (
+        <div className="bg-zinc-900 text-white py-4 px-6 flex items-center justify-center gap-3 sticky top-0 z-[60]">
+          <ShoppingBag size={16} className="text-orange-500" />
+          <span className="text-[10px] font-black uppercase tracking-[0.2em]">Preview Mode Only</span>
+        </div>
+      )}
       {/* Language Shell */}
       <div className="bg-gray-50/50 px-6 py-2 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-gray-400">
@@ -598,9 +702,9 @@ export function CustomerMenu() {
               <div className="mt-auto flex justify-between items-center">
                 <span className="font-black text-orange-600 text-sm">RM {item.price.toFixed(2)}</span>
                 
-                {(item.status === 'Out of Stock' || item.status === 'Paused') ? (
+                {(item.status === 'Out of Stock' || item.status === 'Paused' || isPreviewMode) ? (
                   <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-xl">
-                    Unavailable
+                    {isPreviewMode ? 'View Only' : 'Unavailable'}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -737,7 +841,14 @@ export function CustomerMenu() {
 
             {/* Footer */}
             <div className="p-6 bg-black/60 backdrop-blur-2xl border-t border-white/5">
-              {(() => {
+              {isPreviewMode ? (
+                <button
+                  onClick={() => setSelectedItemForDetail(null)}
+                  className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] hover:bg-zinc-200 transition-all shadow-xl"
+                >
+                  Close Preview
+                </button>
+              ) : (() => {
                 const validation = selectionState ? validateSelection(selectedItemForDetail, selectionState) : { isValid: true, errors: [] };
                 const isValid = validation.isValid;
                 const cartIndex = selectionState ? getCartItemIndex(selectedItemForDetail.id, undefined, selectionState) : -1;
@@ -818,7 +929,7 @@ export function CustomerMenu() {
 
       {/* Cart Navigation Bar */}
       <AnimatePresence>
-        {cart.length > 0 && !isReviewingOrder && (
+        {cart.length > 0 && !isReviewingOrder && !isPreviewMode && (
           <motion.div
             initial={{ y: 100 }}
             animate={{ y: 0 }}

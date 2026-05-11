@@ -1,4 +1,4 @@
-import { ProductSelection, Product, SelectedGroupItem, DisplayBehavior, ProductGroup, ProductGroupItem } from '../types';
+import { ProductSelection, Product, SelectedGroupItem, DisplayBehavior, ProductGroup, ProductGroupItem, ComboGroup, ModifierGroup } from '../types';
 
 export type RenderingContext = 'qr_cart' | 'pos_display' | 'kds' | 'receipt';
 
@@ -23,46 +23,55 @@ export const getVisibleModifiers = (
 ): RenderedModifier[] => {
   const visible: RenderedModifier[] = [];
 
-  if (!product.groups) return visible;
+  const allGroups = [
+    ...(product.groups || []),
+    ...(product.comboGroups || []),
+    ...(product.modifierGroups || [])
+  ];
 
-  product.groups.forEach(group => {
+  if (allGroups.length === 0) return visible;
+
+  allGroups.forEach(group => {
     const selectedItems = selection.selections[group.id] || [];
     const groupBehavior = group.displayBehavior || 'only_if_changed';
 
-    // 1. Check if group itself is hidden in this context
     if (shouldHideByContext(groupBehavior, context)) return;
 
     selectedItems.forEach(selected => {
-      const groupItem = group.items?.find(item => item.id === selected.groupItemId);
-      // Item behavior inherits from group behavior if not set on item
-      const itemBehavior = groupItem?.displayBehavior || groupBehavior; 
+      // Find item in appropriate group
+      let groupItem: any;
+      if (product.groups) {
+        groupItem = (group as ProductGroup).items?.find(item => item.id === selected.id || item.id === selected.groupItemId);
+      }
+      if (!groupItem && product.comboGroups) {
+        groupItem = (group as ComboGroup).items?.find(item => item.id === selected.id || item.id === selected.comboItemId);
+      }
+      if (!groupItem && product.modifierGroups) {
+        groupItem = (group as ModifierGroup).modifiers?.find(item => item.id === selected.id || item.id === selected.modifierId);
+      }
 
+      const itemBehavior = groupItem?.displayBehavior || groupBehavior; 
       const isHiddenContext = shouldHideByContext(itemBehavior, context);
 
-      // 2. Add current item if visible
       if (!isHiddenContext) {
         let shouldShow = true;
-        const importance = groupItem?.importance || group.importance || 'normal';
+        const importance = groupItem?.importance || (group as any).importance || groupItem?.renderImportance || 'normal';
 
-        // 3. Intelligent Rendering Logic with Importance Support
         if (importance === 'critical') {
-          // Critical items (e.g. Allergy alerts, specific soup bases) always show regardless of default state
           shouldShow = true;
         } else if (importance === 'silent') {
-          // Silent items only show if they are NOT the default
-          const isDefault = groupItem?.defaultSelected ?? false;
+          const isDefault = groupItem?.defaultSelected ?? groupItem?.isDefault ?? false;
           if (isDefault) shouldShow = false;
         } else {
-          // Normal items: apply display behavior logic
           if (itemBehavior === 'only_if_changed') {
-            const isDefault = groupItem?.defaultSelected ?? false;
+            const isDefault = groupItem?.defaultSelected ?? groupItem?.isDefault ?? false;
             if (isDefault) shouldShow = false;
           }
         }
 
         if (shouldShow) {
           visible.push({
-            id: selected.groupItemId,
+            id: selected.id || selected.groupItemId || '',
             name: selected.name,
             priceDelta: selected.priceDelta,
             groupId: group.id,
@@ -71,7 +80,6 @@ export const getVisibleModifiers = (
         }
       }
 
-      // 4. Recurse into nested selections
       if (selected.nestedSelections && selected.childProduct) {
         const nestedVisible = getVisibleModifiers(
           selected.childProduct,
@@ -88,19 +96,34 @@ export const getVisibleModifiers = (
 };
 
 const shouldHideByContext = (behavior: DisplayBehavior, context: RenderingContext): boolean => {
-  if (behavior === 'always') return false;
-  if (behavior === 'hidden') return true;
+  if (!behavior) return false;
+
+  if (typeof behavior === 'object' && 'visible_in' in behavior) {
+    const flags = behavior.visible_in;
+    switch (context) {
+      case 'kds': return !flags.kds;
+      case 'receipt': return !flags.receipt;
+      case 'qr_cart': return !flags.qr_cart;
+      case 'pos_display': return !flags.qr_cart; // Map pos_display to qr_cart or add flag if needed
+      default: return false;
+    }
+  }
+
+  const b = String(behavior).toLowerCase();
+  
+  if (b === 'always') return false;
+  if (b === 'hidden') return true;
   
   if (context === 'kds') {
-    if (behavior === 'receipt_only') return true;
+    if (b === 'receipt_only' || b === 'receipt') return true;
   }
 
   if (context === 'receipt') {
-    if (behavior === 'kitchen_only') return true;
+    if (b === 'kitchen_only' || b === 'kitchen') return true;
   }
 
   if (context === 'qr_cart' || context === 'pos_display') {
-    if (behavior === 'kitchen_only' || behavior === 'receipt_only') return true;
+    if (b === 'kitchen_only' || b === 'kitchen' || b === 'receipt_only' || b === 'receipt') return true;
   }
 
   return false;

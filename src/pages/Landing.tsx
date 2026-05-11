@@ -1,8 +1,12 @@
 import { Link } from 'react-router-dom';
-import { ChefHat, ShoppingBag, ArrowRight } from 'lucide-react';
+import { ChefHat, ShoppingBag, ArrowRight, Eye } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useAuthStore } from '../store/useAuthStore';
 
 export function Landing() {
+  const { profile } = useAuthStore();
+  const restId = profile?.restaurantId;
+
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
       <motion.div 
@@ -28,7 +32,7 @@ export function Landing() {
         </div>
 
         <div className="grid gap-4 pt-8">
-          <div className="p-8 border-2 border-gray-50 rounded-[3rem] bg-gray-50/50 space-y-4">
+          {/* <div className="p-8 border-2 border-gray-50 rounded-[3rem] bg-gray-50/50 space-y-4">
             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-sm">
               <ShoppingBag size={24} className="text-orange-600" />
             </div>
@@ -36,7 +40,7 @@ export function Landing() {
             <p className="text-gray-400 text-sm font-medium">
               Please scan the QR code located on your table to start ordering.
             </p>
-          </div>
+          </div> */}
 
           <Link 
             to="/login"
@@ -44,6 +48,14 @@ export function Landing() {
           >
             Restaurant Management
             <ArrowRight className="group-hover:translate-x-1 transition-transform" />
+          </Link>
+
+          <Link 
+            to={restId ? `/restaurant/${restId}/table/default` : "/login"}
+            className="w-full bg-white text-gray-900 border-2 border-gray-100 py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:border-orange-200 transition-all shadow-sm group"
+          >
+            <Eye size={16} className="text-orange-500 group-hover:scale-110 transition-transform" />
+            Preview Online Menu
           </Link>
         </div>
 

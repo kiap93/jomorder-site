@@ -1,13 +1,71 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
+
+const VisibilityManager = ({ 
+  value, 
+  onChange 
+}: { 
+  value?: DisplayBehavior, 
+  onChange: (val: DisplayBehavior) => void 
+}) => {
+  const flags = (typeof value === 'object' && value !== null && 'visible_in' in value) 
+    ? (value as { visible_in: VisibilityFlags }).visible_in 
+    : {
+        menu_listing: true,
+        product_configurator: true,
+        qr_cart: true,
+        kds: true,
+        receipt: true
+      };
+
+  const toggle = (key: keyof VisibilityFlags) => {
+    onChange({
+      visible_in: {
+        ...flags,
+        [key]: !flags[key]
+      }
+    });
+  };
+
+  return (
+    <div className="grid grid-cols-5 gap-1 pt-1">
+      {(Object.keys(flags) as Array<keyof VisibilityFlags>).map((key) => {
+        const enabled = flags[key];
+        const label = String(key).split('_')[0];
+        return (
+          <button
+            key={String(key)}
+            type="button"
+            onClick={() => toggle(key)}
+            className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all ${
+              enabled 
+                ? 'bg-orange-50 border-orange-200 text-orange-600 shadow-sm' 
+                : 'bg-white border-gray-100 text-gray-300 hover:border-orange-100'
+            }`}
+            title={String(key).replace('_', ' ')}
+          >
+            {key === 'menu_listing' && <List size={11} />}
+            {key === 'product_configurator' && <Settings2 size={11} />}
+            {key === 'qr_cart' && <ShoppingBag size={11} />}
+            {key === 'kds' && <Monitor size={11} />}
+            {key === 'receipt' && <UtensilsCrossed size={11} />}
+            <span className="text-[7px] font-black uppercase tracking-tighter truncate w-full text-center">
+              {label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 export function AdminPanel() {
   const { restId } = useParams();
@@ -116,12 +174,22 @@ export function AdminPanel() {
         supabase.from('menu_items')
           .select(`
             *,
-            product_groups (
+            display_behavior,
+            combo_groups (
               *,
-              product_group_items (
+              combo_group_items (
                 *,
-                menu_items (*)
+                child_product:menu_items (
+                  id,
+                  name,
+                  base_price,
+                  product_type
+                )
               )
+            ),
+            modifier_groups (
+              *,
+              modifiers!modifiers_group_id_fkey (*)
             )
           `)
           .eq('restaurant_id', restId),
@@ -131,12 +199,14 @@ export function AdminPanel() {
       if (restRes.error) throw restRes.error;
       
       if (itemsRes.error) {
-        console.warn("Complex items fetch failed in admin, falling back:", itemsRes.error);
-        const simpleRes = await supabase.from('menu_items')
+        console.error("Complex items fetch failed:", itemsRes.error);
+        // Attempt fallback to simple fetch
+        const { data: simpleData, error: simpleError } = await supabase.from('menu_items')
           .select('*')
           .eq('restaurant_id', restId);
-        if (simpleRes.error) throw simpleRes.error;
-        itemsRes.data = simpleRes.data;
+        
+        if (simpleError) throw simpleError;
+        itemsRes.data = simpleData;
       }
 
       if (restRes.data) {
@@ -166,19 +236,19 @@ export function AdminPanel() {
           isActive: i.is_active,
           status: i.status || 'Available',
           productType: (i.product_type || 'single') as ProductType,
-          groups: i.product_groups?.map((g: any) => ({
+          displayBehavior: i.display_behavior,
+          comboGroups: (i.combo_groups || []).map((g: any) => ({
             id: g.id,
-            productId: g.product_id,
+            productId: g.combo_product_id,
             name: g.name,
             description: g.description,
-            groupType: g.group_type,
             required: g.required,
             minSelect: g.min_select,
             maxSelect: g.max_select,
             displayBehavior: g.display_behavior,
             importance: g.importance as RenderImportance,
             sortOrder: g.sort_order,
-            items: g.product_group_items?.map((gi: any) => ({
+            items: (g.combo_group_items || []).map((gi: any) => ({
               id: gi.id,
               groupId: gi.group_id,
               childProductId: gi.child_product_id,
@@ -188,13 +258,35 @@ export function AdminPanel() {
               displayBehavior: gi.display_behavior,
               importance: gi.importance as RenderImportance,
               sortOrder: gi.sort_order,
-              childProduct: gi.menu_items ? {
-                id: gi.menu_items.id,
-                name: gi.menu_items.name,
-                basePrice: parseFloat(gi.menu_items.base_price || 0)
+              childProduct: gi.child_product ? {
+                id: gi.child_product.id,
+                name: gi.child_product.name,
+                basePrice: parseFloat(gi.child_product.base_price || 0),
+                productType: gi.child_product.product_type
               } : undefined
-            })) || []
-          })) || []
+            }))
+          })),
+          modifierGroups: (i.modifier_groups || []).map((g: any) => ({
+            id: g.id,
+            productId: g.product_id,
+            parentModifierId: g.parent_modifier_id,
+            name: g.name,
+            required: g.required,
+            minSelect: g.min_select,
+            maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            sortOrder: g.sort_order,
+            modifiers: (g.modifiers || []).map((m: any) => ({
+              id: m.id,
+              groupId: m.group_id,
+              name: m.name,
+              priceDelta: parseFloat(m.price_delta || 0),
+              isDefault: m.is_default,
+              renderImportance: m.render_importance as RenderImportance,
+              displayBehavior: m.display_behavior,
+              sortOrder: m.sort_order
+            }))
+          }))
         })));
       }
 
@@ -270,77 +362,6 @@ export function AdminPanel() {
     }
   };
 
-  const ensureModifierItems = async (groups: ProductGroup[]) => {
-    let modifierCat = categories.find(c => c.name.toUpperCase() === 'MODIFIERS');
-    let modCatId = modifierCat?.id;
-
-    if (!modCatId) {
-      const { data, error } = await supabase
-        .from('categories')
-        .insert({ 
-          restaurant_id: restId, 
-          name: 'MODIFIERS', 
-          sort_order: categories.length 
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      if (!data) throw new Error("Failed to create MODIFIERS category: No data returned");
-      modCatId = data.id;
-      // We don't update local categories state yet because we'll refetch or it's just for this save
-    }
-
-    const updatedGroups = [...groups];
-
-    for (let gIdx = 0; gIdx < updatedGroups.length; gIdx++) {
-      const group = updatedGroups[gIdx];
-      if (!group.items) continue;
-
-      const updatedItems = [...group.items];
-      for (let iIdx = 0; iIdx < updatedItems.length; iIdx++) {
-        const item = updatedItems[iIdx];
-        
-        if (item.customName && !item.childProductId) {
-          // Check if this modifier already exists in the MODIFIERS category
-          let existingMod = menuItems.find(mi => 
-            mi.name.toLowerCase() === item.customName?.toLowerCase() && 
-            mi.categoryId === modCatId
-          );
-
-          if (!existingMod) {
-            const { data, error } = await supabase
-              .from('menu_items')
-              .insert({
-                restaurant_id: restId,
-                category_id: modCatId,
-                name: item.customName.trim(),
-                price: 0,
-                base_price: 0,
-                is_active: true,
-                status: 'Available',
-                product_type: 'single'
-              })
-              .select()
-              .single();
-            
-            if (error) throw error;
-            if (!data) throw new Error("Failed to create modifier item: No data returned");
-            existingMod = data;
-          }
-
-          updatedItems[iIdx] = {
-            ...item,
-            childProductId: existingMod.id,
-            childProduct: existingMod as any
-          };
-        }
-      }
-      updatedGroups[gIdx] = { ...group, items: updatedItems };
-    }
-
-    return updatedGroups;
-  };
 
   const saveMenuItem = async () => {
     setSaveError(null);
@@ -359,9 +380,9 @@ export function AdminPanel() {
     if (!restId) return;
 
     // 🚀 Circular Dependency Protection
-    if (editingItem.productType === 'configurable' && editingItem.groups) {
+    if (editingItem.productType === 'combo' && editingItem.comboGroups) {
       if (hasCircularDependency(editingItem as Product, menuItems)) {
-        setSaveError("Configuration Error: Circular dependency detected. A product cannot be a modifier for itself (directly or indirectly).");
+        setSaveError("Configuration Error: Circular dependency detected. A product cannot be a child of itself (directly or indirectly).");
         return;
       }
     }
@@ -386,12 +407,6 @@ export function AdminPanel() {
         finalCategoryId = newCat.id;
       }
 
-      if (!finalCategoryId || finalCategoryId === 'CREATE_NEW') {
-        setSaveError("Please select or create a category.");
-        setLoading(false);
-        return;
-      }
-
       const itemData = {
         restaurant_id: restId,
         category_id: finalCategoryId,
@@ -407,49 +422,35 @@ export function AdminPanel() {
 
       let itemId = editingItem.id;
 
-      // Ensure modifier items exist before proceeding with groups
-      let groupsToSave = editingItem.groups || [];
-      if (editingItem.productType === 'configurable' && groupsToSave.length > 0) {
-        groupsToSave = await ensureModifierItems(groupsToSave);
-      }
-
       if (itemId) {
         const { error } = await supabase.from('menu_items').update(itemData).eq('id', itemId);
         if (error) throw error;
       } else {
         const { data, error } = await supabase.from('menu_items').insert(itemData).select().single();
         if (error) throw error;
-        if (!data) throw new Error("Failed to create menu item: No data returned");
         itemId = data.id;
       }
 
-      // Sync Groups and Items
-      if (itemId && editingItem.productType !== 'single') {
-        // 1. Clean up existing groups (cascade will handle product_group_items)
-        const { error: deleteError } = await supabase
-          .from('product_groups')
-          .delete()
-          .eq('product_id', itemId);
-        
-        if (deleteError) {
-          console.error("Failed to clear existing groups:", deleteError);
-          throw new Error("Failed to sync product groups: " + deleteError.message);
-        }
+      // Sync Combo Groups
+      if (itemId) {
+        // Clear old combos and modifiers for safety
+        await Promise.all([
+          supabase.from('combo_groups').delete().eq('combo_product_id', itemId),
+          supabase.from('modifier_groups').delete().eq('product_id', itemId)
+        ]);
 
-        // 2. Insert new groups and their items
-        if (groupsToSave && groupsToSave.length > 0) {
-          for (const group of groupsToSave) {
+        if (editingItem.productType === 'combo' && editingItem.comboGroups) {
+          for (const group of editingItem.comboGroups) {
             const { data: newGroup, error: groupError } = await supabase
-              .from('product_groups')
+              .from('combo_groups')
               .insert({
-                product_id: itemId,
+                combo_product_id: itemId,
                 name: group.name,
                 description: group.description,
-                group_type: group.groupType || 'required',
                 required: group.required,
                 min_select: group.minSelect || 0,
                 max_select: group.maxSelect || 1,
-                display_behavior: group.displayBehavior || 'only_if_changed',
+                display_behavior: group.displayBehavior || null,
                 importance: group.importance || 'normal',
                 sort_order: group.sortOrder || 0
               })
@@ -457,14 +458,13 @@ export function AdminPanel() {
               .single();
             
             if (groupError) throw groupError;
-            if (!newGroup) throw new Error("Failed to create product group: No data returned");
 
             if (group.items && group.items.length > 0) {
               const itemsToInsert = group.items
-                .filter(item => (item.childProductId && item.childProductId.trim() !== '') || (item.customName && item.customName.trim() !== ''))
+                .filter(item => item.childProductId)
                 .map((item, idx) => ({
                   group_id: newGroup.id,
-                  child_product_id: (item.childProductId && item.childProductId.trim() !== '') ? item.childProductId : null,
+                  child_product_id: item.childProductId,
                   custom_name: item.customName || null,
                   price_delta: item.priceDelta || 0,
                   default_selected: item.defaultSelected || false,
@@ -474,22 +474,53 @@ export function AdminPanel() {
                 }));
 
               if (itemsToInsert.length > 0) {
-                const { error: itemsError } = await supabase.from('product_group_items').insert(itemsToInsert);
-                if (itemsError) throw itemsError;
+                await supabase.from('combo_group_items').insert(itemsToInsert);
+              }
+            }
+          }
+        } else if (editingItem.productType === 'configurable' && editingItem.modifierGroups) {
+          for (const group of editingItem.modifierGroups) {
+            const { data: newGroup, error: groupError } = await supabase
+              .from('modifier_groups')
+              .insert({
+                product_id: itemId,
+                parent_modifier_id: group.parentModifierId || null,
+                name: group.name,
+                required: group.required,
+                min_select: group.minSelect || 0,
+                max_select: group.maxSelect || 1,
+                display_behavior: group.displayBehavior || null,
+                sort_order: group.sortOrder || 0
+              })
+              .select()
+              .single();
+            
+            if (groupError) throw groupError;
+
+            if (group.modifiers && group.modifiers.length > 0) {
+              const modifiersToInsert = group.modifiers.map((m, idx) => ({
+                group_id: newGroup.id,
+                name: m.name,
+                price_delta: m.priceDelta || 0,
+                is_default: m.isDefault || false,
+                render_importance: m.renderImportance || 'normal',
+                display_behavior: m.displayBehavior || null,
+                sort_order: m.sortOrder !== undefined ? m.sortOrder : idx
+              }));
+
+              if (modifiersToInsert.length > 0) {
+                await supabase.from('modifiers').insert(modifiersToInsert);
               }
             }
           }
         }
-      } else if (itemId && editingItem.productType === 'single') {
-        // Ensure groups are cleared for single items
-        await supabase.from('product_groups').delete().eq('product_id', itemId);
       }
       
       setEditingItem(null);
       await fetchData();
     } catch (err: any) {
       console.error("Save failed:", err);
-      setSaveError(err.message || "Failed to save dish. Please check your permissions.");
+      setSaveError(err.message || "Failed to save dish.");
     } finally {
       setLoading(false);
     }
@@ -618,7 +649,7 @@ export function AdminPanel() {
            <div className="flex justify-between items-center mb-8">
             <h2 className="text-xl font-black text-gray-900">Items List</h2>
             <button
-              onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', groups: [], productType: 'single' })}
+              onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', comboGroups: [], modifierGroups: [], productType: 'single' })}
               className="bg-gray-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-lg"
             >
               <Plus size={20} /> Add Dish
@@ -1143,21 +1174,37 @@ export function AdminPanel() {
                       <button 
                         type="button"
                         onClick={() => {
-                          const currentGroups = editingItem.groups || [];
-                          setEditingItem({ 
-                            ...editingItem, 
-                            groups: [...currentGroups, { 
-                              id: crypto.randomUUID(),
-                              productId: editingItem.id || '',
-                              name: editingItem.productType === 'combo' ? 'Choose 1 Side' : 'Sugar Level',
-                              groupType: 'required',
-                              required: true,
-                              minSelect: 1,
-                              maxSelect: 1,
-                              sortOrder: currentGroups.length,
-                              items: []
-                            }] 
-                          });
+                          if (editingItem.productType === 'combo') {
+                            const currentGroups = editingItem.comboGroups || [];
+                            setEditingItem({ 
+                              ...editingItem, 
+                              comboGroups: [...currentGroups, { 
+                                id: crypto.randomUUID(),
+                                productId: editingItem.id || '',
+                                name: 'New Section',
+                                required: true,
+                                minSelect: 1,
+                                maxSelect: 1,
+                                sortOrder: currentGroups.length,
+                                items: []
+                              }] 
+                            });
+                          } else {
+                            const currentGroups = editingItem.modifierGroups || [];
+                            setEditingItem({ 
+                              ...editingItem, 
+                              modifierGroups: [...currentGroups, { 
+                                id: crypto.randomUUID(),
+                                productId: editingItem.id || '',
+                                name: 'New Modifier Group',
+                                required: false,
+                                minSelect: 0,
+                                maxSelect: 1,
+                                sortOrder: currentGroups.length,
+                                modifiers: []
+                              }] 
+                            });
+                          }
                         }}
                         className={`text-xs font-black px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-sm ${
                           editingItem.productType === 'combo' 
@@ -1168,8 +1215,9 @@ export function AdminPanel() {
                         <Plus size={16} /> Add {editingItem.productType === 'combo' ? 'Selection' : 'Modifier'} Group
                       </button>
                     </div>
-                                   <div className="space-y-8">
-                      {editingItem.groups?.map((group, groupIdx) => (
+
+                    <div className="space-y-8">
+                      {(editingItem.productType === 'combo' ? editingItem.comboGroups : editingItem.modifierGroups)?.map((group, groupIdx) => (
                         <div key={groupIdx} className={`p-8 rounded-[2.5rem] border-2 transition-all ${
                           editingItem.productType === 'combo' 
                             ? 'bg-blue-50/30 border-blue-100/50 hover:border-blue-200' 
@@ -1182,9 +1230,15 @@ export function AdminPanel() {
                                 <input 
                                   value={group.name}
                                   onChange={e => {
-                                    const newGroups = [...(editingItem.groups || [])];
-                                    newGroups[groupIdx] = { ...newGroups[groupIdx], name: e.target.value };
-                                    setEditingItem({ ...editingItem, groups: newGroups });
+                                    if (editingItem.productType === 'combo') {
+                                      const newGroups = [...(editingItem.comboGroups || [])];
+                                      newGroups[groupIdx] = { ...newGroups[groupIdx], name: e.target.value };
+                                      setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                    } else {
+                                      const newGroups = [...(editingItem.modifierGroups || [])];
+                                      newGroups[groupIdx] = { ...newGroups[groupIdx], name: e.target.value };
+                                      setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                    }
                                   }}
                                   className="flex-1 bg-white px-5 py-3.5 rounded-2xl border-transparent focus:border-orange-500 focus:ring-0 font-black text-sm uppercase tracking-wider shadow-sm"
                                   placeholder={editingItem.productType === 'combo' ? "e.g. Choose your Side" : "e.g. Ice Level"}
@@ -1192,54 +1246,21 @@ export function AdminPanel() {
                               </div>
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                 <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Type</label>
-                                  <select 
-                                    value={group.groupType}
-                                    onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], groupType: e.target.value as any };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black uppercase tracking-wider shadow-sm"
-                                  >
-                                    <option value="required">Required</option>
-                                    <option value="optional">Optional</option>
-                                    <option value="nested">Nested</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-1.5">
                                   <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Display Mode</label>
-                                  <select 
-                                    value={group.displayBehavior || 'only_if_changed'}
-                                    onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], displayBehavior: e.target.value as any };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
+                                  <VisibilityManager 
+                                    value={group.displayBehavior}
+                                    onChange={val => {
+                                      if (editingItem.productType === 'combo') {
+                                        const newGroups = [...(editingItem.comboGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], displayBehavior: val };
+                                        setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                      } else {
+                                        const newGroups = [...(editingItem.modifierGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], displayBehavior: val };
+                                        setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                      }
                                     }}
-                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black uppercase tracking-wider shadow-sm"
-                                  >
-                                    <option value="always">Always Show</option>
-                                    <option value="only_if_changed">Show if Modified</option>
-                                    <option value="kitchen_only">Kitchen Only</option>
-                                    <option value="receipt_only">Receipt Only</option>
-                                    <option value="hidden">Hidden</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Importance</label>
-                                  <select 
-                                    value={group.importance || 'normal'}
-                                    onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], importance: e.target.value as any };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
-                                    }}
-                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black uppercase tracking-wider shadow-sm"
-                                  >
-                                    <option value="normal">Normal</option>
-                                    <option value="critical">Critical (All Alerts)</option>
-                                    <option value="silent">Silent (Hide Defaults)</option>
-                                  </select>
+                                  />
                                 </div>
                                 <div className="space-y-1.5">
                                   <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Min Select</label>
@@ -1247,9 +1268,15 @@ export function AdminPanel() {
                                     type="number"
                                     value={group.minSelect}
                                     onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
+                                      if (editingItem.productType === 'combo') {
+                                        const newGroups = [...(editingItem.comboGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
+                                        setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                      } else {
+                                        const newGroups = [...(editingItem.modifierGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
+                                        setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                      }
                                     }}
                                     className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
                                   />
@@ -1260,9 +1287,15 @@ export function AdminPanel() {
                                     type="number"
                                     value={group.maxSelect}
                                     onChange={e => {
-                                      const newGroups = [...(editingItem.groups || [])];
-                                      newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
-                                      setEditingItem({ ...editingItem, groups: newGroups });
+                                      if (editingItem.productType === 'combo') {
+                                        const newGroups = [...(editingItem.comboGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
+                                        setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                      } else {
+                                        const newGroups = [...(editingItem.modifierGroups || [])];
+                                        newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
+                                        setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                      }
                                     }}
                                     className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
                                   />
@@ -1272,8 +1305,13 @@ export function AdminPanel() {
                             <button 
                               type="button"
                               onClick={() => {
-                                const newGroups = (editingItem.groups || []).filter((_, i) => i !== groupIdx);
-                                setEditingItem({ ...editingItem, groups: newGroups });
+                                if (editingItem.productType === 'combo') {
+                                  const newGroups = (editingItem.comboGroups || []).filter((_, i) => i !== groupIdx);
+                                  setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                } else {
+                                  const newGroups = (editingItem.modifierGroups || []).filter((_, i) => i !== groupIdx);
+                                  setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                }
                               }}
                               className="p-4 text-gray-300 hover:text-red-500 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all mt-1"
                             >
@@ -1287,52 +1325,51 @@ export function AdminPanel() {
                             </label>
                             
                             <div className="grid gap-2">
-                              {group.items?.map((item, itemIdx) => (
+                              {(editingItem.productType === 'combo' ? (group as ComboGroup).items : (group as ModifierGroup).modifiers)?.map((item: any, itemIdx) => (
                                 <div key={itemIdx} className="flex gap-3 items-start bg-white p-4 rounded-3xl shadow-sm border border-gray-50 group/item">
                                   <div className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-300 group-hover/item:text-orange-500 transition-colors mt-1">
                                     {itemIdx + 1}
                                   </div>
                                   <div className="flex-1 space-y-2.5">
                                     <div className="flex gap-2 items-center">
-                                      {editingItem.productType === 'configurable' && !item.childProductId ? (
-                                        <input 
-                                          value={item.customName || ''}
-                                          onChange={e => {
-                                            const newGroups = [...(editingItem.groups || [])];
-                                            const newItems = [...(newGroups[groupIdx].items || [])];
-                                            newItems[itemIdx] = {
-                                              ...newItems[itemIdx],
-                                              customName: e.target.value
-                                            };
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, groups: newGroups });
-                                          }}
-                                          className="flex-1 bg-white border border-purple-100 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm"
-                                          placeholder="Modifier Name (e.g. 50% Sugar)"
-                                        />
-                                      ) : (
+                                      {editingItem.productType === 'combo' ? (
                                         <select
                                           value={item.childProductId || ''}
                                           onChange={e => {
-                                            const newGroups = [...(editingItem.groups || [])];
+                                            const newGroups = [...(editingItem.comboGroups || [])];
                                             const newItems = [...(newGroups[groupIdx].items || [])];
                                             const child = menuItems.find(mi => mi.id === e.target.value);
                                             newItems[itemIdx] = {
                                               ...newItems[itemIdx],
                                               childProductId: e.target.value,
-                                              childProduct: child,
-                                              customName: undefined
+                                              childProduct: child as any
                                             };
                                             newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
                                           }}
                                           className="flex-1 bg-gray-50 px-4 py-2.5 rounded-xl border-transparent text-[11px] font-black uppercase tracking-wider"
                                         >
-                                          <option value="">{editingItem.productType === 'combo' ? 'Choose Item...' : 'Link to Item...'}</option>
+                                          <option value="">Choose Item...</option>
                                           {menuItems.filter(mi => mi.id !== editingItem.id).map(mi => (
                                             <option key={mi.id} value={mi.id}>{mi.name}</option>
                                           ))}
                                         </select>
+                                      ) : (
+                                        <input 
+                                          value={item.name || ''}
+                                          onChange={e => {
+                                            const newGroups = [...(editingItem.modifierGroups || [])];
+                                            const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                            newModifiers[itemIdx] = {
+                                              ...newModifiers[itemIdx],
+                                              name: e.target.value
+                                            };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                          }}
+                                          className="flex-1 bg-white border border-purple-100 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm"
+                                          placeholder="Modifier Name (e.g. 50% Sugar)"
+                                        />
                                       )}
 
                                       <div className="relative w-24 shrink-0">
@@ -1342,47 +1379,39 @@ export function AdminPanel() {
                                           value={item.priceDelta}
                                           step="0.1"
                                           onChange={e => {
-                                            const newGroups = [...(editingItem.groups || [])];
-                                            const newItems = [...(newGroups[groupIdx].items || [])];
-                                            newItems[itemIdx] = {
-                                              ...newItems[itemIdx],
-                                              priceDelta: parseFloat(e.target.value) || 0
-                                            };
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, groups: newGroups });
+                                            if (editingItem.productType === 'combo') {
+                                              const newGroups = [...(editingItem.comboGroups || [])];
+                                              const newItems = [...(newGroups[groupIdx].items || [])];
+                                              newItems[itemIdx] = { ...newItems[itemIdx], priceDelta: parseFloat(e.target.value) || 0 };
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                              setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                            } else {
+                                              const newGroups = [...(editingItem.modifierGroups || [])];
+                                              const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                              newModifiers[itemIdx] = { ...newModifiers[itemIdx], priceDelta: parseFloat(e.target.value) || 0 };
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                              setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                            }
                                           }}
                                           className="w-full bg-gray-50 pl-8 pr-3 py-2.5 rounded-xl border-transparent text-xs font-mono font-black text-orange-600"
                                           placeholder="0.00"
                                         />
                                       </div>
 
-                                      {editingItem.productType === 'configurable' && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const newGroups = [...(editingItem.groups || [])];
-                                            const newItems = [...(newGroups[groupIdx].items || [])];
-                                            if (item.childProductId) {
-                                              newItems[itemIdx] = { ...newItems[itemIdx], childProductId: undefined, customName: item.childProduct?.name || '' };
-                                            } else {
-                                              newItems[itemIdx] = { ...newItems[itemIdx], childProductId: '' };
-                                            }
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, groups: newGroups });
-                                          }}
-                                          className="p-2.5 bg-gray-50 text-gray-400 hover:text-purple-600 rounded-xl transition-colors shrink-0"
-                                          title={item.childProductId ? "Switch to Manual Name" : "Switch to Linked Item"}
-                                        >
-                                          <RefreshCw size={14} />
-                                        </button>
-                                      )}
                                       <button 
                                         type="button"
                                         onClick={() => {
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = (newGroups[groupIdx].items || []).filter((_, i) => i !== itemIdx);
-                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
+                                          if (editingItem.productType === 'combo') {
+                                            const newGroups = [...(editingItem.comboGroups || [])];
+                                            const newItems = (newGroups[groupIdx].items || []).filter((_, i) => i !== itemIdx);
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                          } else {
+                                            const newGroups = [...(editingItem.modifierGroups || [])];
+                                            const newModifiers = (newGroups[groupIdx].modifiers || []).filter((_, i) => i !== itemIdx);
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                          }
                                         }}
                                         className="p-2.5 text-gray-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all shrink-0"
                                       >
@@ -1393,57 +1422,73 @@ export function AdminPanel() {
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = [...(newGroups[groupIdx].items || [])];
-                                          const isSingleSelect = group.maxSelect === 1;
-                                          if (isSingleSelect) {
-                                            newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
+                                          if (editingItem.productType === 'combo') {
+                                            const newGroups = [...(editingItem.comboGroups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            if (group.maxSelect === 1) {
+                                              newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
+                                            } else {
+                                              newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
+                                            }
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
                                           } else {
-                                            newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
+                                            const newGroups = [...(editingItem.modifierGroups || [])];
+                                            const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                            if (group.maxSelect === 1) {
+                                              newModifiers.forEach((it, i) => it.isDefault = i === itemIdx);
+                                            } else {
+                                              newModifiers[itemIdx] = { ...newModifiers[itemIdx], isDefault: !item.isDefault };
+                                            }
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                           }
-                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
                                         }}
                                         className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 shrink-0 ${
-                                          item.defaultSelected 
+                                          (item.defaultSelected || item.isDefault)
                                             ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
                                             : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
                                         }`}
                                       >
                                         Default
                                       </button>
+                                      <div className="w-48 shrink-0">
+                                        <label className="text-[7px] font-black uppercase text-gray-400 ml-1 mb-1 block">Context Visibility</label>
+                                        <VisibilityManager
+                                          value={item.displayBehavior}
+                                          onChange={val => {
+                                            if (editingItem.productType === 'combo') {
+                                              const newGroups = [...(editingItem.comboGroups || [])];
+                                              const newItems = [...(newGroups[groupIdx].items || [])];
+                                              newItems[itemIdx] = { ...newItems[itemIdx], displayBehavior: val };
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                              setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                            } else {
+                                              const newGroups = [...(editingItem.modifierGroups || [])];
+                                              const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                              newModifiers[itemIdx] = { ...newModifiers[itemIdx], displayBehavior: val };
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                              setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                            }
+                                          }}
+                                        />
+                                      </div>
                                       <select
-                                        value={item.displayBehavior || ''}
+                                        value={(item.importance || item.renderImportance) || ''}
                                         onChange={e => {
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = [...(newGroups[groupIdx].items || [])];
-                                          newItems[itemIdx] = { 
-                                            ...newItems[itemIdx], 
-                                            displayBehavior: (e.target.value || undefined) as any 
-                                          };
-                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
-                                        }}
-                                        className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
-                                        title="Display Behavior"
-                                      >
-                                        <option value="">Visibility</option>
-                                        <option value="always">Always</option>
-                                        <option value="only_if_changed">Change</option>
-                                        <option value="hidden">Hide</option>
-                                        <option value="kitchen_only">Kitchen</option>
-                                      </select>
-                                      <select
-                                        value={item.importance || ''}
-                                        onChange={e => {
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const newItems = [...(newGroups[groupIdx].items || [])];
-                                          newItems[itemIdx] = { 
-                                            ...newItems[itemIdx], 
-                                            importance: (e.target.value || undefined) as any 
-                                          };
-                                          newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
+                                          if (editingItem.productType === 'combo') {
+                                            const newGroups = [...(editingItem.comboGroups || [])];
+                                            const newItems = [...(newGroups[groupIdx].items || [])];
+                                            newItems[itemIdx] = { ...newItems[itemIdx], importance: (e.target.value || undefined) as any };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                          } else {
+                                            const newGroups = [...(editingItem.modifierGroups || [])];
+                                            const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                            newModifiers[itemIdx] = { ...newModifiers[itemIdx], renderImportance: (e.target.value || undefined) as any };
+                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                          }
                                         }}
                                         className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
                                         title="Importance"
@@ -1463,19 +1508,36 @@ export function AdminPanel() {
                               <button 
                                 type="button"
                                 onClick={() => {
-                                  const newGroups = [...(editingItem.groups || [])];
-                                  const group = newGroups[groupIdx];
-                                  const items = group.items || [];
-                                  const newItems = [...items, { 
-                                    id: crypto.randomUUID(), 
-                                    groupId: group.id || '', 
-                                    childProductId: '', 
-                                    priceDelta: 0, 
-                                    defaultSelected: false, 
-                                    sortOrder: items.length 
-                                  }];
-                                  newGroups[groupIdx] = { ...group, items: newItems };
-                                  setEditingItem({ ...editingItem, groups: newGroups });
+                                  if (editingItem.productType === 'combo') {
+                                    const newGroups = [...(editingItem.comboGroups || [])];
+                                    const group = newGroups[groupIdx];
+                                    const items = group.items || [];
+                                    const newItems = [...items, { 
+                                      id: crypto.randomUUID(), 
+                                      groupId: group.id || '', 
+                                      childProductId: '', 
+                                      priceDelta: 0, 
+                                      defaultSelected: false, 
+                                      sortOrder: items.length 
+                                    }];
+                                    newGroups[groupIdx] = { ...group, items: newItems };
+                                    setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                  } else {
+                                    const newGroups = [...(editingItem.modifierGroups || [])];
+                                    const group = newGroups[groupIdx];
+                                    const modifiers = group.modifiers || [];
+                                    const newModifiers = [...modifiers, { 
+                                      id: crypto.randomUUID(), 
+                                      groupId: group.id || '', 
+                                      name: '', 
+                                      priceDelta: 0, 
+                                      isDefault: false, 
+                                      sortOrder: modifiers.length,
+                                      renderImportance: 'normal' as RenderImportance
+                                    }];
+                                    newGroups[groupIdx] = { ...group, modifiers: newModifiers };
+                                    setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                  }
                                 }}
                                 className={`flex-1 py-3 rounded-2xl border-2 border-dashed transition-all text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 ${
                                   editingItem.productType === 'combo'
@@ -1483,36 +1545,37 @@ export function AdminPanel() {
                                     : 'border-purple-100 text-purple-400 hover:border-purple-400 hover:text-purple-600 bg-purple-50/20'
                                 }`}
                               >
-                                <Plus size={16} /> Add Option
+                                <Plus size={16} /> Add {editingItem.productType === 'combo' ? 'Option' : 'Modifier'}
                               </button>
                               
-                                  {editingItem.productType === 'configurable' && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const input = window.prompt("Enter modifiers separated by commas or new lines (e.g. No Sugar, Less Sugar, Full Sugar)");
-                                        if (input) {
-                                          const names = input.split(/[,\n]/).map(n => n.trim()).filter(n => n.length > 0);
-                                          const newGroups = [...(editingItem.groups || [])];
-                                          const items = newGroups[groupIdx].items || [];
-                                          const newItems = [...items, ...names.map((name, i) => ({
-                                            id: crypto.randomUUID(),
-                                            groupId: group.id || '',
-                                            customName: name,
-                                            priceDelta: 0,
-                                            defaultSelected: false,
-                                            sortOrder: items.length + i
-                                          }))];
-                                          newGroups[groupIdx] = { ...group, items: newItems };
-                                          setEditingItem({ ...editingItem, groups: newGroups });
-                                        }
-                                      }}
-                                      className="h-full px-4 rounded-2xl bg-gray-900 text-white hover:bg-black transition-all shadow-lg flex items-center justify-center"
-                                      title="Quick add modifiers (e.g. Sugar levels)"
-                                    >
-                                      <Zap size={16} />
-                                    </button>
-                                  )}
+                              {editingItem.productType === 'configurable' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const input = window.prompt("Enter modifiers separated by commas or new lines (e.g. No Sugar, Less Sugar, Full Sugar)");
+                                    if (input) {
+                                      const names = input.split(/[,\n]/).map(n => n.trim()).filter(n => n.length > 0);
+                                      const newGroups = [...(editingItem.modifierGroups || [])];
+                                      const modifiers = newGroups[groupIdx].modifiers || [];
+                                      const newModifiers = [...modifiers, ...names.map((name, i) => ({
+                                        id: crypto.randomUUID(),
+                                        groupId: group.id || '',
+                                        name: name,
+                                        priceDelta: 0,
+                                        isDefault: false,
+                                        sortOrder: modifiers.length + i,
+                                        renderImportance: 'normal' as RenderImportance
+                                      }))];
+                                      newGroups[groupIdx] = { ...group, modifiers: newModifiers };
+                                      setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                    }
+                                  }}
+                                  className="h-full px-4 rounded-2xl bg-gray-900 text-white hover:bg-black transition-all shadow-lg flex items-center justify-center"
+                                  title="Quick add modifiers (e.g. Sugar levels)"
+                                >
+                                  <Zap size={16} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>

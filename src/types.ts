@@ -35,7 +35,16 @@ export type MenuItemStatus = 'Available' | 'Low Stock' | 'Out of Stock' | 'Pause
 
 export type ProductType = 'single' | 'combo' | 'configurable';
 export type GroupType = 'required' | 'optional' | 'nested';
-export type DisplayBehavior = 'always' | 'only_if_changed' | 'hidden' | 'kitchen_only' | 'receipt_only';
+
+export interface VisibilityFlags {
+  menu_listing: boolean;
+  product_configurator: boolean;
+  qr_cart: boolean;
+  kds: boolean;
+  receipt: boolean;
+}
+
+export type DisplayBehavior = 'always' | 'only_if_changed' | 'hidden' | 'kitchen_only' | 'receipt_only' | { visible_in: VisibilityFlags };
 export type RenderImportance = 'critical' | 'normal' | 'silent';
 
 export interface ProductGroupItem {
@@ -72,6 +81,57 @@ export interface TranslationMapping {
   [languageCode: string]: string;
 }
 
+export interface ComboGroupItem {
+  id: string;
+  groupId: string;
+  childProductId: string;
+  customName?: string;
+  priceDelta: number;
+  defaultSelected: boolean;
+  displayBehavior?: DisplayBehavior;
+  importance?: RenderImportance;
+  sortOrder: number;
+  childProduct?: Product;
+}
+
+export interface ComboGroup {
+  id: string;
+  productId: string;
+  name: string;
+  description?: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  displayBehavior?: DisplayBehavior;
+  importance?: RenderImportance;
+  sortOrder: number;
+  items?: ComboGroupItem[];
+}
+
+export interface Modifier {
+  id: string;
+  groupId: string;
+  name: string;
+  priceDelta: number;
+  isDefault: boolean;
+  renderImportance: RenderImportance;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+}
+
+export interface ModifierGroup {
+  id: string;
+  productId?: string;
+  parentModifierId?: string;
+  name: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+  modifiers?: Modifier[];
+}
+
 export interface Product {
   id: string;
   restaurantId: string;
@@ -84,7 +144,10 @@ export interface Product {
   isActive: boolean;
   productType: ProductType;
   status: MenuItemStatus;
-  groups?: ProductGroup[];
+  displayBehavior?: DisplayBehavior;
+  comboGroups?: ComboGroup[];
+  modifierGroups?: ModifierGroup[];
+  groups?: ProductGroup[]; // Legacy / Shared
   options?: MenuOption[]; // Legacy
   translations?: Record<string, TranslationMapping>; // field -> { lang -> value }
 }
@@ -93,12 +156,15 @@ export type MenuItem = Product;
 
 // Selection state for the engine
 export interface SelectedGroupItem {
-  groupItemId: string;
-  productId: string;
+  id: string; // The ID of the selection (combo item or modifier)
+  modifierId?: string; // If it's a modifier
+  comboItemId?: string; // If it's a combo item
+  groupItemId?: string; // Backward compatibility
+  productId?: string;   // For combos, this is the child product.
   name: string;
   priceDelta: number;
   nestedSelections?: Record<string, SelectedGroupItem[]>; // Recursive
-  childProduct?: Product; // Snapshot of the child product for validation and display
+  childProduct?: Product; // For combos
 }
 
 export interface ProductSelection {

@@ -29,29 +29,34 @@ export const validateSelection = (product: Product, selection: ProductSelection)
   const errors: string[] = [];
 
   const checkGroups = (currentProduct: Product | undefined, currentSelections: Record<string, SelectedGroupItem[]>) => {
-    if (!currentProduct?.groups) return;
+    if (!currentProduct) return;
 
-    currentProduct.groups.forEach(group => {
+    // Handle both new structures and legacy groups
+    const allGroups = [
+      ...(currentProduct.groups || []),
+      ...(currentProduct.comboGroups || []),
+      ...(currentProduct.modifierGroups || [])
+    ];
+
+    if (allGroups.length === 0) return;
+
+    allGroups.forEach(group => {
       const selectedItems = currentSelections[group.id] || [];
       const count = selectedItems.length;
 
-      // Only validate required groups if they are "active" in the current product context
       if (group.required && count === 0) {
         errors.push(`${currentProduct.name}: ${group.name} is required.`);
       }
 
-      if (count < group.minSelect) {
-        errors.push(`${currentProduct.name}: ${group.name} requires at least ${group.minSelect} selections.`);
+      if (count < (group as any).minSelect) {
+        errors.push(`${currentProduct.name}: ${group.name} requires at least ${(group as any).minSelect} selections.`);
       }
 
-      if (count > group.maxSelect) {
-        errors.push(`${currentProduct.name}: ${group.name} allows at most ${group.maxSelect} selections.`);
+      if (count > (group as any).maxSelect) {
+        errors.push(`${currentProduct.name}: ${group.name} allows at most ${(group as any).maxSelect} selections.`);
       }
 
-      // Recursively check nested selections ONLY for items that are actually selected
       selectedItems.forEach(item => {
-        // We need the child product definition to validate its groups
-        // In the UI, this is often passed down. In the engine, we look at the item.childProduct
         if (item.nestedSelections && item.childProduct) {
           checkGroups(item.childProduct, item.nestedSelections);
         }

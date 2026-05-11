@@ -9,14 +9,19 @@ export const hasCircularDependency = (
   allProducts: Product[],
   visited: Set<string> = new Set()
 ): boolean => {
-  if (!rootProduct.groups) return false;
+  const groupsToStyles = [
+    ...(rootProduct.groups || []),
+    ...(rootProduct.comboGroups || [])
+  ];
+
+  if (groupsToStyles.length === 0) return false;
   
   if (visited.has(rootProduct.id)) return true;
   visited.add(rootProduct.id);
 
-  for (const group of rootProduct.groups) {
-    if (!group.items) continue;
-    for (const item of group.items) {
+  for (const group of groupsToStyles) {
+    if (!(group as any).items) continue;
+    for (const item of (group as any).items) {
       if (item.childProductId) {
         const childProduct = allProducts.find(p => p.id === item.childProductId);
         if (childProduct) {
