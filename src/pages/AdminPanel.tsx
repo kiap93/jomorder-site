@@ -1244,7 +1244,7 @@ export function AdminPanel() {
                                   placeholder={editingItem.productType === 'combo' ? "e.g. Choose your Side" : "e.g. Ice Level"}
                                 />
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div className="space-y-4">
                                 <div className="space-y-1.5">
                                   <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Display Mode</label>
                                   <VisibilityManager 
@@ -1262,43 +1262,45 @@ export function AdminPanel() {
                                     }}
                                   />
                                 </div>
-                                <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Min Select</label>
-                                  <input 
-                                    type="number"
-                                    value={group.minSelect}
-                                    onChange={e => {
-                                      if (editingItem.productType === 'combo') {
-                                        const newGroups = [...(editingItem.comboGroups || [])];
-                                        newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
-                                        setEditingItem({ ...editingItem, comboGroups: newGroups });
-                                      } else {
-                                        const newGroups = [...(editingItem.modifierGroups || [])];
-                                        newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
-                                        setEditingItem({ ...editingItem, modifierGroups: newGroups });
-                                      }
-                                    }}
-                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
-                                  />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Max Select</label>
-                                  <input 
-                                    type="number"
-                                    value={group.maxSelect}
-                                    onChange={e => {
-                                      if (editingItem.productType === 'combo') {
-                                        const newGroups = [...(editingItem.comboGroups || [])];
-                                        newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
-                                        setEditingItem({ ...editingItem, comboGroups: newGroups });
-                                      } else {
-                                        const newGroups = [...(editingItem.modifierGroups || [])];
-                                        newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
-                                        setEditingItem({ ...editingItem, modifierGroups: newGroups });
-                                      }
-                                    }}
-                                    className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
-                                  />
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Min Select</label>
+                                    <input 
+                                      type="number"
+                                      value={group.minSelect}
+                                      onChange={e => {
+                                        if (editingItem.productType === 'combo') {
+                                          const newGroups = [...(editingItem.comboGroups || [])];
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
+                                          setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                        } else {
+                                          const newGroups = [...(editingItem.modifierGroups || [])];
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], minSelect: parseInt(e.target.value) || 0 };
+                                          setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                        }
+                                      }}
+                                      className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Max Select</label>
+                                    <input 
+                                      type="number"
+                                      value={group.maxSelect}
+                                      onChange={e => {
+                                        if (editingItem.productType === 'combo') {
+                                          const newGroups = [...(editingItem.comboGroups || [])];
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
+                                          setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                        } else {
+                                          const newGroups = [...(editingItem.modifierGroups || [])];
+                                          newGroups[groupIdx] = { ...newGroups[groupIdx], maxSelect: parseInt(e.target.value) || 1 };
+                                          setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                        }
+                                      }}
+                                      className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -1418,41 +1420,8 @@ export function AdminPanel() {
                                         <X size={16} />
                                       </button>
                                     </div>
-                                    <div className="flex gap-2 items-center flex-wrap">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (editingItem.productType === 'combo') {
-                                            const newGroups = [...(editingItem.comboGroups || [])];
-                                            const newItems = [...(newGroups[groupIdx].items || [])];
-                                            if (group.maxSelect === 1) {
-                                              newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
-                                            } else {
-                                              newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
-                                            }
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
-                                          } else {
-                                            const newGroups = [...(editingItem.modifierGroups || [])];
-                                            const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
-                                            if (group.maxSelect === 1) {
-                                              newModifiers.forEach((it, i) => it.isDefault = i === itemIdx);
-                                            } else {
-                                              newModifiers[itemIdx] = { ...newModifiers[itemIdx], isDefault: !item.isDefault };
-                                            }
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
-                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
-                                          }
-                                        }}
-                                        className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 shrink-0 ${
-                                          (item.defaultSelected || item.isDefault)
-                                            ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
-                                            : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
-                                        }`}
-                                      >
-                                        Default
-                                      </button>
-                                      <div className="w-48 shrink-0">
+                                    <div className="space-y-3 pt-2">
+                                      <div className="w-full">
                                         <label className="text-[7px] font-black uppercase text-gray-400 ml-1 mb-1 block">Context Visibility</label>
                                         <VisibilityManager
                                           value={item.displayBehavior}
@@ -1473,31 +1442,69 @@ export function AdminPanel() {
                                           }}
                                         />
                                       </div>
-                                      <select
-                                        value={(item.importance || item.renderImportance) || ''}
-                                        onChange={e => {
-                                          if (editingItem.productType === 'combo') {
-                                            const newGroups = [...(editingItem.comboGroups || [])];
-                                            const newItems = [...(newGroups[groupIdx].items || [])];
-                                            newItems[itemIdx] = { ...newItems[itemIdx], importance: (e.target.value || undefined) as any };
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
-                                            setEditingItem({ ...editingItem, comboGroups: newGroups });
-                                          } else {
-                                            const newGroups = [...(editingItem.modifierGroups || [])];
-                                            const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
-                                            newModifiers[itemIdx] = { ...newModifiers[itemIdx], renderImportance: (e.target.value || undefined) as any };
-                                            newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
-                                            setEditingItem({ ...editingItem, modifierGroups: newGroups });
-                                          }
-                                        }}
-                                        className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
-                                        title="Importance"
-                                      >
-                                        <option value="">Imp.</option>
-                                        <option value="normal">Norm</option>
-                                        <option value="critical">Crit</option>
-                                        <option value="silent">Sile</option>
-                                      </select>
+                                      <div className="flex gap-3 items-end w-full">
+                                        <div className="shrink-0">
+                                          <label className="text-[7px] font-black uppercase text-gray-400 ml-1 mb-1 block">Importance</label>
+                                          <select
+                                            value={(item.importance || item.renderImportance) || ''}
+                                            onChange={e => {
+                                              if (editingItem.productType === 'combo') {
+                                                const newGroups = [...(editingItem.comboGroups || [])];
+                                                const newItems = [...(newGroups[groupIdx].items || [])];
+                                                newItems[itemIdx] = { ...newItems[itemIdx], importance: (e.target.value || undefined) as any };
+                                                newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                                setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                              } else {
+                                                const newGroups = [...(editingItem.modifierGroups || [])];
+                                                const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], renderImportance: (e.target.value || undefined) as any };
+                                                newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                                setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                              }
+                                            }}
+                                            className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
+                                            title="Importance"
+                                          >
+                                            <option value="">Imp.</option>
+                                            <option value="normal">Norm</option>
+                                            <option value="critical">Crit</option>
+                                            <option value="silent">Sile</option>
+                                          </select>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (editingItem.productType === 'combo') {
+                                              const newGroups = [...(editingItem.comboGroups || [])];
+                                              const newItems = [...(newGroups[groupIdx].items || [])];
+                                              if (group.maxSelect === 1) {
+                                                newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
+                                              } else {
+                                                newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
+                                              }
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
+                                              setEditingItem({ ...editingItem, comboGroups: newGroups });
+                                            } else {
+                                              const newGroups = [...(editingItem.modifierGroups || [])];
+                                              const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
+                                              if (group.maxSelect === 1) {
+                                                newModifiers.forEach((it, i) => it.isDefault = i === itemIdx);
+                                              } else {
+                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], isDefault: !item.isDefault };
+                                              }
+                                              newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
+                                              setEditingItem({ ...editingItem, modifierGroups: newGroups });
+                                            }
+                                          }}
+                                          className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 flex-1 h-[34px] flex items-center justify-center ${
+                                            (item.defaultSelected || item.isDefault)
+                                              ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
+                                              : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
+                                          }`}
+                                        >
+                                          {(item.defaultSelected || item.isDefault) ? 'Default' : 'Set Default'}
+                                        </button>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
