@@ -31,6 +31,9 @@ export function CustomerMenu() {
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
   const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}`));
+  const [diningSession, setDiningSession] = useState<{ id: string; token: string } | null>(null);
+
+  const isPreviewMode = tableId === 'preview' || tableId === 'default';
 
   const languages: { code: LanguageCode, label: string }[] = [
     { code: 'en', label: 'English' },
@@ -116,8 +119,29 @@ export function CustomerMenu() {
       setError(null);
       
       try {
+        // Resolve Dining Session if not in preview mode
+        let currentSession = null;
+        if (!isPreviewMode && tableId && tableId !== 'default') {
+          const { data: sessionData, error: sessionError } = await supabase
+            .rpc('resolve_dining_session', {
+              p_restaurant_id: restId,
+              p_table_id: tableId,
+              p_device_info: navigator.userAgent
+            });
+
+          if (sessionError) {
+            console.error("Session resolution failed:", sessionError);
+          } else if (sessionData && sessionData[0]) {
+            currentSession = {
+              id: sessionData[0].session_id,
+              token: sessionData[0].token
+            };
+            setDiningSession(currentSession);
+          }
+        }
+
         const fetchPromise = Promise.all([
-          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).single(),
+          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
           supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
           supabase.from('menu_items')
             .select(`
@@ -147,12 +171,14 @@ export function CustomerMenu() {
             `)
             .eq('restaurant_id', restId)
             .eq('is_active', true),
-          tableId !== 'default' && tableId ? supabase.from('tables').select('*').eq('id', tableId).single() : Promise.resolve({ data: null, error: null })
+          tableId !== 'default' && tableId ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle() : Promise.resolve({ data: null, error: null })
         ]);
 
         const [restRes, catsRes, itemsRes, tableRes] = await fetchPromise;
 
         if (restRes.error) throw restRes.error;
+        if (!restRes.data) throw new Error("Restaurant not found. Please check the URL.");
+        
         if (catsRes.error) throw catsRes.error;
         
         // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
@@ -469,6 +495,7 @@ export function CustomerMenu() {
         .insert({
           restaurant_id: restId,
           table_id: tableId,
+          session_id: diningSession?.id,
           order_type: orderType,
           status: 'pending',
           total_price: total,
@@ -499,20 +526,20 @@ export function CustomerMenu() {
   if (loading) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white gap-4">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Loading Menu...</p>
+      <p className="text-zinc-500 font-semibold text-[10px] uppercase tracking-wider animate-pulse">Loading Menu...</p>
     </div>
   );
 
   if (error) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white p-8 text-center">
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6">
-        <AlertCircle size={40} />
+        <AlertCircle size={32} />
       </div>
-      <h2 className="text-2xl font-black text-gray-900 mb-2">Oops! Something went wrong</h2>
-      <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
+      <h2 className="text-xl font-bold text-zinc-900 mb-2">Something went wrong</h2>
+      <p className="text-zinc-500 font-medium text-sm mb-8 max-w-xs mx-auto">{error}</p>
       <button 
         onClick={() => window.location.reload()}
-        className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl"
+        className="bg-zinc-900 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-black transition-all shadow-lg"
       >
         Try Again
       </button>
@@ -565,106 +592,100 @@ export function CustomerMenu() {
   //   );
   // }
 
-  const isPreviewMode = tableId === 'default';
-
   return (
     <div className="max-w-md mx-auto bg-white min-h-screen pb-32">
       {/* Preview Mode Banner */}
       {isPreviewMode && (
-        <div className="bg-zinc-900 text-white py-4 px-6 flex items-center justify-center gap-3 sticky top-0 z-[60]">
-          <ShoppingBag size={16} className="text-orange-500" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em]">Preview Mode Only</span>
+        <div className="bg-zinc-900 text-white py-2.5 px-6 flex items-center justify-center gap-2 sticky top-0 z-[60]">
+          <ShoppingBag size={14} className="text-orange-500" />
+          <span className="text-[9px] font-bold uppercase tracking-wider">Preview Mode</span>
         </div>
       )}
-      {/* Language Shell */}
-      <div className="bg-gray-50/50 px-6 py-2 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-gray-400">
-          <Globe size={12} strokeWidth={2.5} />
-          <span className="text-[10px] font-black uppercase tracking-widest leading-none">Language</span>
-        </div>
-        <div className="flex gap-4">
-          {languages.map(lang => (
-            <button
-              key={lang.code}
-              onClick={() => setCurrentLanguage(lang.code)}
-              className={`text-[10px] font-black uppercase tracking-[0.1em] transition-all relative ${
-                currentLanguage === lang.code ? 'text-orange-600 after:absolute after:-bottom-2 after:left-0 after:right-0 after:h-0.5 after:bg-orange-600' : 'text-gray-300 hover:text-gray-500'
-              }`}
-            >
-              {lang.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Table Status Bar */}
-      <AnimatePresence>
-        {table?.status === 'occupied' && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="bg-orange-600 text-white overflow-hidden py-3 px-6 flex items-center justify-center gap-2"
-          >
-            <AlertCircle size={14} className="animate-pulse" />
-            <span className="text-[10px] font-black uppercase tracking-[0.1em]">This table is currently marked as OCCUPIED</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md p-6 border-b border-gray-100">
-        <div className="flex justify-between items-start mb-6">
+      <header className="sticky top-0 z-40 bg-white border-b border-zinc-100">
+        <div className="px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tighter">{restaurant?.name}</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Table {table?.name || tableId}</span>
-              <span className="text-gray-400 text-xs font-medium">Ordering now</span>
-            </div>
+            <h1 className="text-lg font-bold text-zinc-900 leading-tight">
+              {restaurant?.name}
+            </h1>
+            <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2">
+              Table {table?.name || tableId}
+              {!isPreviewMode && diningSession && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-bold tracking-wider">
+                  <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+                  SECURED
+                </span>
+              )}
+            </p>
           </div>
-          <button className="bg-gray-100 p-2.5 rounded-2xl text-gray-400">
-            <Info size={20} />
-          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="dropdown dropdown-end">
+              <button className="p-2 rounded-xl bg-zinc-100 text-zinc-600">
+                <Globe size={18} />
+              </button>
+              <ul className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-32 mt-2 border border-zinc-100">
+                {languages.map(lang => (
+                  <li key={lang.code}>
+                    <button 
+                      onClick={() => setCurrentLanguage(lang.code)}
+                      className={`text-xs font-medium ${currentLanguage === lang.code ? 'text-orange-600 bg-orange-50' : 'text-zinc-600'}`}
+                    >
+                      {lang.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <button className="p-2 rounded-xl bg-zinc-100 text-zinc-600">
+              <Info size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
-        <div className="relative mb-6">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input
-            type="text"
-            placeholder="Search for dishes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-gray-50 border-none rounded-2xl py-4 pl-12 pr-4 font-bold text-sm focus:ring-2 focus:ring-orange-500/20 transition-all"
-          />
+        <div className="px-4 pb-3">
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+            />
+            <input
+              type="text"
+              placeholder="Search dishes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-10 pl-10 pr-4 rounded-xl bg-zinc-100 text-sm font-medium outline-none border border-transparent focus:bg-white focus:border-zinc-200 focus:ring-2 focus:ring-orange-100 placeholder:text-zinc-400 transition-all"
+            />
+          </div>
         </div>
 
         {/* Categories Bar */}
-        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto px-4 pb-3 scrollbar-hide">
           <button
             onClick={() => setSelectedCategory('all')}
-            className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap transition-all ${
-              selectedCategory === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            className={`px-3 h-8 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              selectedCategory === 'all' ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-600'
             }`}
           >
-            ALL DISHES
+            All
           </button>
           {categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap transition-all ${
-                selectedCategory === cat.id ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              className={`px-3 h-8 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                selectedCategory === cat.id ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-600'
               }`}
             >
-              {cat.name.toUpperCase()}
+              {cat.name}
             </button>
           ))}
         </div>
       </header>
 
       {/* Menu Grid */}
-      <div className="p-4 space-y-4">
+      <div className="px-4 py-4 space-y-3">
         {filteredItems.map(item => (
           <motion.div
             layout
@@ -677,45 +698,41 @@ export function CustomerMenu() {
               setSelectedItemForDetail(item);
               initializeSelection(item);
             }}
-            className="bg-white border border-gray-100 rounded-[2rem] p-4 flex gap-4 hover:shadow-lg hover:shadow-orange-100/20 transition-all group cursor-pointer"
+            className="bg-white border border-zinc-100 rounded-2xl p-3 flex gap-3 hover:shadow-md transition-all group cursor-pointer"
           >
-            <div className="w-24 h-24 rounded-2xl bg-gray-50 flex-shrink-0 overflow-hidden relative">
+            <div className="w-20 h-20 rounded-xl bg-zinc-50 flex-shrink-0 overflow-hidden relative border border-zinc-100">
               {item.imageUrl ? (
                 <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-200">
-                  <ShoppingBag size={30} />
+                <div className="w-full h-full flex items-center justify-center text-zinc-200">
+                  <ShoppingBag size={24} />
                 </div>
               )}
               {item.status !== 'Available' && (
-                <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-1">
-                  <p className="text-[7px] text-center font-black text-white uppercase tracking-[0.15em]">{item.status}</p>
+                <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-0.5">
+                  <p className="text-[8px] text-center font-bold text-white uppercase tracking-wider">{item.status}</p>
                 </div>
               )}
             </div>
-            <div className={`flex-1 flex flex-col pt-1 ${(item.status === 'Out of Stock' || item.status === 'Paused') ? 'opacity-50' : ''}`}>
-              <div className="flex justify-between items-start mb-1">
-                <h3 className="font-bold text-gray-800 leading-tight">{item.name}</h3>
-                {item.status === 'Low Stock' && <span className="text-[8px] bg-yellow-100 text-yellow-700 font-black px-1.5 py-0.5 rounded-full uppercase ml-2 flex-shrink-0">Low</span>}
+            <div className={`flex-1 flex flex-col justify-center min-w-0 ${(item.status === 'Out of Stock' || item.status === 'Paused') ? 'opacity-50' : ''}`}>
+              <div className="flex justify-between items-start">
+                <h3 className="text-sm font-semibold text-zinc-900 truncate leading-snug">{item.name}</h3>
+                {item.status === 'Low Stock' && <span className="text-[7px] bg-yellow-50 text-yellow-600 font-bold px-1.5 py-0.5 rounded-full border border-yellow-100 ml-2">LOW</span>}
               </div>
-              <p className="text-[10px] text-gray-400 line-clamp-2 mb-2 font-medium">{item.description}</p>
-              <div className="mt-auto flex justify-between items-center">
-                <span className="font-black text-orange-600 text-sm">RM {item.price.toFixed(2)}</span>
+              <p className="text-[11px] text-zinc-500 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
+              <div className="mt-2.5 flex justify-between items-center">
+                <span className="text-sm font-bold text-orange-600">RM {item.price.toFixed(2)}</span>
                 
                 {(item.status === 'Out of Stock' || item.status === 'Paused' || isPreviewMode) ? (
-                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-2 rounded-xl">
-                    {isPreviewMode ? 'View Only' : 'Unavailable'}
-                  </div>
+                  <span className="text-[10px] font-bold text-zinc-400">
+                    {isPreviewMode ? 'View' : 'Sold Out'}
+                  </span>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {item.productType !== 'single' && (
-                      <span className="text-[8px] font-black text-gray-300 uppercase tracking-widest">
-                        {item.productType === 'combo' ? 'Bundle' : 'Custom'}
-                      </span>
-                    )}
                     {cart.some(i => i.menuItemId === item.id) ? (
-                      <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-2 py-1">
-                        <span className="text-[9px] font-black">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)}</span>
+                      <div className="flex items-center gap-2.5 bg-zinc-100 rounded-lg px-2 py-1">
+                        <span className="text-[11px] font-bold text-zinc-900">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)}</span>
+                        <div className="w-px h-3 bg-zinc-200" />
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -726,7 +743,7 @@ export function CustomerMenu() {
                             setSelectedItemForDetail(item);
                             initializeSelection(item);
                           }} 
-                          className="p-1 text-gray-500 hover:text-orange-600 font-black"
+                          className="text-zinc-600 hover:text-orange-600"
                         >
                           <Plus size={14} />
                         </button>
@@ -742,14 +759,10 @@ export function CustomerMenu() {
                           setSelectedItemForDetail(item);
                           initializeSelection(item);
                         }}
-                        className={`p-2 rounded-xl transition-all shadow-sm flex items-center gap-2 ${
-                          item.productType === 'single' 
-                            ? 'bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white' 
-                            : 'bg-gray-900 text-white hover:bg-black'
-                        }`}
+                        className="h-8 px-3 rounded-lg bg-orange-500 text-white text-xs font-semibold flex items-center gap-1 shadow-sm shadow-orange-500/20 active:scale-95 transition-all"
                       >
-                        <Plus size={18} />
-                        {item.productType !== 'single' && <span className="text-[10px] font-black uppercase tracking-wider pr-1">Customize</span>}
+                        <Plus size={14} />
+                        Add
                       </button>
                     )}
                   </div>
@@ -760,198 +773,165 @@ export function CustomerMenu() {
         ))}
       </div>
 
-      {/* Item Detail Configurator */}
+      {/* Item Detail Configurator (Bottom Sheet Style) */}
       <AnimatePresence>
         {selectedItemForDetail && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex flex-col md:max-w-md md:mx-auto h-[100dvh]"
-          >
-            {/* Header / Hero */}
-            <div className="relative h-[35vh] shrink-0 overflow-hidden">
-              <motion.button
-                onClick={() => setSelectedItemForDetail(null)}
-                className="absolute top-6 left-6 z-20 bg-white/10 backdrop-blur-md p-3 rounded-2xl text-white hover:bg-white/20 border border-white/10"
-                whileTap={{ scale: 0.9 }}
-              >
-                <X size={24} />
-              </motion.button>
-              
-              {selectedItemForDetail.imageUrl ? (
-                <img 
-                  src={selectedItemForDetail.imageUrl} 
-                  className="w-full h-full object-cover opacity-60"
-                  alt={selectedItemForDetail.name}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-800">
-                  <ShoppingBag size={100} strokeWidth={1} />
-                </div>
-              )}
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedItemForDetail(null)}
+              className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-x-0 bottom-0 z-[101] bg-white rounded-t-[2rem] flex flex-col md:max-w-md md:mx-auto h-[90vh] shadow-2xl overflow-hidden"
+            >
+              {/* Close Handle */}
+              <div className="w-12 h-1 bg-zinc-200 rounded-full mx-auto my-3 shrink-0" />
 
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-              
-              <div className="absolute bottom-8 left-8 right-8 text-white">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="bg-orange-500 text-white text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-[0.2em] shadow-[0_0_15px_rgba(249,115,22,0.4)]">
-                    {selectedItemForDetail.productType}
-                  </span>
-                  {selectedItemForDetail.status !== 'Available' && (
-                    <span className="bg-zinc-800 text-zinc-400 text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-[0.2em] border border-white/5">
-                      {selectedItemForDetail.status}
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto scrollbar-hide pb-32">
+                <div className="relative h-48 sm:h-56 shrink-0">
+                  {selectedItemForDetail.imageUrl ? (
+                    <img 
+                      src={selectedItemForDetail.imageUrl} 
+                      className="w-full h-full object-cover"
+                      alt={selectedItemForDetail.name}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-50 text-zinc-200">
+                      <ShoppingBag size={64} strokeWidth={1} />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setSelectedItemForDetail(null)}
+                    className="absolute top-4 right-4 bg-white/80 backdrop-blur shadow-md p-2 rounded-full text-zinc-600 hover:text-zinc-900"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="px-5 pt-5">
+                  <div className="flex justify-between items-start mb-1">
+                    <h2 className="text-xl font-bold text-zinc-900 leading-tight">{selectedItemForDetail.name}</h2>
+                    <span className="text-lg font-bold text-orange-600">
+                      {restaurant?.currency}{selectedItemForDetail.price.toFixed(2)}
                     </span>
+                  </div>
+                  <p className="text-zinc-500 text-sm leading-relaxed mb-6">{selectedItemForDetail.description}</p>
+                  
+                  <div className="h-px bg-zinc-100 mb-8" />
+
+                  {selectionState ? (
+                    <ProductConfigurator 
+                      product={selectedItemForDetail} 
+                      selection={selectionState} 
+                      onChange={setSelectionState}
+                      currency={restaurant?.currency || 'RM'}
+                    />
+                  ) : (
+                    <div className="text-center py-10 text-zinc-400 font-medium text-xs">
+                      No customization available
+                    </div>
                   )}
                 </div>
-                <h2 className="text-4xl font-black tracking-tight leading-none mb-2">{selectedItemForDetail.name}</h2>
-                <p className="text-zinc-500 text-xs font-medium line-clamp-2">{selectedItemForDetail.description}</p>
-              </div>
-            </div>
-
-            {/* Configurator Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-8 space-y-10 scrollbar-hide">
-              <div className="flex justify-between items-center bg-white/[0.03] border border-white/[0.05] p-5 rounded-[2rem]">
-                <div>
-                  <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Configuration Total</p>
-                  <p className="text-2xl font-black text-white leading-none">
-                    <span className="text-base opacity-40 font-bold mr-1">{restaurant?.currency || 'RM'}</span>
-                    {selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end">
-                  <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-1">Base Price</p>
-                  <p className="text-sm font-bold text-zinc-400">{restaurant?.currency} {selectedItemForDetail.price.toFixed(2)}</p>
-                </div>
               </div>
 
-              {selectionState ? (
-                <ProductConfigurator 
-                  product={selectedItemForDetail} 
-                  selection={selectionState} 
-                  onChange={setSelectionState}
-                  currency={restaurant?.currency || 'RM'}
-                />
-              ) : (
-                <div className="text-center py-20 text-zinc-700 font-black uppercase tracking-widest text-xs">
-                  Simple product (no options)
-                </div>
-              )}
-            </div>
+              {/* Footer */}
+              <div className="absolute bottom-0 inset-x-0 p-5 bg-white border-t border-zinc-100 flex items-center gap-3">
+                {(() => {
+                  const validation = selectionState ? validateSelection(selectedItemForDetail, selectionState) : { isValid: true, errors: [] };
+                  const isValid = validation.isValid;
+                  const cartIndex = selectionState ? getCartItemIndex(selectedItemForDetail.id, undefined, selectionState) : -1;
+                  const quantity = cartIndex > -1 ? cart[cartIndex].quantity : 0;
 
-            {/* Footer */}
-            <div className="p-6 bg-black/60 backdrop-blur-2xl border-t border-white/5">
-              {isPreviewMode ? (
-                <button
-                  onClick={() => setSelectedItemForDetail(null)}
-                  className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] hover:bg-zinc-200 transition-all shadow-xl"
-                >
-                  Close Preview
-                </button>
-              ) : (() => {
-                const validation = selectionState ? validateSelection(selectedItemForDetail, selectionState) : { isValid: true, errors: [] };
-                const isValid = validation.isValid;
-                const cartIndex = selectionState ? getCartItemIndex(selectedItemForDetail.id, undefined, selectionState) : -1;
-                const quantity = cartIndex > -1 ? cart[cartIndex].quantity : 0;
-
-                return (
-                  <div className="space-y-4">
-                    {!isValid && (
-                      <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-start gap-3">
-                        <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Attention Required</p>
-                          <div className="space-y-0.5">
-                            {validation.errors.map((err, i) => (
-                              <p key={i} className="text-xs text-white/70 font-medium">{err}</p>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {quantity > 0 ? (
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1 flex items-center justify-between bg-white/5 border border-white/10 p-2 rounded-[2.5rem]">
+                  return (
+                    <div className="w-full flex gap-3">
+                      {quantity > 0 ? (
+                        <div className="flex-1 flex h-12 bg-zinc-100 rounded-xl items-center justify-between px-1">
                           <button 
                             onClick={() => updateQuantity(cartIndex, -1)}
-                            className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-red-500/20 hover:text-red-500 transition-all font-black"
+                            className="w-10 h-10 rounded-lg flex items-center justify-center text-zinc-600 hover:bg-white hover:text-red-500 transition-all font-bold"
                           >
-                            <Minus size={24} />
+                            <Minus size={18} />
                           </button>
                           <div className="text-center">
-                            <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">In Basket</p>
-                            <p className="text-2xl font-black text-white">{quantity}</p>
+                            <span className="text-sm font-bold text-zinc-900">{quantity}</span>
+                            <span className="text-[10px] text-zinc-500 block -mt-1 font-medium">In Cart</span>
                           </div>
                           <button 
                             onClick={() => updateQuantity(cartIndex, 1)}
-                            className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-orange-500/20 hover:text-orange-500 transition-all font-black"
+                            className="w-10 h-10 rounded-lg flex items-center justify-center text-zinc-600 hover:bg-white hover:text-orange-500 transition-all font-bold"
                           >
-                            <Plus size={24} />
+                            <Plus size={18} />
                           </button>
                         </div>
+                      ) : (
                         <button
-                          onClick={() => setSelectedItemForDetail(null)}
-                          className="bg-white text-black px-10 h-18 rounded-[2.5rem] font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-all shadow-xl"
+                          disabled={!isValid}
+                          onClick={() => {
+                            if (selectionState) {
+                              addToCart(selectedItemForDetail, selectionState);
+                            } else if (selectedItemForDetail.productType === 'single') {
+                              addToCart(selectedItemForDetail, { productId: selectedItemForDetail.id, selections: {} });
+                            }
+                          }}
+                          className={`flex-1 h-12 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] ${
+                            isValid 
+                              ? 'bg-orange-500 text-white shadow-orange-500/10' 
+                              : 'bg-zinc-100 text-zinc-400 cursor-not-allowed shadow-none'
+                          }`}
                         >
-                          Done
+                          {isValid ? <Plus size={18} /> : <AlertCircle size={18} />}
+                          {isValid ? `Add to Basket • ${restaurant?.currency}${selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}` : 'Incomplete'}
                         </button>
-                      </div>
-                    ) : (
+                      )}
+                      
                       <button
-                        disabled={!isValid}
-                        onClick={() => {
-                          if (selectionState) {
-                            addToCart(selectedItemForDetail, selectionState);
-                          } else if (selectedItemForDetail.productType === 'single') {
-                            addToCart(selectedItemForDetail, { productId: selectedItemForDetail.id, selections: {} });
-                          }
-                        }}
-                        className={`w-full py-7 rounded-[2.5rem] font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98] ${
-                          isValid 
-                            ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20' 
-                            : 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
-                        }`}
+                        onClick={() => setSelectedItemForDetail(null)}
+                        className="w-12 h-12 rounded-xl border border-zinc-200 flex items-center justify-center text-zinc-400 hover:text-zinc-900 transition-colors"
                       >
-                        {isValid ? <Plus size={24} strokeWidth={3} /> : <AlertCircle size={24} />}
-                        {isValid 
-                          ? (selectedItemForDetail.productType === 'single' ? 'Add to Basket' : `Add to Basket • ${restaurant?.currency}${selectionState ? calculateSelectionPrice(selectedItemForDetail, selectionState).toFixed(2) : selectedItemForDetail.price.toFixed(2)}`)
-                          : 'Incomplete Selection'}
+                        <Check size={20} />
                       </button>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          </motion.div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
-      {/* Cart Navigation Bar */}
+      {/* Cart Navigation Bar (Minimal Floating Pill) */}
       <AnimatePresence>
         {cart.length > 0 && !isReviewingOrder && !isPreviewMode && (
           <motion.div
-            initial={{ y: 100 }}
-            animate={{ y: 0 }}
-            exit={{ y: 100 }}
-            className="fixed bottom-8 left-4 right-4 z-50"
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            className="fixed bottom-6 left-4 right-4 z-50 flex justify-center"
           >
             <button
               onClick={() => setIsReviewingOrder(true)}
-              className="w-full bg-gray-900 text-white p-6 rounded-[2.5rem] shadow-2xl flex items-center justify-between group hover:bg-black transition-all"
+              className="w-full max-w-sm bg-zinc-900 text-white h-14 rounded-2xl shadow-xl shadow-zinc-900/20 flex items-center justify-between px-4 group hover:bg-black transition-all"
             >
-              <div className="flex items-center gap-4">
-                <div className="bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="bg-orange-500 text-white w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold">
                   {cart.reduce((a, b) => a + b.quantity, 0)}
                 </div>
                 <div className="text-left">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">View Basket</p>
-                  <p className="text-lg font-black tracking-tight">RM {subtotal.toFixed(2)}</p>
+                  <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">View basket</p>
+                  <p className="text-sm font-bold">RM {subtotal.toFixed(2)}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black uppercase tracking-widest bg-white/10 px-4 py-2 rounded-full">Checkout</span>
-                <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+              <div className="flex items-center gap-1 py-1 pl-4 border-l border-zinc-800">
+                <span className="text-sm font-semibold pr-1">Checkout</span>
+                <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
               </div>
             </button>
           </motion.div>
@@ -962,128 +942,135 @@ export function CustomerMenu() {
       <AnimatePresence>
         {isReviewingOrder && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-white flex flex-col"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-0 z-[102] bg-zinc-50 flex flex-col"
           >
-            <header className="p-6 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0">
+            <header className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
               <button 
                 onClick={() => setIsReviewingOrder(false)}
-                className="p-2 bg-gray-50 rounded-2xl text-gray-400 hover:text-gray-900 transition-colors"
+                className="p-2 rounded-xl bg-zinc-100 text-zinc-600 hover:text-zinc-900"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
-              <h2 className="text-xl font-black text-gray-900">Your Order</h2>
-              <div className="w-10" /> {/* Spacer */}
+              <h2 className="text-base font-bold text-zinc-900">Checkout</h2>
+              <div className="w-10" />
             </header>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
               {/* Order Type Selector */}
-              <div className="grid grid-cols-2 gap-3 p-1.5 bg-gray-100 rounded-[2rem]">
+              <div className="flex p-1 bg-zinc-100 rounded-xl">
                 <button
                   onClick={() => setOrderType('dine-in')}
-                  className={`py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest transition-all ${
-                    orderType === 'dine-in' ? 'bg-white shadow-md text-gray-900' : 'text-gray-400'
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                    orderType === 'dine-in' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500'
                   }`}
                 >
-                  🧍 Dine In
+                  Dine In
                 </button>
                 <button
                   onClick={() => setOrderType('takeaway')}
-                  className={`py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest transition-all ${
-                    orderType === 'takeaway' ? 'bg-white shadow-md text-gray-900' : 'text-gray-400'
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                    orderType === 'takeaway' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500'
                   }`}
                 >
-                  🚶 Takeaway
+                  Takeaway
                 </button>
               </div>
 
-              <div className="space-y-4">
-                {cart.map((item, index) => (
-                  <div key={index} className="flex gap-4 items-start pb-4 border-b border-gray-50 last:border-0">
-                    <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 font-bold">
-                      {item.quantity}x
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <h4 className="font-bold text-gray-900 leading-tight">{item.name}</h4>
-                        <span className="font-black text-sm text-gray-900">RM {(item.price * item.quantity).toFixed(2)}</span>
+              <div className="bg-white rounded-2xl border border-zinc-100 overflow-hidden">
+                <div className="p-4 border-b border-zinc-100 bg-zinc-50/50">
+                  <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Order Summary</h3>
+                </div>
+                <div className="divide-y divide-zinc-50">
+                  {cart.map((item, index) => (
+                    <div key={index} className="p-4 flex gap-3 items-start">
+                      <div className="w-6 h-6 bg-orange-50 text-orange-600 rounded flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5">
+                        {item.quantity}x
                       </div>
-                      {item.smartRenderedLines?.customer ? (
-                        <div className="mt-1 space-y-0.5">
-                          {item.smartRenderedLines.customer.map((line, i) => (
-                            <p key={i} className="text-[10px] text-zinc-400 font-bold leading-tight">{line}</p>
-                          ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start gap-2">
+                          <h4 className="text-sm font-semibold text-zinc-900 leading-tight truncate">{item.name}</h4>
+                          <span className="text-sm font-bold text-zinc-900 shrink-0">RM {(item.price * item.quantity).toFixed(2)}</span>
                         </div>
-                      ) : item.selection ? (
-                        <div className="mt-1 space-y-0.5">
-                          {flattenSelections(item.selection).map((line, i) => (
-                            <p key={i} className="text-[10px] text-zinc-400 font-bold leading-tight">{line}</p>
-                          ))}
-                        </div>
-                      ) : item.options.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {item.options.map((opt, i) => (
-                            <span key={i} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">
-                              {opt.optionName}: {opt.valueName}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-4 mt-3">
-                        <div className="flex items-center gap-3 bg-gray-100 rounded-xl px-2 py-1">
-                          <button onClick={() => updateQuantity(index, -1)} className="p-1 text-gray-500 hover:text-red-500"><Minus size={14} /></button>
-                          <span className="text-xs font-black">{item.quantity}</span>
-                          <button onClick={() => updateQuantity(index, 1)} className="p-1 text-gray-500 hover:text-orange-600"><Plus size={14} /></button>
+                        {item.smartRenderedLines?.customer ? (
+                          <div className="mt-1 space-y-0.5">
+                            {item.smartRenderedLines.customer.map((line, i) => (
+                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight">{line}</p>
+                            ))}
+                          </div>
+                        ) : item.selection ? (
+                          <div className="mt-1 space-y-0.5">
+                            {flattenSelections(item.selection).map((line, i) => (
+                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight">{line}</p>
+                            ))}
+                          </div>
+                        ) : null}
+                        
+                        <div className="flex items-center gap-3 mt-3">
+                          <button 
+                            onClick={() => updateQuantity(index, -1)}
+                            className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-500 hover:text-red-500"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="text-sm font-bold text-zinc-900">{item.quantity}</span>
+                          <button 
+                            onClick={() => updateQuantity(index, 1)}
+                            className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-500 hover:text-orange-600"
+                          >
+                            <Plus size={14} />
+                          </button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
-              <div className="bg-orange-50 rounded-[2.5rem] p-8 space-y-4">
-                <div className="flex justify-between text-sm font-bold text-gray-500">
+              <div className="bg-white rounded-2xl border border-zinc-100 p-4 space-y-3">
+                <div className="flex justify-between text-xs font-medium text-zinc-500">
                   <span>Subtotal</span>
-                  <span>RM {subtotal.toFixed(2)}</span>
+                  <span className="text-zinc-900">RM {subtotal.toFixed(2)}</span>
                 </div>
                 {serviceCharge > 0 && (
-                  <div className="flex justify-between text-sm font-bold text-gray-500">
+                  <div className="flex justify-between text-xs font-medium text-zinc-500">
                     <span>Service Charge ({(restaurant?.serviceCharge || 0) * 100}%)</span>
-                    <span>RM {serviceCharge.toFixed(2)}</span>
+                    <span className="text-zinc-900">RM {serviceCharge.toFixed(2)}</span>
                   </div>
                 )}
                 {sst > 0 && (
-                  <div className="flex justify-between text-sm font-bold text-gray-500">
+                  <div className="flex justify-between text-xs font-medium text-zinc-500">
                     <span>SST ({(restaurant?.sst || 0) * 100}%)</span>
-                    <span>RM {sst.toFixed(2)}</span>
+                    <span className="text-zinc-900">RM {sst.toFixed(2)}</span>
                   </div>
                 )}
-                <div className="pt-4 border-t-2 border-orange-200 flex justify-between items-center">
-                  <span className="text-xl font-black text-gray-900 uppercase tracking-tighter">Total</span>
-                  <span className="text-2xl font-black text-orange-600">RM {total.toFixed(2)}</span>
+                <div className="pt-3 border-t border-zinc-100 flex justify-between items-center">
+                  <span className="text-sm font-bold text-zinc-900">Order Total</span>
+                  <span className="text-lg font-bold text-orange-600">RM {total.toFixed(2)}</span>
                 </div>
               </div>
               
-              <div className="p-4 flex gap-3 text-start bg-gray-50 rounded-2xl">
-                <Info className="text-gray-400 shrink-0" size={20} />
-                <p className="text-[11px] font-bold text-gray-400 leading-relaxed">
-                  Your order will be sent to the kitchen once you confirm. You can pay at the counter later.
+              <div className="p-3.5 flex gap-3 bg-blue-50/50 rounded-xl border border-blue-100">
+                <Info className="text-blue-500 shrink-0" size={18} />
+                <p className="text-[11px] font-medium text-blue-700 leading-relaxed">
+                  Your order will be sent to the kitchen. Payment can be made at the counter during or after your meal.
                 </p>
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-100 bg-white">
+            <div className="p-4 bg-white border-t border-zinc-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
               <button
                 onClick={confirmOrder}
                 disabled={loading || cart.length === 0}
-                className="w-full bg-gray-900 text-white py-6 rounded-[2rem] font-bold text-xl hover:bg-black transition-all shadow-2xl disabled:bg-gray-400 disabled:shadow-none relative overflow-hidden"
+                className="w-full h-14 bg-orange-600 text-white rounded-xl font-bold text-base hover:bg-orange-700 transition-all flex items-center justify-center shadow-lg shadow-orange-600/20 disabled:bg-zinc-200 disabled:text-zinc-400 disabled:shadow-none transition-all"
               >
                 {loading ? (
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
                 ) : (
-                  "Confirm & Order Now"
+                  "Place Order"
                 )}
               </button>
             </div>

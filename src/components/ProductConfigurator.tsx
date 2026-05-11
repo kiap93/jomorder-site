@@ -100,7 +100,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
   const visibleGroups = allGroups.filter(g => !shouldHideForCustomer(g.displayBehavior)) || [];
 
   return (
-    <div className={`space-y-8 ${depth > 0 ? 'mt-6 border-l border-white/10 ml-1 pl-2 relative' : 'relative'}`}>
+    <div className={`space-y-8 ${depth > 0 ? 'mt-4 border-l border-zinc-100 ml-1 pl-4 relative' : 'relative'}`}>
       {visibleGroups.sort((a, b) => a.sortOrder - b.sortOrder).map(group => {
         const selectedCount = selection.selections[group.id]?.length || 0;
         const isSatisfied = selectedCount >= group.minSelect;
@@ -113,41 +113,37 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
         const visibleItems = items.filter((i: any) => !shouldHideForCustomer(i.displayBehavior, group.displayBehavior)) || [];
 
         return (
-          <section key={group.id} className="space-y-4 group/section overflow-hidden">
-            <div className="flex justify-between items-end relative gap-2">
+          <section key={group.id} className="space-y-3">
+            <div className="flex justify-between items-start">
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className={`font-black tracking-[0.2em] uppercase transition-all duration-500 truncate ${
-                    depth > 0 ? 'text-[9px] text-zinc-500' : 'text-[11px] text-zinc-100'
-                  } ${!isSatisfied ? 'text-orange-500' : ''}`}>
+                <div className="flex items-center gap-2">
+                  <h3 className={`font-bold transition-all truncate ${
+                    depth > 0 ? 'text-sm text-zinc-600' : 'text-base text-zinc-900'
+                  }`}>
                     {group.name}
                   </h3>
                   {group.required && !isSatisfied && (
-                    <motion.span 
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="text-[7px] bg-orange-500/10 text-orange-500 px-2 py-0.5 rounded border border-orange-500/20 font-black uppercase tracking-widest shadow-[0_0_10px_rgba(249,115,22,0.1)] shrink-0"
-                    >
+                    <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full border border-orange-100 font-bold shrink-0">
                       Required
-                    </motion.span>
+                    </span>
                   )}
                 </div>
-                <p className="text-zinc-600 text-[8px] font-black uppercase tracking-[0.1em] truncate">
+                <p className="text-zinc-500 text-[11px] font-medium mt-0.5">
                   {group.minSelect === group.maxSelect 
-                    ? `Selection Mandatory (${group.minSelect})` 
-                    : `Selection Range: ${group.minSelect}-${group.maxSelect}`}
+                    ? `Pick ${group.minSelect}` 
+                    : `Pick up to ${group.maxSelect}`}
                 </p>
               </div>
-              <div className="text-right shrink-0">
-                <span className={`text-[9px] font-black tracking-widest px-2.5 py-1 rounded-full tabular-nums transition-all ${
-                   isSatisfied ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-500 border border-white/5'
+              <div className="shrink-0 pt-1">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg transition-all ${
+                   isSatisfied ? 'bg-emerald-50 text-emerald-600' : 'bg-zinc-100 text-zinc-400'
                 }`}>
-                  {selectedCount} <span className="opacity-30">/</span> {group.maxSelect}
+                  {selectedCount}/{group.maxSelect}
                 </span>
               </div>
             </div>
 
-            <div className={`grid gap-2 ${depth === 0 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+            <div className="grid gap-2 grid-cols-1">
               {visibleItems.sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((item: any) => {
                 const isSelected = (selection.selections[group.id] || []).some(i => i.id === item.id || i.groupItemId === item.id);
                 const isMaxReached = selectedCount >= group.maxSelect && !isSelected && group.maxSelect > 1;
@@ -155,66 +151,53 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
                 const selectedItemState = (selection.selections[group.id] || []).find(i => i.id === item.id || i.groupItemId === item.id);
 
                 return (
-                  <div key={item.id} className={`${(group.maxSelect === 1 && depth === 0) ? 'col-span-full' : ''} space-y-2 min-w-0`}>
+                  <div key={item.id} className="space-y-2">
                     <button
                       disabled={isMaxReached}
                       onClick={() => toggleItem(group, item, group.type)}
-                      className={`w-full group/btn relative flex items-center justify-between p-3 rounded-xl border transition-all duration-300 active:scale-[0.98] ${
+                      className={`w-full relative flex items-center justify-between p-3.5 rounded-xl border transition-all active:scale-[0.98] ${
                         isSelected 
-                          ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_10px_20px_rgba(0,0,0,0.2)] z-10' 
+                          ? 'bg-orange-50/50 border-orange-200 ring-1 ring-orange-200' 
                           : isMaxReached 
-                            ? 'bg-zinc-900/50 border-zinc-900 opacity-20 grayscale cursor-not-allowed'
-                            : 'bg-zinc-900/40 border-white/5 hover:bg-zinc-900 hover:border-white/10'
+                            ? 'bg-zinc-50 border-zinc-100 opacity-40 cursor-not-allowed'
+                            : 'bg-white border-zinc-100 hover:border-zinc-200 shadow-sm'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all duration-500 shrink-0 ${
-                          isSelected ? 'bg-zinc-900 border-zinc-900' : 'bg-zinc-800 border-white/10'
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                          isSelected ? 'bg-orange-500 border-orange-500' : 'bg-white border-zinc-200'
                         }`}>
-                          <AnimatePresence mode="wait">
-                            {isSelected ? (
-                              <motion.div
-                                initial={{ scale: 0, rotate: -45 }}
-                                animate={{ scale: 1, rotate: 0 }}
-                                exit={{ scale: 0, rotate: 45 }}
-                                key="check"
-                              >
-                                <Check size={10} className="text-zinc-100 underline-offset-4" strokeWidth={4} />
-                              </motion.div>
-                            ) : (
-                              <div key="empty" className="w-0.5 h-0.5 rounded-full bg-white/10" />
-                            )}
-                          </AnimatePresence>
+                          {isSelected && <Check size={12} className="text-white" strokeWidth={4} />}
                         </div>
                         <div className="text-left min-w-0">
-                          <p className={`font-black text-[10px] transition-colors tracking-wider uppercase break-words leading-tight ${isSelected ? 'text-zinc-900' : 'text-zinc-400'}`}>
-                            {item.name || item.customName || item.childProduct?.name || 'Standard Selection'}
+                          <p className={`text-sm font-semibold transition-colors truncate ${isSelected ? 'text-zinc-900' : 'text-zinc-700'}`}>
+                            {item.name || item.customName || item.childProduct?.name || 'Option'}
                           </p>
                           {item.priceDelta !== 0 && (
-                            <p className={`text-[8px] font-black tabular-nums tracking-tighter ${isSelected ? 'text-zinc-500' : 'text-zinc-600'}`}>
-                              {item.priceDelta > 0 ? 'ADD +' : 'LESS -'}{currency}{Math.abs(item.priceDelta).toFixed(2)}
+                            <p className={`text-xs font-bold ${isSelected ? 'text-orange-600' : 'text-zinc-400'}`}>
+                              {item.priceDelta > 0 ? '+' : '-'}{currency}{Math.abs(item.priceDelta).toFixed(2)}
                             </p>
                           )}
                         </div>
                       </div>
                       
-                      {isSelected && (item.childProduct?.groups || item.childProduct?.modifierGroups) && (
-                         <div className="bg-zinc-900 p-1 rounded-full text-white shrink-0 ml-2">
-                           <ChevronRight size={10} strokeWidth={3} className="rotate-90" />
+                      {isSelected && (item.childProduct?.groups || item.childProduct?.modifierGroups || item.childProduct?.comboGroups) && (
+                         <div className="bg-orange-500 p-1 rounded-lg text-white shrink-0 ml-2">
+                           <ChevronRight size={14} strokeWidth={3} className="rotate-90" />
                          </div>
                       )}
                     </button>
 
                     {/* Nested Configuration */}
                     <AnimatePresence mode="wait">
-                      {isSelected && item.childProduct && (
+                      {isSelected && (item.childProduct?.groups || item.childProduct?.modifierGroups || item.childProduct?.comboGroups) && (
                         <motion.div
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0 }}
                           className="overflow-hidden"
                         >
-                          <div className="relative pt-2 pb-4">
+                          <div className="pb-4">
                             <ProductConfigurator
                               product={item.childProduct as Product}
                               selection={{

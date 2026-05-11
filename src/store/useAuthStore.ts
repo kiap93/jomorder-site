@@ -55,18 +55,54 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     // 1. Get initial session
     try {
+      // Small delay to ensure any parallel auth transitions are stabilized
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
+      
+      if (sessionError) {
+        // If we have a refresh token error, the session is definitely invalid
+        if (
+          sessionError.message.includes('Refresh Token') || 
+          sessionError.message.includes('not found') || 
+          sessionError.status === 400 ||
+          sessionError.status === 401
+        ) {
+          console.warn("Stale or invalid auth session found, clearing storage...");
+          // Fallback: manually clear storage if signOut fails or to be absolutely sure
+          try {
+            await supabase.auth.signOut();
+          } catch (e) {
+            localStorage.removeItem('supabase.auth.token');
+          }
+          set({ user: null, profile: null, loading: false });
+          return;
+        }
+        throw sessionError;
+      }
+      
       await fetchProfile(session?.user ?? null);
     } catch (err) {
       console.error("Auth init failed:", err);
-      set({ loading: false });
+      // In extreme cases where we can't even get session, clear everything
+      set({ user: null, profile: null, loading: false });
     }
 
     // 2. Listen for auth changes
-    supabase.auth.onAuthStateChange(async (_event, session) => {
-      await fetchProfile(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Handle session expiration or signed out events explicitly
+      if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        set({ user: null, profile: null });
+      }
+      
+      if (session) {
+        await fetchProfile(session.user);
+      } else {
+        set({ user: null, profile: null, loading: false });
+      }
     });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   },
   signOut: async () => {
     await supabase.auth.signOut();

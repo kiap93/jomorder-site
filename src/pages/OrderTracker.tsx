@@ -116,9 +116,11 @@ export function OrderTracker() {
         </div>
       </div>
 
-      <div className="mt-16 bg-gray-50 p-8 rounded-[3rem] w-full text-left">
-        <h3 className="font-black text-gray-900 mb-6 flex items-center gap-2">
-          <MapPin size={18} /> Order Details
+      {/* Order Details */}
+      <div className="mt-12 bg-gray-50 p-6 rounded-[2rem] w-full text-left pb-24">
+        <h3 className="font-bold text-zinc-900 mb-6 flex items-center gap-2">
+          <MapPin size={18} className="text-zinc-400" /> 
+          <span className="text-sm uppercase tracking-wider">Order Summary</span>
         </h3>
         <div className="space-y-4">
           {order.items.map((item, idx) => (

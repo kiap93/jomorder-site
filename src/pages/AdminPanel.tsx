@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap } from 'lucide-react';
@@ -72,7 +72,7 @@ export function AdminPanel() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [tables, setTables] = useState<Table[]>([]);
+  const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings'>('menu');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +169,7 @@ export function AdminPanel() {
     setError(null);
     try {
       const [restRes, catsRes, itemsRes, tablesRes] = await Promise.all([
-        supabase.from('restaurants').select('*').eq('id', restId).single(),
+        supabase.from('restaurants').select('*').eq('id', restId).maybeSingle(),
         supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
         supabase.from('menu_items')
           .select(`
@@ -193,10 +193,14 @@ export function AdminPanel() {
             )
           `)
           .eq('restaurant_id', restId),
-        supabase.from('tables').select('*').eq('restaurant_id', restId)
+        supabase.from('tables')
+          .select('*, dining_sessions!tables_current_session_id_fkey(*)')
+          .eq('restaurant_id', restId)
+          .order('name', { ascending: true })
       ]);
 
       if (restRes.error) throw restRes.error;
+      if (!restRes.data) throw new Error("Restaurant not found. Please check your URL or register a restaurant.");
       
       if (itemsRes.error) {
         console.error("Complex items fetch failed:", itemsRes.error);
@@ -291,7 +295,13 @@ export function AdminPanel() {
       }
 
       if (tablesRes.data) {
-        setTables(tablesRes.data.map(t => ({ id: t.id, name: t.name, status: t.status })));
+        setTables(tablesRes.data.map(t => ({
+          id: t.id,
+          name: t.name,
+          status: t.status,
+          current_session_id: t.current_session_id,
+          dining_sessions: t.dining_sessions
+        })));
       }
     } catch (err: any) {
       console.error("Fetch data failed:", err);
@@ -565,7 +575,7 @@ export function AdminPanel() {
   };
 
   const deleteTable = async (id: string) => {
-    if (!window.confirm("Delete this table?")) return;
+    if (!window.confirm("Delete this table? This will invalidate any active sessions.")) return;
     
     setLoading(true);
     try {
@@ -575,6 +585,38 @@ export function AdminPanel() {
     } catch (err: any) {
       console.error("Delete table failed:", err);
       alert("Failed to delete table");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const closeDiningSession = async (session: DiningSession) => {
+    if (!window.confirm("Close this dining session? The customer will no longer be able to order using their current link.")) return;
+    
+    setLoading(true);
+    try {
+      const { error: sessionError } = await supabase
+        .from('dining_sessions')
+        .update({ 
+          status: 'completed', 
+          closed_at: new Date().toISOString() 
+        })
+        .eq('id', session.id);
+      
+      if (sessionError) throw sessionError;
+
+      // Reset table pointer
+      const { error: tableError } = await supabase
+        .from('tables')
+        .update({ current_session_id: null, status: 'available' })
+        .eq('id', session.tableId);
+      
+      if (tableError) throw tableError;
+      
+      await fetchData();
+    } catch (err: any) {
+      console.error("Close session failed:", err);
+      alert("Failed to close session: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -753,45 +795,96 @@ export function AdminPanel() {
 
       {activeTab === 'tables' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {tables.map(table => (
-            <div key={table.id} className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
-              <div className="mb-6 p-4 bg-white border border-gray-100 rounded-2xl shadow-inner">
-                <QRCodeSVG 
-                  value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
-                  size={150}
-                  level="H"
-                  includeMargin={true}
-                />
-              </div>
-              <h3 className="font-black text-xl text-gray-900 mb-1">Table {table.name}</h3>
-              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-6">Scan to order</p>
-              
-              <div className="flex flex-col gap-3 w-full">
-                <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-2xl">
-                  <button
-                    onClick={() => updateTableStatus(table.id, 'available')}
-                    className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
-                      table.status === 'available' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400'
-                    }`}
-                  >
-                    Available
-                  </button>
-                  <button
-                    onClick={() => updateTableStatus(table.id, 'occupied')}
-                    className={`py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
-                      table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400'
-                    }`}
-                  >
-                    Occupied
-                  </button>
+          {tables.map(table => {
+            const activeSession = table.dining_sessions;
+
+            return (
+              <div key={table.id} className={`p-8 rounded-[2.5rem] shadow-sm border transition-all ${
+                activeSession ? 'bg-orange-50/30 border-orange-100' : 'bg-white border-zinc-100'
+              }`}>
+                <div className="mb-6 bg-white p-4 rounded-3xl shadow-inner border border-zinc-50 flex flex-col items-center">
+                  <QRCodeSVG 
+                    value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
+                    size={150}
+                    level="H"
+                    includeMargin={true}
+                  />
                 </div>
-                <button onClick={() => deleteTable(table.id)} className="w-full p-2 bg-gray-50 text-gray-400 rounded-xl hover:text-red-500 transition-colors flex items-center justify-center gap-2">
-                  <Trash2 size={14} />
-                  <span className="text-[10px] font-bold uppercase">Delete</span>
-                </button>
+                
+                <div className="text-center mb-6">
+                  <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">Table {table.name}</h3>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
+                      {activeSession ? 'Active Session' : 'Available'}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col gap-3 w-full">
+                  {activeSession ? (
+                    <div className="space-y-3">
+                      <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Started</span>
+                          <span className="text-[10px] font-bold text-zinc-600">
+                            {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
+                          <span className="text-[10px] font-mono font-bold text-orange-600">
+                            {activeSession.sessionToken.slice(0, 8)}...
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <button 
+                        onClick={() => closeDiningSession(activeSession)}
+                        className="w-full h-11 bg-zinc-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2"
+                      >
+                        <X size={14} />
+                        Close Session
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 bg-zinc-100 p-1 rounded-xl">
+                      <button
+                        onClick={() => updateTableStatus(table.id, 'available')}
+                        className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
+                        }`}
+                      >
+                        Available
+                      </button>
+                      <button
+                        onClick={() => updateTableStatus(table.id, 'occupied')}
+                        className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
+                        }`}
+                      >
+                        Occupied
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => deleteTable(table.id)} 
+                      className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={13} />
+                      <span className="text-[10px] font-bold uppercase">Delete</span>
+                    </button>
+                    <button className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2">
+                      <Settings2 size={13} />
+                      <span className="text-[10px] font-bold uppercase">Settings</span>
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <button 
             onClick={addTable}
             className="border-2 border-dashed border-gray-200 p-8 rounded-3xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"

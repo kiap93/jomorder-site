@@ -13,6 +13,18 @@ export interface Table {
   id: string;
   name: string;
   status: 'available' | 'occupied';
+  current_session_id?: string;
+}
+
+export interface DiningSession {
+  id: string;
+  restaurantId: string;
+  tableId: string;
+  sessionToken: string;
+  status: 'active' | 'awaiting_payment' | 'paid' | 'completed' | 'expired' | 'cancelled';
+  startedAt: string;
+  lastActivityAt: string;
+  closedAt?: string;
 }
 
 export interface Category {
@@ -196,6 +208,7 @@ export interface OrderItem {
 export interface Order {
   id: string;
   tableId: string;
+  sessionId?: string;
   tableName?: string;
   orderType: 'dine-in' | 'takeaway';
   status: OrderStatus;
