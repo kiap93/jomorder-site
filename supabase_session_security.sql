@@ -29,7 +29,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_table_active ON public.dining_sessions(t
 CREATE OR REPLACE FUNCTION public.resolve_dining_session(
     p_restaurant_id UUID,
     p_table_id UUID,
-    p_device_info TEXT DEFAULT NULL
+    p_device_info TEXT DEFAULT NULL,
+    p_client_token TEXT DEFAULT NULL
 ) RETURNS TABLE (
     session_id UUID,
     token TEXT,
@@ -39,17 +40,42 @@ DECLARE
     v_session_id UUID;
     v_token TEXT;
     v_status TEXT;
+    v_last_activity TIMESTAMPTZ;
 BEGIN
-    -- Look for existing active session for this table
-    SELECT id, session_token, status INTO v_session_id, v_token, v_status
+    -- 1. Try to find session by client token first (Highest priority: same customer returning)
+    IF p_client_token IS NOT NULL THEN
+        SELECT id, session_token, status, last_activity_at INTO v_session_id, v_token, v_status, v_last_activity
+        FROM public.dining_sessions
+        WHERE session_token = p_client_token
+          AND table_id = p_table_id
+          AND status = 'active'
+        LIMIT 1;
+
+        IF v_session_id IS NOT NULL THEN
+            UPDATE public.dining_sessions SET last_activity_at = now() WHERE id = v_session_id;
+            RETURN QUERY SELECT v_session_id, v_token, v_status;
+            RETURN;
+        END IF;
+    END IF;
+
+    -- 2. Try to join an existing active session (Group ordering)
+    -- Only join if there was recent activity (within 1 hour) to avoid joining a "dirty" table session
+    SELECT id, session_token, status, last_activity_at INTO v_session_id, v_token, v_status, v_last_activity
     FROM public.dining_sessions
     WHERE table_id = p_table_id 
       AND restaurant_id = p_restaurant_id
       AND status = 'active'
+      AND last_activity_at > (now() - interval '1 hour')
+    ORDER BY last_activity_at DESC
     LIMIT 1;
 
-    -- If no active session, create a new one
+    -- 3. If no suitable session found, create a new one
     IF v_session_id IS NULL THEN
+        -- Before creating new, mark any old active sessions for this table as 'expired' to prevent 'hacks'
+        UPDATE public.dining_sessions 
+        SET status = 'expired', closed_at = now() 
+        WHERE table_id = p_table_id AND status = 'active';
+
         v_token := encode(gen_random_bytes(32), 'hex');
         
         INSERT INTO public.dining_sessions (restaurant_id, table_id, session_token, created_by_device)

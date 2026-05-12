@@ -123,11 +123,15 @@ export function CustomerMenu() {
         // Resolve Dining Session if not in preview mode
         let currentSession = null;
         if (!isPreviewMode && tableId && tableId !== 'default') {
+          const storageKey = `dining_session_token_${tableId}`;
+          const existingToken = localStorage.getItem(storageKey);
+
           const { data: sessionData, error: sessionError } = await supabase
             .rpc('resolve_dining_session', {
               p_restaurant_id: restId,
               p_table_id: tableId,
-              p_device_info: navigator.userAgent
+              p_device_info: navigator.userAgent,
+              p_client_token: existingToken
             });
 
           if (sessionError) {
@@ -137,6 +141,9 @@ export function CustomerMenu() {
               id: sessionData[0].session_id,
               token: sessionData[0].token
             };
+            
+            // Persist the token tightly to this table
+            localStorage.setItem(storageKey, sessionData[0].token);
             setDiningSession(currentSession);
           }
         }

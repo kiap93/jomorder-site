@@ -33,8 +33,6 @@ export async function resolveTranslation(
       .select('translated_text')
       .eq('restaurant_id', restaurantId)
       .eq('entity_id', entityId)
-      .eq('entity_type', entityType)
-      .eq('field_name', fieldName)
       .eq('language_code', targetLanguage)
       .maybeSingle();
 
@@ -47,8 +45,6 @@ export async function resolveTranslation(
         .select('translated_text')
         .eq('franchise_id', franchiseId)
         .eq('entity_id', entityId)
-        .eq('entity_type', entityType)
-        .eq('field_name', fieldName)
         .eq('language_code', targetLanguage)
         .maybeSingle();
 
