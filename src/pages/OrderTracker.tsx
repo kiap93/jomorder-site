@@ -137,13 +137,13 @@ export function OrderTracker() {
               {item.smartRenderedLines?.customer ? (
                 <div className="pl-10 space-y-0.5">
                   {item.smartRenderedLines.customer.map((line, i) => (
-                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none">{line}</p>
+                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none whitespace-pre-wrap">{line}</p>
                   ))}
                 </div>
               ) : item.selection ? (
                 <div className="pl-10 space-y-0.5">
                   {flattenSelections(item.selection).map((line, i) => (
-                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none">{line}</p>
+                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none whitespace-pre-wrap">{line}</p>
                   ))}
                 </div>
               ) : null}

@@ -8,6 +8,7 @@ export interface RenderedModifier {
   priceDelta: number;
   groupId: string;
   groupName: string;
+  depth: number;
 }
 
 /**
@@ -75,7 +76,8 @@ export const getVisibleModifiers = (
             name: selected.name,
             priceDelta: selected.priceDelta,
             groupId: group.id,
-            groupName: group.name
+            groupName: group.name,
+            depth: depth
           });
         }
       }

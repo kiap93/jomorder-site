@@ -81,7 +81,7 @@ export const flattenSelections = (selection: ProductSelection): string[] => {
   const traverse = (selections: Record<string, SelectedGroupItem[]>, depth = 0) => {
     Object.entries(selections).forEach(([_, items]) => {
       items.forEach(item => {
-        flattened.push(`${'  '.repeat(depth)}• ${item.name}`);
+        flattened.push(`${"  ".repeat(depth)}• ${item.name}`);
         if (item.nestedSelections) {
           traverse(item.nestedSelections, depth + 1);
         }

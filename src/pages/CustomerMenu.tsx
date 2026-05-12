@@ -27,6 +27,7 @@ export function CustomerMenu() {
   const [selectionState, setSelectionState] = useState<ProductSelection | null>(null);
   
   const [currentLanguage, setCurrentLanguage] = useState<LanguageCode>('en');
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
@@ -393,9 +394,9 @@ export function CustomerMenu() {
     const receiptMods = getVisibleModifiers(item as any as Product, selection, 'receipt');
 
     const smartLines = {
-      kds: kdsMods.map(m => `• ${m.name}`),
-      customer: customerMods.map(m => `• ${m.name}`),
-      receipt: receiptMods.map(m => `• ${m.name}`)
+      kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+      customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+      receipt: receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`)
     };
 
     setCart(prev => {
@@ -469,13 +470,13 @@ export function CustomerMenu() {
 
         if (product && item.selection) {
           const kdsMods = getVisibleModifiers(product, item.selection, 'kds');
-          smartLines.kds = kdsMods.map(m => `• ${m.name}`);
+          smartLines.kds = kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
           
           const customerMods = getVisibleModifiers(product, item.selection, 'qr_cart');
-          smartLines.customer = customerMods.map(m => `• ${m.name}`);
+          smartLines.customer = customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
 
           const receiptMods = getVisibleModifiers(product, item.selection, 'receipt');
-          smartLines.receipt = receiptMods.map(m => `• ${m.name}`);
+          smartLines.receipt = receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
         } else {
           // Fallback to basic flattening if product info is missing
           smartLines.customer = item.selection ? flattenSelections(item.selection) : [];
@@ -604,42 +605,65 @@ export function CustomerMenu() {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-zinc-100">
         <div className="px-4 py-3 flex items-center justify-between">
-          <div>
+          <div className="flex flex-col">
             <h1 className="text-lg font-bold text-zinc-900 leading-tight">
               {restaurant?.name}
             </h1>
-            <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2">
-              Table {table?.name || tableId}
+            <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2">
+              <span>Table {table?.name || tableId}</span>
               {!isPreviewMode && diningSession && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-bold tracking-wider">
-                  <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+                  <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
                   SECURED
                 </span>
               )}
-            </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="dropdown dropdown-end">
-              <button className="p-2 rounded-xl bg-zinc-100 text-zinc-600">
+            <div className="relative">
+              <button 
+                onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
+                className="p-2 rounded-xl bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-all cursor-pointer"
+              >
                 <Globe size={18} />
               </button>
-              <ul className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-32 mt-2 border border-zinc-100">
-                {languages.map(lang => (
-                  <li key={lang.code}>
+              <AnimatePresence>
+                {showLanguageDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                    className="absolute right-0 z-[100] p-2 shadow-2xl bg-white rounded-2xl w-44 mt-3 border border-zinc-100"
+                  >
+                    <div className="px-3 py-2 border-b border-zinc-50 mb-1">
+                      <span className="text-[10px] font-black uppercase tracking-[0.1em] text-zinc-400">Language</span>
+                    </div>
+                    {languages.map(lang => (
+                      <button 
+                        key={lang.code}
+                        onClick={() => {
+                          setCurrentLanguage(lang.code);
+                          setShowLanguageDropdown(false);
+                        }}
+                        className={`text-xs font-bold py-2.5 px-3 flex items-center justify-between w-full rounded-xl transition-colors ${currentLanguage === lang.code ? 'text-orange-600 bg-orange-50' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                      >
+                        <span>{lang.label}</span>
+                        {currentLanguage === lang.code && <div className="w-1 h-1 bg-orange-500 rounded-full" />}
+                      </button>
+                    ))}
+                    <div className="h-px bg-zinc-100 my-1 mx-2" />
                     <button 
-                      onClick={() => setCurrentLanguage(lang.code)}
-                      className={`text-xs font-medium ${currentLanguage === lang.code ? 'text-orange-600 bg-orange-50' : 'text-zinc-600'}`}
+                      onClick={() => setShowLanguageDropdown(false)}
+                      className="text-xs font-bold text-zinc-600 py-2.5 px-3 flex items-center gap-2 rounded-xl hover:bg-zinc-50 w-full text-left"
                     >
-                      {lang.label}
+                      <Info size={14} className="text-zinc-400" />
+                      Help & Info
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-            <button className="p-2 rounded-xl bg-zinc-100 text-zinc-600">
-              <Info size={18} />
-            </button>
           </div>
         </div>
 
@@ -998,13 +1022,13 @@ export function CustomerMenu() {
                         {item.smartRenderedLines?.customer ? (
                           <div className="mt-1 space-y-0.5">
                             {item.smartRenderedLines.customer.map((line, i) => (
-                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight">{line}</p>
+                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight whitespace-pre-wrap">{line}</p>
                             ))}
                           </div>
                         ) : item.selection ? (
                           <div className="mt-1 space-y-0.5">
                             {flattenSelections(item.selection).map((line, i) => (
-                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight">{line}</p>
+                              <p key={i} className="text-[11px] text-zinc-500 font-medium leading-tight whitespace-pre-wrap">{line}</p>
                             ))}
                           </div>
                         ) : null}

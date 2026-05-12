@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
@@ -69,11 +69,13 @@ const VisibilityManager = ({
 
 export function AdminPanel() {
   const { restId } = useParams();
+  const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings'>('menu');
+  const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -194,7 +196,7 @@ export function AdminPanel() {
           `)
           .eq('restaurant_id', restId),
         supabase.from('tables')
-          .select('*, dining_sessions!tables_current_session_id_fkey(*)')
+          .select('*, current_session:dining_sessions(*)')
           .eq('restaurant_id', restId)
           .order('name', { ascending: true })
       ]);
@@ -295,13 +297,29 @@ export function AdminPanel() {
       }
 
       if (tablesRes.data) {
-        setTables(tablesRes.data.map(t => ({
-          id: t.id,
-          name: t.name,
-          status: t.status,
-          current_session_id: t.current_session_id,
-          dining_sessions: t.dining_sessions
-        })));
+        setTables(tablesRes.data.map(t => {
+          const rawSession = Array.isArray(t.current_session) ? t.current_session[0] : t.current_session;
+          let session = null;
+          if (rawSession) {
+            session = {
+              id: rawSession.id,
+              restaurantId: rawSession.restaurant_id,
+              tableId: rawSession.table_id,
+              sessionToken: rawSession.session_token,
+              status: rawSession.status,
+              startedAt: rawSession.started_at,
+              lastActivityAt: rawSession.last_activity_at,
+              closedAt: rawSession.closed_at
+            };
+          }
+          return {
+            id: t.id,
+            name: t.name,
+            status: t.status,
+            current_session_id: t.current_session_id,
+            dining_sessions: session
+          };
+        }));
       }
     } catch (err: any) {
       console.error("Fetch data failed:", err);
@@ -876,10 +894,56 @@ export function AdminPanel() {
                       <Trash2 size={13} />
                       <span className="text-[10px] font-bold uppercase">Delete</span>
                     </button>
-                    <button className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2">
-                      <Settings2 size={13} />
-                      <span className="text-[10px] font-bold uppercase">Settings</span>
-                    </button>
+                    <div className="relative flex-1">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenTableActionsId(openTableActionsId === table.id ? null : table.id);
+                        }}
+                        className="w-full h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Settings2 size={13} />
+                        <span className="text-[10px] font-bold uppercase">Actions</span>
+                      </button>
+                      <AnimatePresence>
+                        {openTableActionsId === table.id && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                            className="absolute bottom-full right-0 z-[2] p-2 shadow-2xl bg-white rounded-2xl w-48 mb-2 border border-blue-50"
+                          >
+                            <div className="px-3 py-2 border-b border-gray-50 mb-1">
+                              <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Management</span>
+                            </div>
+                            <button 
+                              onClick={() => navigate(`/restaurant/${restaurant?.id}/table/${table.id}`)} 
+                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                            >
+                              <Monitor size={14} className="text-zinc-400" />
+                              Open Table Page
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setActiveTab('localization');
+                                setOpenTableActionsId(null);
+                              }} 
+                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                            >
+                              <Globe size={14} className="text-zinc-400" />
+                              Translate Menu
+                            </button>
+                            <button 
+                              onClick={() => setOpenTableActionsId(null)}
+                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                            >
+                              <Edit2 size={14} className="text-zinc-400" />
+                              Edit Details
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
                 </div>
               </div>

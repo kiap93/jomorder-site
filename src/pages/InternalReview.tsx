@@ -94,7 +94,7 @@ export const InternalReview: React.FC = () => {
       if (nextStatus === 'approved') {
         const { error: transError } = await supabase
           .from('tenant_translations')
-          .update({ review_status: 'approved' })
+          .update({ translated_text: job.reviewed_text }) // Use text instead of status
           .eq('restaurant_id', job.restaurant_id)
           .eq('entity_id', job.entity_id)
           .eq('field_name', job.field_name)
@@ -102,14 +102,7 @@ export const InternalReview: React.FC = () => {
 
         if (transError) throw transError;
       } else if (nextStatus === 'rejected') {
-        // If rejected, maybe hide it from draft too?
-        await supabase
-          .from('tenant_translations')
-          .update({ review_status: 'rejected' })
-          .eq('restaurant_id', job.restaurant_id)
-          .eq('entity_id', job.entity_id)
-          .eq('field_name', job.field_name)
-          .eq('language_code', job.target_language);
+        // If rejected, maybe we just don't update tenant_translations
       }
 
       // Refresh

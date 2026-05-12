@@ -64,7 +64,6 @@ export async function resolveTranslation(
       .eq('entity_type', entityType)
       .eq('field_name', fieldName)
       .eq('language_code', targetLanguage)
-      .eq('review_status', 'approved')
       .maybeSingle();
 
     if (tenantData?.translated_text) return tenantData.translated_text;

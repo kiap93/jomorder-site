@@ -96,11 +96,11 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         data.forEach(row => {
           if (row.field_name === 'name') {
             newTranslations.name = row.translated_text;
-            newStatuses.name = row.review_status;
+            newStatuses.name = 'approved'; // Default to approved or something else if column missing
           }
           if (row.field_name === 'description') {
             newTranslations.description = row.translated_text;
-            newStatuses.description = row.review_status;
+            newStatuses.description = 'approved';
           }
         });
       }
@@ -186,8 +186,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
               field_name: field,
               language_code: targetLang,
               translated_text: text,
-              override_global: true,
-              review_status: 'draft'
+              override_global: true
             }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
 
           if (upsertError) throw upsertError;
