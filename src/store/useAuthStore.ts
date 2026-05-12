@@ -7,7 +7,7 @@ interface AuthState {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  init: () => void;
+  init: () => Promise<() => void>;
   signOut: () => Promise<void>;
 }
 
@@ -23,7 +23,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       try {
-        // Fetch profile without aggressive timeout
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
@@ -44,7 +43,6 @@ export const useAuthStore = create<AuthState>((set) => ({
             loading: false 
           });
         } else {
-          // No profile found - this is a valid state (user needs onboarding)
           set({ user: currentUser, profile: null, loading: false });
         }
       } catch (err) {
@@ -53,42 +51,41 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     };
 
-    // 1. Get initial session
-    try {
-      // Small delay to ensure any parallel auth transitions are stabilized
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        // If we have a refresh token error, the session is definitely invalid
-        if (
-          sessionError.message.includes('Refresh Token') || 
-          sessionError.message.includes('not found') || 
-          sessionError.status === 400 ||
-          sessionError.status === 401
-        ) {
-          console.warn("Stale or invalid auth session found, clearing storage...");
-          // Fallback: manually clear storage if signOut fails or to be absolutely sure
-          try {
+    const checkSession = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          if (
+            sessionError.message.includes('Refresh Token') || 
+            sessionError.message.includes('not found') || 
+            sessionError.status === 400 ||
+            sessionError.status === 401
+          ) {
+            console.warn("Stale session detected, clearing...");
             await supabase.auth.signOut();
-          } catch (e) {
-            localStorage.removeItem('supabase.auth.token');
+            set({ user: null, profile: null, loading: false });
+            return;
           }
-          set({ user: null, profile: null, loading: false });
-          return;
+          throw sessionError;
         }
-        throw sessionError;
+        
+        if (session?.user) {
+          await fetchProfile(session.user);
+        } else {
+          set({ loading: false });
+        }
+      } catch (err) {
+        console.error("Session check failed:", err);
+        set({ loading: false });
       }
-      
-      await fetchProfile(session?.user ?? null);
-    } catch (err) {
-      console.error("Auth init failed:", err);
-      // In extreme cases where we can't even get session, clear everything
-      set({ user: null, profile: null, loading: false });
-    }
+    };
 
-    // 2. Listen for auth changes
+    // Initial check
+    await checkSession();
+
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Handle session expiration or signed out events explicitly
       if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
         set({ user: null, profile: null });
       }
@@ -100,8 +97,15 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     });
 
+    // Handle window focus - check if session is still valid after a long time
+    const handleFocus = () => {
+      checkSession();
+    };
+    window.addEventListener('focus', handleFocus);
+
     return () => {
       subscription.unsubscribe();
+      window.removeEventListener('focus', handleFocus);
     };
   },
   signOut: async () => {

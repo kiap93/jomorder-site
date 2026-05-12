@@ -40,6 +40,11 @@ export function OrderTracker() {
 
     fetchOrder();
 
+    const handleFocus = () => {
+      fetchOrder();
+    };
+    window.addEventListener('focus', handleFocus);
+
     const subscription = supabase
       .channel(`order-${orderId}`)
       .on('postgres_changes', { 
@@ -54,6 +59,7 @@ export function OrderTracker() {
 
     return () => {
       supabase.removeChannel(subscription);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [orderId]);
 

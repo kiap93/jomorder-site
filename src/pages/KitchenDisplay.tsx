@@ -50,6 +50,11 @@ export function KitchenDisplay() {
 
     fetchOrders();
 
+    const handleFocus = () => {
+      fetchOrders();
+    };
+    window.addEventListener('focus', handleFocus);
+
     const channelName = `kitchen-${restId}`;
     const subscription = supabase
       .channel(channelName)
@@ -66,6 +71,7 @@ export function KitchenDisplay() {
     return () => {
       clearTimeout(fetchTimeout);
       supabase.removeChannel(subscription);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [restId]);
 

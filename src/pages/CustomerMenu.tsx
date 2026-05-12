@@ -338,6 +338,11 @@ export function CustomerMenu() {
     };
     fetchData();
 
+    const handleFocus = () => {
+      fetchData();
+    };
+    window.addEventListener('focus', handleFocus);
+
     // Subscribe to table changes if it's a specific table
     let subscription: any;
     if (tableId && tableId !== 'default') {
@@ -358,6 +363,7 @@ export function CustomerMenu() {
 
     return () => {
       if (subscription) supabase.removeChannel(subscription);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [restId, tableId]);
 

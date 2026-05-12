@@ -53,7 +53,13 @@ export function PosDashboard() {
 
     fetchOrders();
 
-    // 2. Realtime Subscription
+    // 2. Refresh on Focus
+    const handleFocus = () => {
+      fetchOrders();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // 3. Realtime Subscription
     const channelName = `pos-${restId}`;
     const subscription = supabase
       .channel(channelName)
@@ -70,6 +76,7 @@ export function PosDashboard() {
     return () => {
       clearTimeout(fetchTimeout);
       supabase.removeChannel(subscription);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [restId]);
 
