@@ -10,7 +10,7 @@ import { flattenSelections } from '../lib/configEngine';
 export function PosDashboard() {
   const { restId } = useParams();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [filter, setFilter] = useState<string>('all');
+  const [filter, setFilter] = useState<string>('active');
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,6 +41,7 @@ export function PosDashboard() {
           totalPrice: parseFloat(o.total_price),
           paymentMethod: o.payment_method,
           items: o.items,
+          paid_at: o.paid_at,
           createdAt: { toDate: () => new Date(o.created_at) }
         })) as any);
       }
@@ -87,8 +88,23 @@ export function PosDashboard() {
       .eq('id', orderId);
   };
 
+  const closeSession = async (sessionId: string, tableId: string) => {
+    // 1. Mark session as completed
+    await supabase
+      .from('dining_sessions')
+      .update({ status: 'completed', closed_at: new Date().toISOString() })
+      .eq('id', sessionId);
+
+    // 2. Clear the table
+    await supabase
+      .from('tables')
+      .update({ status: 'available', current_session_id: null })
+      .eq('id', tableId);
+  };
+
   const filteredOrders = orders.filter(o => {
-    if (filter === 'all') return o.status !== 'completed' && o.status !== 'cancelled';
+    if (filter === 'active') return o.status !== 'completed' && o.status !== 'cancelled';
+    if (filter === 'paid') return !!(o as any).paid_at;
     return o.status === filter;
   });
 
@@ -96,11 +112,11 @@ export function PosDashboard() {
     <div className="space-y-8">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm">
         <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">Active Orders</h1>
-          <p className="text-gray-500 text-sm font-medium">Managing live restaurant traffic</p>
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight capitalize">{filter} Orders</h1>
+          <p className="text-gray-500 text-sm font-medium">Managing restaurant operations</p>
         </div>
         <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl overflow-x-auto scrollbar-none">
-          {['all', 'pending', 'confirmed', 'cooking', 'ready', 'served'].map(f => (
+          {['active', 'paid', 'pending', 'confirmed', 'cooking', 'ready', 'served', 'completed', 'cancelled'].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -141,6 +157,15 @@ export function PosDashboard() {
                     }`}>
                       {order.orderType || 'dine-in'}
                     </span>
+                    {(order as any).paid_at ? (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-emerald-100 text-emerald-700">
+                        PAID
+                      </span>
+                    ) : (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-orange-100 text-orange-700">
+                        UNPAID
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -228,9 +253,32 @@ export function PosDashboard() {
                     {order.status === 'served' && (
                       <button
                         onClick={() => updateStatus(order.id, 'completed')}
-                        className="flex-1 bg-gray-900 text-white py-3 rounded-xl font-bold text-xs hover:bg-black transition-colors"
+                        className="flex-1 bg-zinc-900 text-white py-3 rounded-xl font-bold text-xs hover:bg-black transition-colors"
                       >
-                        Complete
+                        Complete Order
+                      </button>
+                    )}
+                    {(order.status === 'completed' || order.status === 'cancelled') && (order as any).session_id && (
+                      <button
+                        onClick={() => closeSession((order as any).session_id, (order as any).table_id)}
+                        className="flex-1 bg-zinc-100 text-zinc-900 py-3 rounded-xl font-bold text-xs hover:bg-zinc-200 transition-colors border border-zinc-200"
+                      >
+                        Clear Table
+                      </button>
+                    )}
+                    {!(order as any).paid_at && order.status !== 'cancelled' && order.status !== 'completed' && (
+                      <button
+                        onClick={async () => {
+                          const now = new Date().toISOString();
+                          await supabase.from('orders').update({ 
+                            paid_at: now,
+                            payment_method: 'counter',
+                            status: (order.status === 'ready' || order.status === 'served') ? 'completed' : order.status
+                          }).eq('id', order.id);
+                        }}
+                        className="flex-1 bg-emerald-500 text-white py-3 rounded-xl font-bold text-xs hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
+                      >
+                        Paid (Cash)
                       </button>
                     )}
                     {confirmingCancel === order.id ? (

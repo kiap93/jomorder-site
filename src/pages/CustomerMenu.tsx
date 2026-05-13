@@ -126,13 +126,31 @@ export function CustomerMenu() {
           const storageKey = `dining_session_token_${tableId}`;
           const existingToken = localStorage.getItem(storageKey);
 
-          const { data: sessionData, error: sessionError } = await supabase
-            .rpc('resolve_dining_session', {
+          let sessionData = null;
+          let sessionError = null;
+
+          // Try calling with the new parameter first
+          const newRpcRes = await supabase.rpc('resolve_dining_session', {
+            p_restaurant_id: restId,
+            p_table_id: tableId,
+            p_device_info: navigator.userAgent,
+            p_client_token: existingToken
+          });
+
+          if (newRpcRes.error && newRpcRes.error.code === 'PGRST202') {
+            // Fallback to old 3-parameter version if the new one doesn't exist yet
+            console.warn("New resolve_dining_session function not found, falling back to old version. Please update your Supabase schema.");
+            const oldRpcRes = await supabase.rpc('resolve_dining_session', {
               p_restaurant_id: restId,
               p_table_id: tableId,
-              p_device_info: navigator.userAgent,
-              p_client_token: existingToken
+              p_device_info: navigator.userAgent
             });
+            sessionData = oldRpcRes.data;
+            sessionError = oldRpcRes.error;
+          } else {
+            sessionData = newRpcRes.data;
+            sessionError = newRpcRes.error;
+          }
 
           if (sessionError) {
             console.error("Session resolution failed:", sessionError);
@@ -465,45 +483,11 @@ export function CustomerMenu() {
   const sst = (subtotal + serviceCharge) * (restaurant?.sst || 0);
   const total = subtotal + serviceCharge + sst;
   
-  const confirmOrder = async () => {
+  const placeOrderAtCounter = async () => {
     if (!restId || !tableId || cart.length === 0) return;
-    
     setLoading(true);
     try {
-      // Resolve kitchen names and smart modifier lines for order
-      const itemsWithMetadata = await Promise.all(cart.map(async (item) => {
-        const canonical = await getKitchenCanonical(item.menuItemId);
-        const product = menuItems.find(m => m.id === item.menuItemId);
-        
-        const smartLines: OrderItem['smartRenderedLines'] = {
-          kds: [],
-          customer: [],
-          receipt: []
-        };
-
-        if (product && item.selection) {
-          const kdsMods = getVisibleModifiers(product, item.selection, 'kds');
-          smartLines.kds = kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
-          
-          const customerMods = getVisibleModifiers(product, item.selection, 'qr_cart');
-          smartLines.customer = customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
-
-          const receiptMods = getVisibleModifiers(product, item.selection, 'receipt');
-          smartLines.receipt = receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
-        } else {
-          // Fallback to basic flattening if product info is missing
-          smartLines.customer = item.selection ? flattenSelections(item.selection) : [];
-          smartLines.kds = smartLines.customer;
-          smartLines.receipt = smartLines.customer;
-        }
-
-        return {
-          ...item,
-          kitchenName: canonical || item.name,
-          smartRenderedLines: smartLines
-        };
-      }));
-
+      const itemsWithMetadata = await prepareItemsForOrder();
       const { data, error } = await supabase
         .from('orders')
         .insert({
@@ -523,6 +507,73 @@ export function CustomerMenu() {
       localStorage.setItem(`last_order_${restId}`, data.id);
       setLastOrderId(data.id);
       navigate(`/restaurant/${restId}/order/${data.id}`);
+    } catch (err: any) {
+      alert(err.message || "Failed to place order");
+      setLoading(false);
+    }
+  };
+
+  const prepareItemsForOrder = async () => {
+    // Resolve kitchen names and smart modifier lines for order
+    return await Promise.all(cart.map(async (item) => {
+      const canonical = await getKitchenCanonical(item.menuItemId);
+      const product = menuItems.find(m => m.id === item.menuItemId);
+      
+      const smartLines: OrderItem['smartRenderedLines'] = {
+        kds: [],
+        customer: [],
+        receipt: []
+      };
+
+      if (product && item.selection) {
+        const kdsMods = getVisibleModifiers(product, item.selection, 'kds');
+        smartLines.kds = kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
+        
+        const customerMods = getVisibleModifiers(product, item.selection, 'qr_cart');
+        smartLines.customer = customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
+
+        const receiptMods = getVisibleModifiers(product, item.selection, 'receipt');
+        smartLines.receipt = receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`);
+      } else {
+        smartLines.customer = item.selection ? flattenSelections(item.selection) : [];
+        smartLines.kds = smartLines.customer;
+        smartLines.receipt = smartLines.customer;
+      }
+
+      return {
+        ...item,
+        kitchenName: canonical || item.name,
+        smartRenderedLines: smartLines
+      };
+    }));
+  };
+
+  const confirmOrder = async () => {
+    if (!restId || !tableId || cart.length === 0) return;
+    setLoading(true);
+    try {
+      const itemsWithMetadata = await prepareItemsForOrder();
+
+      const { data, error } = await supabase
+        .from('orders')
+        .insert({
+          restaurant_id: restId,
+          table_id: tableId,
+          session_id: diningSession?.id,
+          order_type: orderType,
+          status: 'pending',
+          total_price: total,
+          items: itemsWithMetadata,
+          payment_method: 'online'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      localStorage.setItem(`last_order_${restId}`, data.id);
+      setLastOrderId(data.id);
+      // Lead to the dedicated elegant checkout page
+      navigate(`/restaurant/${restId}/order/${data.id}/checkout`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
       setLoading(false);
@@ -697,7 +748,7 @@ export function CustomerMenu() {
           </div>
         </div>
 
-        {/* Categories Bar */}
+      {/* Categories Bar */}
         <div className="flex gap-2 overflow-x-auto px-4 pb-3 scrollbar-hide">
           <button
             onClick={() => setSelectedCategory('all')}
@@ -719,6 +770,27 @@ export function CustomerMenu() {
             </button>
           ))}
         </div>
+
+        {/* Existing Order Shortcut */}
+        {!isPreviewMode && lastOrderId && cart.length === 0 && (!diningSession || diningSession.status === 'active') && (
+          <div className="px-4 pb-2">
+            <button 
+              onClick={() => navigate(`/restaurant/${restId}/order/${lastOrderId}`)}
+              className="w-full bg-orange-600 rounded-2xl p-4 flex items-center justify-between group active:scale-[0.98] transition-all shadow-lg shadow-orange-600/20"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white">
+                  <Clock size={20} />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] uppercase tracking-wider font-black text-white/70">Ongoing Session</p>
+                  <p className="text-sm font-bold text-white">Track Order & Checkout</p>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-white/50 group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Menu Grid */}
@@ -1098,17 +1170,24 @@ export function CustomerMenu() {
               </div>
             </div>
 
-            <div className="p-4 bg-white border-t border-zinc-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+            <div className="p-4 bg-white border-t border-zinc-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] space-y-3">
               <button
                 onClick={confirmOrder}
                 disabled={loading || cart.length === 0}
-                className="w-full h-14 bg-orange-600 text-white rounded-xl font-bold text-base hover:bg-orange-700 transition-all flex items-center justify-center shadow-lg shadow-orange-600/20 disabled:bg-zinc-200 disabled:text-zinc-400 disabled:shadow-none transition-all"
+                className="w-full h-14 bg-zinc-900 text-white rounded-xl font-bold text-base hover:bg-black transition-all flex items-center justify-center shadow-lg shadow-zinc-900/10 disabled:bg-zinc-200 disabled:text-zinc-400"
               >
                 {loading ? (
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
                 ) : (
-                  "Place Order"
+                  "Pay Now (DuitNow/TNG)"
                 )}
+              </button>
+              <button
+                onClick={placeOrderAtCounter}
+                disabled={loading || cart.length === 0}
+                className="w-full h-12 bg-white text-zinc-900 border border-zinc-200 rounded-xl font-bold text-sm hover:bg-zinc-50 transition-all flex items-center justify-center"
+              >
+                Place Order, Pay Later
               </button>
             </div>
           </motion.div>

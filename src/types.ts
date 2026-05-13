@@ -215,8 +215,27 @@ export interface Order {
   totalPrice: number;
   paymentMethod: 'counter' | 'online';
   items: OrderItem[];
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any;
+  createdAt: string;
+  updatedAt: string;
+  paid_at?: string;
+  confirmed_at?: string;
+  restaurant_id?: string;
+}
+
+export type PaymentStatus = 'pending' | 'processing' | 'authorized' | 'paid' | 'failed' | 'cancelled' | 'expired' | 'refunded' | 'partially_refunded';
+
+export interface Payment {
+  id: string;
+  restaurant_id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  payment_method: string;
+  provider: string;
+  external_id?: string;
+  paid_at?: string;
+  created_at: string;
 }
 
 export interface UserProfile {

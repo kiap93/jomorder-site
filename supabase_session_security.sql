@@ -97,10 +97,12 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 ALTER TABLE public.dining_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public can read own session if they have token" ON public.dining_sessions;
 CREATE POLICY "Public can read own session if they have token"
 ON public.dining_sessions FOR SELECT
 USING (true); -- Usually restricted by token in app logic
 
+DROP POLICY IF EXISTS "Admin manage sessions" ON public.dining_sessions;
 CREATE POLICY "Admin manage sessions"
 ON public.dining_sessions FOR ALL
 USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));

@@ -9,65 +9,83 @@ import { flattenSelections } from '../lib/configEngine';
 export function OrderTracker() {
   const { orderId, restId } = useParams();
   const navigate = useNavigate();
-  const [order, setOrder] = useState<Order | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!orderId || !restId) return;
     localStorage.setItem(`last_order_${restId}`, orderId);
 
-    const fetchOrder = async () => {
-      const { data } = await supabase
+    const fetchSessionData = async () => {
+      // 1. Get the current order to find session_id
+      const { data: mainOrder } = await supabase
         .from('orders')
-        .select('*, tables!table_id(name)')
+        .select('*')
         .eq('id', orderId)
         .single();
 
-      if (data) {
-        setOrder({
-          id: data.id,
-          tableId: data.table_id,
-          tableName: (data as any).tables?.name || data.table_id.slice(-4).toUpperCase(),
-          orderType: data.order_type || 'dine-in',
-          status: data.status as OrderStatus,
-          totalPrice: parseFloat(data.total_price),
-          items: data.items,
-          createdAt: { toDate: () => new Date(data.created_at) }
-        } as any);
+      if (!mainOrder) {
+        setLoading(false);
+        return;
       }
+
+      // 2. If it has a session, fetch all orders in that session
+      let allOrders = [mainOrder];
+      if (mainOrder.session_id) {
+        const { data: sessionOrders } = await supabase
+          .from('orders')
+          .select('*, tables!table_id(name), dining_sessions!session_id(status)')
+          .eq('session_id', mainOrder.session_id)
+          .order('created_at', { ascending: true });
+        
+        if (sessionOrders) allOrders = sessionOrders;
+      }
+
+      setOrders(allOrders.map(o => ({
+        id: o.id,
+        tableId: o.table_id,
+        tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+        orderType: o.order_type || 'dine-in',
+        status: o.status as OrderStatus,
+        totalPrice: parseFloat(o.total_price),
+        paymentMethod: o.payment_method || 'counter',
+        items: o.items,
+        paid_at: o.paid_at,
+        session_status: (o as any).dining_sessions?.status,
+        createdAt: { toDate: () => new Date(o.created_at) }
+      })) as any);
+
       setLoading(false);
     };
 
-    fetchOrder();
-
-    const handleFocus = () => {
-      fetchOrder();
-    };
-    window.addEventListener('focus', handleFocus);
-
+    fetchSessionData();
+    
+    // Realtime for all orders in session
     const subscription = supabase
-      .channel(`order-${orderId}`)
+      .channel(`session-updates-${orderId}`)
       .on('postgres_changes', { 
-        event: 'UPDATE', 
+        event: '*', 
         schema: 'public', 
-        table: 'orders',
-        filter: `id=eq.${orderId}`
+        table: 'orders'
       }, () => {
-        fetchOrder();
+        fetchSessionData();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(subscription);
-      window.removeEventListener('focus', handleFocus);
     };
-  }, [orderId]);
+  }, [orderId, restId]);
 
   if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
-  if (!order) return <div className="p-20 text-center font-bold">Order not found.</div>;
+  if (orders.length === 0) return <div className="p-20 text-center font-bold">Order not found.</div>;
+
+  const currentOrder = orders.find(o => o.id === orderId) || orders[orders.length - 1];
+  const sessionStatus = (currentOrder as any).session_status;
+  const isSessionClosed = sessionStatus === 'completed' || sessionStatus === 'expired';
 
   const steps: OrderStatus[] = ['pending', 'confirmed', 'cooking', 'ready', 'served', 'completed'];
-  const currentIndex = steps.indexOf(order.status);
+  const currentIndex = steps.indexOf(currentOrder.status);
 
   const getStatusInfo = (status: OrderStatus) => {
     switch (status) {
@@ -75,102 +93,163 @@ export function OrderTracker() {
       case 'confirmed': return { icon: CheckCircle2, text: 'Accepted', color: 'text-blue-500' };
       case 'cooking': return { icon: ChefHat, text: 'Cooking Now', color: 'text-orange-500' };
       case 'ready': return { icon: CheckCircle2, text: 'Ready', color: 'text-green-500' };
-      case 'served': return { icon: CheckCircle2, text: order.orderType === 'takeaway' ? 'Picked Up' : 'Served', color: 'text-gray-900' };
+      case 'served': return { icon: CheckCircle2, text: currentOrder.orderType === 'takeaway' ? 'Picked Up' : 'Served', color: 'text-gray-900' };
       case 'completed': return { icon: CheckCircle2, text: 'Enjoy!', color: 'text-gray-900' };
       default: return { icon: Clock, text: 'Wait...', color: 'text-gray-400' };
     }
   };
 
-  const statusInfo = getStatusInfo(order.status);
+  const statusInfo = getStatusInfo(currentOrder.status);
+  
+  const unpaidOrders = orders.filter(o => !o.paid_at && o.status !== 'cancelled');
+  const totalPrice = orders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.totalPrice : 0), 0);
+  const unpaidTotal = unpaidOrders.reduce((sum, o) => sum + o.totalPrice, 0);
+  
+  const isUnpaid = unpaidTotal > 0;
+  const isCompleted = orders.every(o => o.status === 'completed' || o.status === 'cancelled') && !isUnpaid;
 
   return (
-    <div className="max-w-md mx-auto min-h-[80vh] flex flex-col items-center justify-center p-6 bg-white text-center">
-      <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 relative">
-        <statusInfo.icon size={48} className={`animate-pulse ${statusInfo.color}`} />
-        <div className="absolute -bottom-2 -right-2 bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">
-          #{order.id.slice(-4).toUpperCase()}
+    <div className="max-w-md mx-auto min-h-screen p-6 bg-white pb-32">
+      {/* Session Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div className="text-left">
+          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Table {currentOrder.tableName}</p>
+          <h2 className="text-sm font-bold text-zinc-900">Session History</h2>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total Bill</p>
+          <h2 className="text-sm font-bold text-orange-600">RM {totalPrice.toFixed(2)}</h2>
         </div>
       </div>
 
-      <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">{statusInfo.text}</h1>
-      <p className="text-gray-400 font-medium mb-12">Table {order.tableName || order.tableId} • RM {order.totalPrice.toFixed(2)}</p>
-
-      {/* Progress Bar */}
-      <div className="w-full relative py-8 px-4">
-        <div className="h-2 bg-gray-100 w-full rounded-full absolute top-1/2 left-0 -translate-y-1/2" />
-        <motion.div 
-          initial={{ width: 0 }}
-          animate={{ width: `${(currentIndex / (steps.length - 1)) * 100}%` }}
-          className="h-2 bg-orange-500 rounded-full absolute top-1/2 left-0 -translate-y-1/2" 
-        />
-        
-        <div className="relative flex justify-between w-full">
-          {steps.map((step, idx) => {
-            const StepIcon = getStatusInfo(step).icon;
-            const isActive = idx <= currentIndex;
-            return (
-              <div key={idx} className="flex flex-col items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
-                  isActive ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'bg-white border-2 border-gray-100 text-gray-200'
-                }`}>
-                  <StepIcon size={20} />
-                </div>
-                <span className={`text-[8px] font-black uppercase tracking-widest ${isActive ? 'text-gray-900' : 'text-gray-300'}`}>{step}</span>
-              </div>
-            )
-          })}
+      {isUnpaid && (
+        <div className="w-full bg-orange-600 p-6 rounded-[2.5rem] mb-12 flex flex-col items-center shadow-2xl shadow-orange-600/30">
+          <div className="flex items-center gap-2 mb-4 bg-white/10 px-3 py-1 rounded-full text-[10px] font-black text-white uppercase tracking-widest">
+            <Clock size={12} />
+            <span>Unpaid Balance</span>
+          </div>
+          <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {unpaidTotal.toFixed(2)}</h2>
+          <button 
+            onClick={() => navigate(`/restaurant/${restId}/order/${currentOrder.id}/checkout`)}
+            className="w-full h-14 bg-white text-orange-600 rounded-2xl text-sm font-black uppercase tracking-wider hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
+          >
+            Pay Now (Online)
+          </button>
+          <p className="mt-4 text-[10px] font-bold text-white/50 uppercase tracking-widest">Processing via DuitNow/TNG</p>
         </div>
-      </div>
+      )}
 
-      {/* Order Details */}
-      <div className="mt-12 bg-gray-50 p-6 rounded-[2rem] w-full text-left pb-24">
-        <h3 className="font-bold text-zinc-900 mb-6 flex items-center gap-2">
-          <MapPin size={18} className="text-zinc-400" /> 
-          <span className="text-sm uppercase tracking-wider">Order Summary</span>
-        </h3>
-        <div className="space-y-4">
-          {order.items.map((item, idx) => (
-            <div key={idx} className="space-y-1">
-              <div className="flex justify-between items-center group">
-                <div className="flex items-center gap-3">
-                  <span className="font-black text-orange-600 bg-orange-100/50 w-7 h-7 flex items-center justify-center rounded-lg text-xs">
-                    {item.quantity}x
-                  </span>
-                  <span className="font-bold text-sm text-gray-700">{item.name}</span>
-                </div>
-                <span className="font-mono text-xs font-bold text-gray-400">RM {(item.price * item.quantity).toFixed(2)}</span>
-              </div>
-              {item.smartRenderedLines?.customer ? (
-                <div className="pl-10 space-y-0.5">
-                  {item.smartRenderedLines.customer.map((line, i) => (
-                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none whitespace-pre-wrap">{line}</p>
-                  ))}
-                </div>
-              ) : item.selection ? (
-                <div className="pl-10 space-y-0.5">
-                  {flattenSelections(item.selection).map((line, i) => (
-                    <p key={i} className="text-[10px] text-gray-400 font-medium italic leading-none whitespace-pre-wrap">{line}</p>
-                  ))}
-                </div>
-              ) : null}
+      {isCompleted && (
+        <div className="w-full bg-emerald-500 p-8 rounded-[2.5rem] mb-12 flex flex-col items-center shadow-2xl shadow-emerald-500/20">
+          <div className="w-16 h-16 bg-white/20 text-white rounded-full flex items-center justify-center mb-4">
+            <CheckCircle2 size={32} />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2">Dining Complete</h2>
+          <p className="text-white/80 text-sm font-medium mb-6 text-center">Your session is settled. Hope to see you again!</p>
+          <div className="w-full bg-white rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex justify-between items-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+              <span>Final Settlement</span>
+              <span className="text-emerald-600">PAID</span>
             </div>
-          ))}
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-bold text-zinc-900">Total Charged</span>
+              <span className="text-sm font-mono font-bold text-zinc-900">RM {totalPrice.toFixed(2)}</span>
+            </div>
+          </div>
         </div>
-        <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between items-center">
-            <span className="text-sm font-black text-gray-900">Total Charged</span>
-            <span className="text-xl font-black text-orange-600">RM {order.totalPrice.toFixed(2)}</span>
+      )}
+
+      <div className="flex flex-col items-center text-center">
+        <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 relative">
+          <statusInfo.icon size={48} className={`${currentOrder.status === 'cooking' ? 'animate-pulse' : ''} ${statusInfo.color}`} />
+          <div className="absolute -bottom-2 -right-2 bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">
+            #{currentOrder.id.slice(-4).toUpperCase()}
+          </div>
         </div>
+
+        <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">{statusInfo.text}</h1>
+        <p className="text-gray-400 font-medium mb-12 capitalize">{currentOrder.status} order status</p>
+
+        {/* Progress Bar for Current Order */}
+        <div className="w-full relative py-8 px-4 mb-12">
+          <div className="h-2 bg-gray-100 w-full rounded-full absolute top-1/2 left-0 -translate-y-1/2" />
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${(currentIndex / (steps.length - 1)) * 100}%` }}
+            className="h-2 bg-orange-500 rounded-full absolute top-1/2 left-0 -translate-y-1/2" 
+          />
+          <div className="relative flex justify-between w-full">
+            {steps.map((step, idx) => {
+              const StepIcon = getStatusInfo(step).icon;
+              const isActive = idx <= currentIndex;
+              return (
+                <div key={idx} className="flex flex-col items-center gap-2">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                    isActive ? 'bg-orange-500 text-white' : 'bg-white border-2 border-gray-100 text-gray-200'
+                  }`}>
+                    <StepIcon size={14} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* List of all orders in session */}
+      <div className="space-y-4">
+        {orders.map((o, sessionIdx) => (
+          <div key={o.id} className={`bg-gray-50 rounded-3xl p-5 border ${o.id === orderId ? 'border-orange-200 bg-orange-50/30' : 'border-gray-100'}`}>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black text-white bg-zinc-900 px-2 py-0.5 rounded-full">#{o.id.slice(-4).toUpperCase()}</span>
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order {sessionIdx + 1}</span>
+              </div>
+              <span className={`text-[10px] font-black uppercase tracking-widest ${o.paid_at ? 'text-emerald-600' : 'text-orange-600'}`}>
+                {o.paid_at ? 'Paid' : 'Unpaid'}
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              {o.items.map((item, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-black text-zinc-900">{item.quantity}x</span>
+                      <span className="text-xs font-bold text-zinc-700">{item.name}</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-400">RM {(item.price * item.quantity).toFixed(2)}</span>
+                  </div>
+                  {item.smartRenderedLines?.customer && (
+                    <div className="pl-7 space-y-0.5">
+                      {item.smartRenderedLines.customer.map((line, i) => (
+                        <p key={i} className="text-[10px] text-gray-400 font-medium leading-none">{line}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-4 pt-4 border-t border-dashed border-zinc-200 flex justify-between items-center">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order Total</span>
+                <span className="text-sm font-black text-zinc-900">RM {o.totalPrice.toFixed(2)}</span>
+            </div>
+          </div>
+        ))}
       </div>
       
-      <button
-        onClick={() => navigate(`/restaurant/${restId}/table/${order.tableId}`)}
-        className="mt-8 mb-4 w-full bg-gray-900 text-white py-6 rounded-[2.5rem] font-black text-lg hover:bg-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"
-      >
-        <Plus size={20} />
-        Add More Items
-      </button>
+      {!isSessionClosed && (
+        <button
+          onClick={() => navigate(`/restaurant/${restId}/table/${currentOrder.tableId}`)}
+          className="mt-8 mb-4 w-full bg-gray-900 text-white py-6 rounded-[2.5rem] font-black text-lg hover:bg-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"
+        >
+          <Plus size={20} />
+          Add More Items
+        </button>
+      )}
 
-      <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
+      <p className="text-xs text-gray-400 font-bold uppercase tracking-widest text-center">
         Need help? Ask our staff
       </p>
     </div>

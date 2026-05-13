@@ -41,9 +41,11 @@ ALTER TABLE modifiers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read modifier groups" ON modifier_groups FOR SELECT USING (true);
 CREATE POLICY "Public read modifiers" ON modifiers FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Admin manage modifier groups" ON modifier_groups;
 CREATE POLICY "Admin manage modifier groups" ON modifier_groups FOR ALL
 USING (product_id IN (SELECT id FROM menu_items WHERE restaurant_id IN (SELECT restaurant_id FROM profiles WHERE id = auth.uid() AND role = 'admin')));
 
+DROP POLICY IF EXISTS "Admin manage modifiers" ON modifiers;
 CREATE POLICY "Admin manage modifiers" ON modifiers FOR ALL
 USING (group_id IN (SELECT id FROM modifier_groups WHERE product_id IN (SELECT id FROM menu_items WHERE restaurant_id IN (SELECT restaurant_id FROM profiles WHERE id = auth.uid() AND role = 'admin'))));
 

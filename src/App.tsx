@@ -10,6 +10,7 @@ import { KitchenDisplay } from './pages/KitchenDisplay';
 import { AdminPanel } from './pages/AdminPanel';
 import { Login } from './pages/Login';
 import { OrderTracker } from './pages/OrderTracker';
+import { Checkout } from './pages/Checkout';
 
 import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
@@ -49,6 +50,7 @@ export default function App() {
 
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
+            <Route path="/restaurant/:restId/order/:orderId/checkout" element={<Checkout />} />
             <Route path="/restaurant/:restId/order/:orderId" element={<OrderTracker />} />
             
             {/* Staff Flow */}
