@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
-import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap } from 'lucide-react';
+import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
@@ -74,7 +74,8 @@ export function AdminPanel() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings'>('menu');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +171,7 @@ export function AdminPanel() {
     setLoading(true);
     setError(null);
     try {
-      const [restRes, catsRes, itemsRes, tablesRes] = await Promise.all([
+      const [restRes, catsRes, itemsRes, tablesRes, ordersRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', restId).maybeSingle(),
         supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
         supabase.from('menu_items')
@@ -198,7 +199,12 @@ export function AdminPanel() {
         supabase.from('tables')
           .select('*, current_session:dining_sessions(*)')
           .eq('restaurant_id', restId)
-          .order('name', { ascending: true })
+          .order('name', { ascending: true }),
+        supabase.from('orders')
+          .select('*, tables!table_id(name)')
+          .eq('restaurant_id', restId)
+          .order('created_at', { ascending: false })
+          .limit(100)
       ]);
 
       if (restRes.error) throw restRes.error;
@@ -320,6 +326,10 @@ export function AdminPanel() {
             dining_sessions: session
           };
         }));
+      }
+
+      if (ordersRes.data) {
+        setOrders(ordersRes.data);
       }
     } catch (err: any) {
       console.error("Fetch data failed:", err);
@@ -686,6 +696,7 @@ export function AdminPanel() {
           { id: 'menu', icon: UtensilsCrossed, label: 'Menu Items' },
           { id: 'categories', icon: List, label: 'Categories' },
           { id: 'tables', icon: Monitor, label: 'Tables / QR' },
+          { id: 'orders', icon: ClipboardList, label: 'Order History' },
           { id: 'analytics', icon: BarChart2, label: 'Analytics' },
           { id: 'localization', icon: Globe, label: 'Translations' },
           { id: 'settings', icon: Save, label: 'Settings' }
@@ -917,7 +928,7 @@ export function AdminPanel() {
                               <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Management</span>
                             </div>
                             <button 
-                              onClick={() => navigate(`/restaurant/${restaurant?.id}/table/${table.id}`)} 
+                              onClick={() => navigate(`/restaurant/${restId}/table/${table.id}`)} 
                               className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
                             >
                               <Monitor size={14} className="text-zinc-400" />
@@ -957,6 +968,84 @@ export function AdminPanel() {
             Add Table
           </button>
         </div>
+      )}
+
+      {activeTab === 'orders' && (
+        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 min-h-[60vh]">
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Recent Transactions</h2>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">Live order archive</p>
+            </div>
+            <button
+               onClick={() => fetchData()}
+               className="p-3 bg-zinc-100 text-zinc-600 rounded-2xl hover:bg-zinc-200"
+            >
+              <RefreshCw size={20} />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto -mx-8">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-zinc-100">
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order ID</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Table</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Items</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status</th>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-50">
+                {orders.map(order => (
+                  <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
+                    <td className="px-8 py-4">
+                      <span className="font-mono font-bold text-xs text-zinc-400">#{order.id.slice(-6).toUpperCase()}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-xs font-black text-zinc-900">Table {order.tables?.name || 'Walk-in'}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-col gap-1">
+                        {order.items?.map((item: any, i: number) => (
+                          <span key={i} className="text-[10px] font-bold text-zinc-600">
+                            {item.quantity}x {item.name}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-xs font-black text-orange-600">RM {parseFloat(order.total_price).toFixed(2)}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                        order.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                        order.status === 'cancelled' ? 'bg-red-50 text-red-600' :
+                        'bg-blue-50 text-blue-600'
+                      }`}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td className="px-8 py-4">
+                      <span className="text-[10px] font-bold text-zinc-400">
+                        {new Date(order.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {orders.length === 0 && (
+              <div className="py-20 text-center">
+                <div className="bg-zinc-50 w-16 h-16 rounded-3xl flex items-center justify-center text-zinc-300 mx-auto mb-4">
+                  <ShoppingBag size={32} />
+                </div>
+                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">No transactions yet</p>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {activeTab === 'analytics' && (

@@ -156,6 +156,19 @@ export function OrderTracker() {
               <span className="text-sm font-mono font-bold text-zinc-900">RM {totalPrice.toFixed(2)}</span>
             </div>
           </div>
+          <button
+            onClick={() => {
+              const tableId = orders[0]?.tableId;
+              if (tableId) {
+                navigate(`/restaurant/${restId}/table/${tableId}`);
+              } else {
+                navigate(`/restaurant/${restId}`);
+              }
+            }}
+            className="w-full h-14 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all mt-6 shadow-lg shadow-emerald-700/20"
+          >
+            Order More / New Session
+          </button>
         </div>
       )}
 

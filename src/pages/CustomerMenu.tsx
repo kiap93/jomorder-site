@@ -32,7 +32,7 @@ export function CustomerMenu() {
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
   const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}`));
-  const [diningSession, setDiningSession] = useState<{ id: string; token: string } | null>(null);
+  const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
 
   const isPreviewMode = tableId === 'preview' || tableId === 'default';
 
@@ -157,7 +157,8 @@ export function CustomerMenu() {
           } else if (sessionData && sessionData[0]) {
             currentSession = {
               id: sessionData[0].session_id,
-              token: sessionData[0].token
+              token: sessionData[0].token,
+              status: sessionData[0].session_status
             };
             
             // Persist the token tightly to this table
@@ -165,6 +166,13 @@ export function CustomerMenu() {
             setDiningSession(currentSession);
           }
         }
+
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        const tableQuery = (tableId && tableId !== 'default')
+          ? (isUuid 
+              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
+              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
+          : Promise.resolve({ data: null, error: null });
 
         const fetchPromise = Promise.all([
           supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
@@ -197,7 +205,7 @@ export function CustomerMenu() {
             `)
             .eq('restaurant_id', restId)
             .eq('is_active', true),
-          tableId !== 'default' && tableId ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle() : Promise.resolve({ data: null, error: null })
+          tableQuery
         ]);
 
         const [restRes, catsRes, itemsRes, tableRes] = await fetchPromise;
@@ -558,7 +566,7 @@ export function CustomerMenu() {
         .from('orders')
         .insert({
           restaurant_id: restId,
-          table_id: tableId,
+          table_id: table?.id || tableId, // Use resolved UUID if available
           session_id: diningSession?.id,
           order_type: orderType,
           status: 'pending',
