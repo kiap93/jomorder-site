@@ -44,7 +44,12 @@ export function Checkout() {
         if (orderRes.error) throw orderRes.error;
 
         setRestaurant(restRes.data as any);
-        setOrder(orderRes.data as any);
+        // Map snake_case to camelCase if needed, but for now just ensure basic properties
+        const orderData = orderRes.data as any;
+        setOrder({
+          ...orderData,
+          totalPrice: parseFloat(orderData.total_price || 0)
+        } as any);
         
         // If order is already paid, redirect to tracker
         if (orderRes.data.status === 'paid' || orderRes.data.status === 'sent_to_kitchen') {
@@ -195,7 +200,7 @@ export function Checkout() {
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-1">Payable Amount</p>
                     <div className="text-4xl font-black tabular-nums tracking-tighter">
-                      RM <span className="text-white">{order?.totalPrice.toFixed(2)}</span>
+                      RM <span className="text-white">{(order?.totalPrice || 0).toFixed(2)}</span>
                     </div>
                   </div>
                   <div className="bg-zinc-800/50 p-2.5 rounded-2xl border border-zinc-700/50">
@@ -276,7 +281,7 @@ export function Checkout() {
 
                 <div className="space-y-1 mb-8">
                   <h2 className="text-xl font-bold">Scanning...</h2>
-                  <p className="text-zinc-500 text-sm font-medium">Please scan the QR code using your {paymentIntent?.paymentMethod.toUpperCase()} wallet app.</p>
+                  <p className="text-zinc-500 text-sm font-medium">Please scan the QR code using your {paymentIntent?.paymentMethod?.toUpperCase() || 'SCANNER'} wallet app.</p>
                 </div>
 
                 {/* Simulation Shortcut for AI Studio */}

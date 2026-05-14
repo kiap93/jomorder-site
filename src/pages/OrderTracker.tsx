@@ -34,7 +34,7 @@ export function OrderTracker() {
       if (mainOrder.session_id) {
         const { data: sessionOrders } = await supabase
           .from('orders')
-          .select('*, tables!table_id(name), dining_sessions!session_id(status)')
+          .select('*, tables(name), dining_sessions(status)')
           .eq('session_id', mainOrder.session_id)
           .order('created_at', { ascending: true });
         
@@ -118,17 +118,16 @@ export function OrderTracker() {
         </div>
         <div className="text-right">
           <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total Bill</p>
-          <h2 className="text-sm font-bold text-orange-600">RM {totalPrice.toFixed(2)}</h2>
+          <h2 className="text-sm font-bold text-orange-600">RM {(totalPrice || 0).toFixed(2)}</h2>
         </div>
       </div>
-
       {isUnpaid && (
         <div className="w-full bg-orange-600 p-6 rounded-[2.5rem] mb-12 flex flex-col items-center shadow-2xl shadow-orange-600/30">
           <div className="flex items-center gap-2 mb-4 bg-white/10 px-3 py-1 rounded-full text-[10px] font-black text-white uppercase tracking-widest">
             <Clock size={12} />
             <span>Unpaid Balance</span>
           </div>
-          <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {unpaidTotal.toFixed(2)}</h2>
+          <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {(unpaidTotal || 0).toFixed(2)}</h2>
           <button 
             onClick={() => navigate(`/restaurant/${restId}/order/${currentOrder.id}/checkout`)}
             className="w-full h-14 bg-white text-orange-600 rounded-2xl text-sm font-black uppercase tracking-wider hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
@@ -153,7 +152,7 @@ export function OrderTracker() {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm font-bold text-zinc-900">Total Charged</span>
-              <span className="text-sm font-mono font-bold text-zinc-900">RM {totalPrice.toFixed(2)}</span>
+              <span className="text-sm font-mono font-bold text-zinc-900">RM {(totalPrice || 0).toFixed(2)}</span>
             </div>
           </div>
           <button
@@ -231,7 +230,7 @@ export function OrderTracker() {
                       <span className="text-xs font-black text-zinc-900">{item.quantity}x</span>
                       <span className="text-xs font-bold text-zinc-700">{item.name}</span>
                     </div>
-                    <span className="text-[10px] font-bold text-zinc-400">RM {(item.price * item.quantity).toFixed(2)}</span>
+                    <span className="text-[10px] font-bold text-zinc-400">RM {((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
                   </div>
                   {item.smartRenderedLines?.customer && (
                     <div className="pl-7 space-y-0.5">
@@ -246,7 +245,7 @@ export function OrderTracker() {
             
             <div className="mt-4 pt-4 border-t border-dashed border-zinc-200 flex justify-between items-center">
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order Total</span>
-                <span className="text-sm font-black text-zinc-900">RM {o.totalPrice.toFixed(2)}</span>
+                <span className="text-sm font-black text-zinc-900">RM {(o.totalPrice || 0).toFixed(2)}</span>
             </div>
           </div>
         ))}

@@ -22,7 +22,7 @@ export function PosDashboard() {
     const fetchOrders = async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, tables!table_id(name)')
+        .select('*, tables(name)')
         .eq('restaurant_id', restId)
         .order('created_at', { ascending: false });
 
@@ -214,7 +214,7 @@ export function PosDashboard() {
               <div className="p-5 pt-0 mt-auto">
                 <div className="flex justify-between items-center mb-4 pt-4 border-t border-gray-50">
                   <span className="text-xs font-bold text-gray-400 uppercase">Total amount</span>
-                  <span className="text-lg font-black text-gray-900">RM {order.totalPrice.toFixed(2)}</span>
+                  <span className="text-lg font-black text-gray-900">RM {(order.totalPrice || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex flex-col gap-2">
                   <div className="flex gap-2">

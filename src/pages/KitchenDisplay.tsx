@@ -19,7 +19,7 @@ export function KitchenDisplay() {
     const fetchOrders = async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, tables!table_id(name)')
+        .select('*, tables(name)')
         .eq('restaurant_id', restId)
         .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
         .order('created_at', { ascending: true });

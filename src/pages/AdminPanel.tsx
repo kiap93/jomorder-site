@@ -197,17 +197,21 @@ export function AdminPanel() {
           `)
           .eq('restaurant_id', restId),
         supabase.from('tables')
-          .select('*, current_session:dining_sessions(*)')
+          .select('*, current_session:dining_sessions!tables_current_session_id_fkey(*)')
           .eq('restaurant_id', restId)
           .order('name', { ascending: true }),
         supabase.from('orders')
-          .select('*, tables!table_id(name)')
+          .select('*, tables(name)')
           .eq('restaurant_id', restId)
           .order('created_at', { ascending: false })
           .limit(100)
       ]);
 
       if (restRes.error) throw restRes.error;
+      if (catsRes.error) throw catsRes.error;
+      if (tablesRes.error) throw tablesRes.error;
+      if (ordersRes.error) throw ordersRes.error;
+      
       if (!restRes.data) throw new Error("Restaurant not found. Please check your URL or register a restaurant.");
       
       if (itemsRes.error) {
@@ -304,14 +308,16 @@ export function AdminPanel() {
 
       if (tablesRes.data) {
         setTables(tablesRes.data.map(t => {
-          const rawSession = Array.isArray(t.current_session) ? t.current_session[0] : t.current_session;
+          // Use the aliased current_session join
+          const rawSession = t.current_session;
+          
           let session = null;
           if (rawSession) {
             session = {
               id: rawSession.id,
               restaurantId: rawSession.restaurant_id,
               tableId: rawSession.table_id,
-              sessionToken: rawSession.session_token,
+              sessionToken: rawSession.session_token || '',
               status: rawSession.status,
               startedAt: rawSession.started_at,
               lastActivityAt: rawSession.last_activity_at,
@@ -863,7 +869,7 @@ export function AdminPanel() {
                         <div className="flex justify-between items-center">
                           <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
                           <span className="text-[10px] font-mono font-bold text-orange-600">
-                            {activeSession.sessionToken.slice(0, 8)}...
+                            {activeSession.sessionToken ? `${activeSession.sessionToken.slice(0, 8)}...` : 'N/A'}
                           </span>
                         </div>
                       </div>
@@ -1016,7 +1022,7 @@ export function AdminPanel() {
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="text-xs font-black text-orange-600">RM {parseFloat(order.total_price).toFixed(2)}</span>
+                      <span className="text-xs font-black text-orange-600">RM {(parseFloat(order.total_price) || 0).toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider ${

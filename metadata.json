@@ -1,6 +1,6 @@
 {
-  "name": "JomOrder: AI-Powered Multi-Tenant Localization Hub",
-  "description": "An enterprise-grade restaurant localization and multi-tenant translation engine. Features AI-powered culinary translation, real-time multilingual QR ordering, and a hierarchical translation resolution system (Branch/Franchise/Global).",
+  "name": "JomOrder POS & Payment Engine",
+  "description": "Enterprise Restaurant POS with integrated QR ordering, AI-powered localization, and a robust Payment Engine for scalable financial workflows (QR Pay, Split Payments, Settlements).",
   "requestFramePermissions": ["identity-credentials-get"],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
