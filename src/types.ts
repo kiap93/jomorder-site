@@ -21,10 +21,16 @@ export interface DiningSession {
   restaurantId: string;
   tableId: string;
   sessionToken: string;
-  status: 'active' | 'awaiting_payment' | 'paid' | 'completed' | 'expired' | 'cancelled';
+  status: 'active' | 'idle' | 'awaiting_payment' | 'paid' | 'closing' | 'closed' | 'expired' | 'replaced';
+  session_type: 'dine_in' | 'takeaway' | 'delivery' | 'pos';
+  payment_mode: 'prepaid' | 'postpaid' | 'hybrid';
+  fulfillment_type: 'dine_in' | 'takeaway' | 'kiosk';
+  total_amount: number;
+  paid_amount: number;
   startedAt: string;
   lastActivityAt: string;
   closedAt?: string;
+  tableNameSnapshot?: string;
 }
 
 export interface Category {
@@ -236,6 +242,24 @@ export interface Payment {
   external_id?: string;
   paid_at?: string;
   created_at: string;
+}
+
+export type CashTransactionStatus = 'calculating' | 'awaiting_confirmation' | 'confirmed' | 'completed' | 'voided';
+
+export interface CashTransaction {
+  id: string;
+  payment_id: string;
+  order_id: string;
+  cashier_id: string;
+  restaurant_id: string;
+  device_id?: string;
+  amount_due: number;
+  cash_received: number;
+  change_given: number;
+  rounding_adjustment: number;
+  status: CashTransactionStatus;
+  created_at: string;
+  metadata?: any;
 }
 
 export interface UserProfile {

@@ -7,21 +7,36 @@ import { ChefHat, CheckCircle2, Clock, MapPin, Plus } from 'lucide-react';
 import { flattenSelections } from '../lib/configEngine';
 
 export function OrderTracker() {
-  const { orderId, restId } = useParams();
+  const { orderId, restId, tableId } = useParams();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!orderId || !restId) return;
-    localStorage.setItem(`last_order_${restId}`, orderId);
+    if (!orderId || !restId || !tableId) return;
+    localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
 
     const fetchSessionData = async () => {
+      // Resolve table UUID if tableId is a slug
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+      let actualTableId = tableId;
+
+      if (!isUuid && tableId) {
+        const { data: tData } = await supabase
+          .from('tables')
+          .select('id')
+          .eq('restaurant_id', restId)
+          .eq('name', tableId)
+          .maybeSingle();
+        if (tData) actualTableId = tData.id;
+      }
+
       // 1. Get the current order to find session_id
       const { data: mainOrder } = await supabase
         .from('orders')
         .select('*')
         .eq('id', orderId)
+        .eq('table_id', actualTableId) // Hard isolation by resolved tableId
         .single();
 
       if (!mainOrder) {
@@ -129,7 +144,7 @@ export function OrderTracker() {
           </div>
           <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {(unpaidTotal || 0).toFixed(2)}</h2>
           <button 
-            onClick={() => navigate(`/restaurant/${restId}/order/${currentOrder.id}/checkout`)}
+            onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${currentOrder.id}/checkout`)}
             className="w-full h-14 bg-white text-orange-600 rounded-2xl text-sm font-black uppercase tracking-wider hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
           >
             Pay Now (Online)

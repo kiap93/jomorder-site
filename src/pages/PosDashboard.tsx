@@ -3,8 +3,8 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Filter, Check, X, Clock } from 'lucide-react';
-
+import { Search, Filter, Check, X, Clock, Banknote } from 'lucide-react';
+import { CashCalculator } from '../components/CashCalculator';
 import { flattenSelections } from '../lib/configEngine';
 
 export function PosDashboard() {
@@ -12,6 +12,7 @@ export function PosDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<string>('active');
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
+  const [settlingCashOrder, setSettlingCashOrder] = useState<Order | null>(null);
 
   useEffect(() => {
     if (!restId) return;
@@ -89,17 +90,13 @@ export function PosDashboard() {
   };
 
   const closeSession = async (sessionId: string, tableId: string) => {
-    // 1. Mark session as completed
+    // 1. Mark session as closed
     await supabase
       .from('dining_sessions')
-      .update({ status: 'completed', closed_at: new Date().toISOString() })
+      .update({ status: 'closed', closed_at: new Date().toISOString() })
       .eq('id', sessionId);
 
-    // 2. Clear the table
-    await supabase
-      .from('tables')
-      .update({ status: 'available', current_session_id: null })
-      .eq('id', tableId);
+    // 2. Clear the table is handled by the DB trigger sync_table_status_on_session_change
   };
 
   const filteredOrders = orders.filter(o => {
@@ -107,6 +104,56 @@ export function PosDashboard() {
     if (filter === 'paid') return !!(o as any).paid_at;
     return o.status === filter;
   });
+
+  const handleCashSettlement = async (order: Order, cashData: { cashReceived: number; changeGiven: number; rounding: number }) => {
+    const now = new Date().toISOString();
+    
+    // 1. Create Payment record
+    const { data: payment, error: pError } = await supabase
+      .from('payments')
+      .insert({
+        restaurant_id: restId,
+        order_id: order.id,
+        amount: order.totalPrice + cashData.rounding,
+        payment_method: 'cash',
+        provider: 'pos_cash',
+        status: 'paid',
+        paid_at: now
+      })
+      .select()
+      .single();
+
+    if (pError) throw pError;
+
+    // 2. Log Cash Transaction for Audit
+    const deviceId = localStorage.getItem('pos_device_id') || `TERMINAL_${navigator.userAgent.slice(0, 10)}_${restId?.slice(0, 5)}`;
+
+    const { error: tError } = await supabase
+      .from('cash_transactions')
+      .insert({
+        payment_id: payment.id,
+        order_id: order.id,
+        cashier_id: (await supabase.auth.getUser()).data.user?.id,
+        restaurant_id: restId,
+        device_id: deviceId,
+        amount_due: order.totalPrice,
+        cash_received: cashData.cashReceived,
+        change_given: cashData.changeGiven,
+        rounding_adjustment: cashData.rounding,
+        status: 'completed'
+      });
+
+    if (tError) throw tError;
+
+    // 3. Update Order
+    await supabase.from('orders').update({ 
+      paid_at: now,
+      payment_method: 'counter',
+      status: (order.status === 'ready' || order.status === 'served') ? 'completed' : order.status
+    }).eq('id', order.id);
+
+    setSettlingCashOrder(null);
+  };
 
   return (
     <div className="space-y-8">
@@ -258,27 +305,21 @@ export function PosDashboard() {
                         Complete Order
                       </button>
                     )}
-                    {(order.status === 'completed' || order.status === 'cancelled') && (order as any).session_id && (
+                    {(order.status === 'completed' || order.status === 'cancelled' || order.status === 'served') && (order as any).session_id && (
                       <button
                         onClick={() => closeSession((order as any).session_id, (order as any).table_id)}
-                        className="flex-1 bg-zinc-100 text-zinc-900 py-3 rounded-xl font-bold text-xs hover:bg-zinc-200 transition-colors border border-zinc-200"
+                        className="flex-1 bg-zinc-900 text-white py-3 rounded-xl font-bold text-xs hover:bg-black transition-colors shadow-lg shadow-zinc-900/20"
                       >
-                        Clear Table
+                        Settle & Close Table
                       </button>
                     )}
                     {!(order as any).paid_at && order.status !== 'cancelled' && order.status !== 'completed' && (
                       <button
-                        onClick={async () => {
-                          const now = new Date().toISOString();
-                          await supabase.from('orders').update({ 
-                            paid_at: now,
-                            payment_method: 'counter',
-                            status: (order.status === 'ready' || order.status === 'served') ? 'completed' : order.status
-                          }).eq('id', order.id);
-                        }}
-                        className="flex-1 bg-emerald-500 text-white py-3 rounded-xl font-bold text-xs hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
+                        onClick={() => setSettlingCashOrder(order)}
+                        className="flex-1 bg-emerald-500 text-white py-3 rounded-xl font-bold text-xs hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
                       >
-                        Paid (Cash)
+                        <Banknote size={14} />
+                        Pay Cash
                       </button>
                     )}
                     {confirmingCancel === order.id ? (
@@ -315,6 +356,15 @@ export function PosDashboard() {
           ))}
         </AnimatePresence>
       </div>
+
+      {settlingCashOrder && (
+        <CashCalculator 
+          amountDue={settlingCashOrder.totalPrice}
+          orderId={settlingCashOrder.id}
+          onCancel={() => setSettlingCashOrder(null)}
+          onComplete={(data) => handleCashSettlement(settlingCashOrder, data)}
+        />
+      )}
     </div>
   );
 }

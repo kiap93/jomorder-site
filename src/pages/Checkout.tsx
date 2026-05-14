@@ -19,12 +19,14 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 
 export function Checkout() {
-  const { restId, orderId } = useParams();
+  const { restId, orderId, tableId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [sessionUnpaidTotal, setSessionUnpaidTotal] = useState<number | null>(null);
+  const [payTarget, setPayTarget] = useState<'order' | 'session'>('order');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -35,26 +37,57 @@ export function Checkout() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Resolve table UUID if tableId is a slug
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        let actualTableId = tableId;
+
+        if (!isUuid && tableId) {
+          const { data: tData } = await supabase
+            .from('tables')
+            .select('id')
+            .eq('restaurant_id', restId)
+            .eq('name', tableId)
+            .maybeSingle();
+          if (tData) actualTableId = tData.id;
+        }
+
         const [restRes, orderRes] = await Promise.all([
           supabase.from('restaurants').select('*').eq('id', restId).single(),
-          supabase.from('orders').select('*').eq('id', orderId).single()
+          supabase.from('orders').select('*').eq('id', orderId).eq('table_id', actualTableId).single()
         ]);
 
         if (restRes.error) throw restRes.error;
         if (orderRes.error) throw orderRes.error;
 
         setRestaurant(restRes.data as any);
-        // Map snake_case to camelCase if needed, but for now just ensure basic properties
         const orderData = orderRes.data as any;
         setOrder({
           ...orderData,
           totalPrice: parseFloat(orderData.total_price || 0)
         } as any);
-        
-        // If order is already paid, redirect to tracker
-        if (orderRes.data.status === 'paid' || orderRes.data.status === 'sent_to_kitchen') {
-          setStatus('success');
+
+        // Fetch session unpaid total if exists
+        if (orderData.session_id) {
+          const { data: sessionOrders } = await supabase
+            .from('orders')
+            .select('total_price')
+            .eq('session_id', orderData.session_id)
+            .is('paid_at', null)
+            .neq('status', 'cancelled');
+          
+          if (sessionOrders && sessionOrders.length > 1) {
+            const total = sessionOrders.reduce((sum, o) => sum + parseFloat(o.total_price), 0);
+            setSessionUnpaidTotal(total);
+            setPayTarget('session');
+          }
         }
+        
+        // Map snake_case to camelCase
+        setOrder({
+          ...orderData,
+          totalPrice: parseFloat(orderData.total_price || 0),
+          sessionId: orderData.session_id
+        } as any);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -92,10 +125,12 @@ export function Checkout() {
     
     setLoading(true);
     try {
+      const amountToPay = payTarget === 'session' && sessionUnpaidTotal ? sessionUnpaidTotal : order.totalPrice;
+
       const payment = await paymentEngine.createPayment({
         restaurantId: restaurant.id,
         orderId: order.id,
-        amount: order.totalPrice,
+        amount: amountToPay,
         method: method,
         provider: 'pos_saas_internal'
       });
@@ -112,6 +147,21 @@ export function Checkout() {
 
   const simulateSuccess = async () => {
     if (!paymentIntent) return;
+    
+    // If it was a session payment, mark all session orders as paid
+    if (payTarget === 'session' && order?.sessionId) {
+       const now = new Date().toISOString();
+       await supabase.from('orders')
+        .update({ 
+          paid_at: now, 
+          status: 'confirmed', 
+          payment_method: 'online' 
+        })
+        .eq('session_id', order.sessionId)
+        .is('paid_at', null)
+        .neq('status', 'cancelled');
+    }
+
     await paymentEngine.simulateSuccess(paymentIntent.paymentId);
   };
 
@@ -151,7 +201,7 @@ export function Checkout() {
         <h2 className="text-2xl font-black text-white mb-2">Payment Successful</h2>
         <p className="text-zinc-400 text-sm mb-8">Your order has been sent to the kitchen.</p>
         <button
-          onClick={() => navigate(`/restaurant/${restId}/order/${orderId}`)}
+          onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${orderId}`)}
           className="w-full max-w-xs h-14 bg-zinc-800 text-white rounded-2xl font-bold text-sm hover:bg-zinc-700 transition-all border border-zinc-700"
         >
           Track My Order
@@ -198,15 +248,36 @@ export function Checkout() {
               <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-[2.5rem] p-8">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-1">Payable Amount</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-1">
+                      {payTarget === 'session' ? 'Total Session Bill' : 'Order Amount'}
+                    </p>
                     <div className="text-4xl font-black tabular-nums tracking-tighter">
-                      RM <span className="text-white">{(order?.totalPrice || 0).toFixed(2)}</span>
+                      RM <span className="text-white">
+                        {(payTarget === 'session' && sessionUnpaidTotal ? sessionUnpaidTotal : (order?.totalPrice || 0)).toFixed(2)}
+                      </span>
                     </div>
                   </div>
                   <div className="bg-zinc-800/50 p-2.5 rounded-2xl border border-zinc-700/50">
                     <Smartphone size={20} className="text-zinc-500" />
                   </div>
                 </div>
+
+                {sessionUnpaidTotal && (
+                  <div className="flex gap-2 p-1.5 bg-zinc-800/30 rounded-2xl mb-4 border border-zinc-700/30">
+                    <button 
+                      onClick={() => setPayTarget('order')}
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${payTarget === 'order' ? 'bg-orange-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Single Order
+                    </button>
+                    <button 
+                      onClick={() => setPayTarget('session')}
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${payTarget === 'session' ? 'bg-orange-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      Full Session
+                    </button>
+                  </div>
+                )}
                 
                 <div className="h-px bg-zinc-800/50 my-6" />
                 

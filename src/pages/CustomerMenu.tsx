@@ -31,7 +31,7 @@ export function CustomerMenu() {
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
-  const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}`));
+  const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}_${tableId}`));
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
 
   const isPreviewMode = tableId === 'preview' || tableId === 'default';
@@ -120,37 +120,55 @@ export function CustomerMenu() {
       setError(null);
       
       try {
-        // Resolve Dining Session if not in preview mode
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        const tableQuery = (tableId && tableId !== 'default')
+          ? (isUuid 
+              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
+              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
+          : Promise.resolve({ data: null, error: null });
+
+        const initialFetch = await Promise.all([
+          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
+          supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
+          tableQuery
+        ]);
+
+        const [restRes, catsRes, tableRes] = initialFetch;
+
+        if (restRes.error) throw restRes.error;
+        if (!restRes.data) throw new Error("Restaurant not found. Please check the URL.");
+        
+        const resolvedTable = tableRes.data as Table | null;
+        if (resolvedTable) {
+          setTable(resolvedTable);
+        }
+
+        // Resolve Dining Session if not in preview mode and we have a resolved UUID
         let currentSession = null;
-        if (!isPreviewMode && tableId && tableId !== 'default') {
-          const storageKey = `dining_session_token_${tableId}`;
+        if (!isPreviewMode && resolvedTable?.id) {
+          const storageKey = `dining_session_token_${resolvedTable.id}`;
           const existingToken = localStorage.getItem(storageKey);
 
-          let sessionData = null;
-          let sessionError = null;
-
-          // Try calling with the new parameter first
-          const newRpcRes = await supabase.rpc('resolve_dining_session', {
+          // Resilient RPC call to handle potential PostgREST cache issues or version mismatches
+          let sessionResult = await supabase.rpc('resolve_dining_session', {
             p_restaurant_id: restId,
-            p_table_id: tableId,
+            p_table_id: resolvedTable.id,
             p_device_info: navigator.userAgent,
-            p_client_token: existingToken
+            p_client_token: existingToken,
+            p_fulfillment: orderType
           });
 
-          if (newRpcRes.error && newRpcRes.error.code === 'PGRST202') {
-            // Fallback to old 3-parameter version if the new one doesn't exist yet
-            console.warn("New resolve_dining_session function not found, falling back to old version. Please update your Supabase schema.");
-            const oldRpcRes = await supabase.rpc('resolve_dining_session', {
-              p_restaurant_id: restId,
-              p_table_id: tableId,
-              p_device_info: navigator.userAgent
-            });
-            sessionData = oldRpcRes.data;
-            sessionError = oldRpcRes.error;
-          } else {
-            sessionData = newRpcRes.data;
-            sessionError = newRpcRes.error;
+          // If 5-param version fails with PGRST202, fallback to 4-param version
+          if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
+             sessionResult = await supabase.rpc('resolve_dining_session', {
+                p_restaurant_id: restId,
+                p_table_id: resolvedTable.id,
+                p_device_info: navigator.userAgent,
+                p_client_token: existingToken
+             });
           }
+
+          const { data: sessionData, error: sessionError } = sessionResult;
 
           if (sessionError) {
             console.error("Session resolution failed:", sessionError);
@@ -167,17 +185,7 @@ export function CustomerMenu() {
           }
         }
 
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
-        const tableQuery = (tableId && tableId !== 'default')
-          ? (isUuid 
-              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
-              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
-          : Promise.resolve({ data: null, error: null });
-
-        const fetchPromise = Promise.all([
-          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
-          supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-          supabase.from('menu_items')
+        const itemsRes = await supabase.from('menu_items')
             .select(`
               *,
               display_behavior,
@@ -204,16 +212,9 @@ export function CustomerMenu() {
               )
             `)
             .eq('restaurant_id', restId)
-            .eq('is_active', true),
-          tableQuery
-        ]);
-
-        const [restRes, catsRes, itemsRes, tableRes] = await fetchPromise;
-
-        if (restRes.error) throw restRes.error;
-        if (!restRes.data) throw new Error("Restaurant not found. Please check the URL.");
+            .eq('is_active', true);
         
-        if (catsRes.error) throw catsRes.error;
+        if (itemsRes.error) throw itemsRes.error;
         
         // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
         let processedItems = [];
@@ -400,6 +401,75 @@ export function CustomerMenu() {
     };
   }, [restId, tableId]);
 
+  useEffect(() => {
+    // Re-resolve session if orderType changes (e.g. switching to Takeaway might create a different session behavior)
+    if (diningSession && table?.id && restId) {
+       const storageKey = `dining_session_token_${table.id}`;
+       const existingToken = localStorage.getItem(storageKey);
+       
+       const tryResolve = async () => {
+         let res = await supabase.rpc('resolve_dining_session', {
+            p_restaurant_id: restId,
+            p_table_id: table.id,
+            p_device_info: navigator.userAgent,
+            p_client_token: existingToken,
+            p_fulfillment: orderType
+         });
+
+         if (res.error && (res.error.code === 'PGRST202' || res.error.message.includes('p_fulfillment'))) {
+           res = await supabase.rpc('resolve_dining_session', {
+              p_restaurant_id: restId,
+              p_table_id: table.id,
+              p_device_info: navigator.userAgent,
+              p_client_token: existingToken
+           });
+         }
+
+         if (res.data && res.data[0]) {
+            setDiningSession({
+               id: res.data[0].session_id,
+               token: res.data[0].token,
+               status: res.data[0].session_status
+            });
+         }
+       };
+
+       tryResolve();
+    }
+  }, [orderType]);
+
+  // Subscription for session changes
+  useEffect(() => {
+    if (!diningSession?.id || !table?.id) return;
+    
+    const channel = supabase
+      .channel(`session-${diningSession.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'dining_sessions',
+        filter: `id=eq.${diningSession.id}`
+      }, (payload) => {
+        setDiningSession(prev => ({
+          ...prev!,
+          status: payload.new.status
+        }));
+        
+        if (payload.new.status === 'closed' || payload.new.status === 'expired') {
+          // Session was closed by staff or expired, clear local storage and reset
+          localStorage.removeItem(`dining_session_token_${table.id}`);
+          setDiningSession(null);
+          setCart([]);
+          window.location.reload(); // Refresh to get a fresh state
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [diningSession?.id, table?.id]);
+
   // Handle translation updates
   useEffect(() => {
     if (!restaurant || (originalMenuItems.length === 0 && originalCategories.length === 0)) return;
@@ -500,7 +570,7 @@ export function CustomerMenu() {
         .from('orders')
         .insert({
           restaurant_id: restId,
-          table_id: tableId,
+          table_id: table?.id || tableId,
           session_id: diningSession?.id,
           order_type: orderType,
           status: 'pending',
@@ -512,7 +582,7 @@ export function CustomerMenu() {
         .single();
 
       if (error) throw error;
-      localStorage.setItem(`last_order_${restId}`, data.id);
+      localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
       setLastOrderId(data.id);
       navigate(`/restaurant/${restId}/order/${data.id}`);
     } catch (err: any) {
@@ -578,7 +648,7 @@ export function CustomerMenu() {
         .single();
 
       if (error) throw error;
-      localStorage.setItem(`last_order_${restId}`, data.id);
+      localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
       setLastOrderId(data.id);
       // Lead to the dedicated elegant checkout page
       navigate(`/restaurant/${restId}/order/${data.id}/checkout`);

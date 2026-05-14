@@ -20,13 +20,19 @@ export default function App() {
   const { init, loading, user, profile } = useAuthStore();
 
   useEffect(() => {
+    let active = true;
     let cleanup: (() => void) | undefined;
     
     init().then(cb => {
-      cleanup = cb;
+      if (active) {
+        cleanup = cb;
+      } else {
+        cb();
+      }
     });
 
     return () => {
+      active = false;
       if (cleanup) cleanup();
     };
   }, [init]);
@@ -50,8 +56,8 @@ export default function App() {
 
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
-            <Route path="/restaurant/:restId/order/:orderId/checkout" element={<Checkout />} />
-            <Route path="/restaurant/:restId/order/:orderId" element={<OrderTracker />} />
+            <Route path="/restaurant/:restId/table/:tableId/order/:orderId/checkout" element={<Checkout />} />
+            <Route path="/restaurant/:restId/table/:tableId/order/:orderId" element={<OrderTracker />} />
             
             {/* Staff Flow */}
             <Route path="/restaurant/:restId/orders" element={<PosDashboard />} />
