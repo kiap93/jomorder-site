@@ -8,7 +8,11 @@ ADD COLUMN IF NOT EXISTS fulfillment_type TEXT CHECK (fulfillment_type IN ('dine
 ADD COLUMN IF NOT EXISTS total_amount NUMERIC(15, 2) DEFAULT 0.00,
 ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(15, 2) DEFAULT 0.00,
 ADD COLUMN IF NOT EXISTS session_type TEXT CHECK (session_type IN ('qr', 'pos', 'kiosk')) DEFAULT 'qr',
-ADD COLUMN IF NOT EXISTS table_name_snapshot TEXT; -- For recovery if table record is missing
+ADD COLUMN IF NOT EXISTS table_name_snapshot TEXT,
+ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT now(),
+ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT now(),
+ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS created_by_device TEXT;
 
 -- Update status constraints to the strict state machine
 ALTER TABLE public.dining_sessions DROP CONSTRAINT IF EXISTS dining_sessions_status_check;
@@ -37,12 +41,11 @@ CREATE TRIGGER tr_sync_table_status
     FOR EACH ROW EXECUTE FUNCTION public.sync_table_status_on_session_change();
 
 -- 3. ANTI-HIJACKING & AUTO-EXPIRATION
--- Prevents new users from joining very old sessions even if they scanned the same QR
 CREATE OR REPLACE FUNCTION public.check_session_validity()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- If session is idle for more than 4 hours, auto-expire
-    IF (NEW.status = 'active' AND NEW.last_activity_at < (now() - interval '4 hours')) THEN
+    -- If session is idle for more than 24 hours, auto-expire
+    IF (NEW.status = 'active' AND COALESCE(NEW.last_activity_at, NEW.started_at, now()) < (now() - interval '24 hours')) THEN
         NEW.status := 'expired';
         NEW.closed_at := now();
     END IF;
@@ -50,7 +53,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. ORDER AGGREGATION LOGIC
+DROP TRIGGER IF EXISTS tr_check_session_validity ON public.dining_sessions;
+CREATE TRIGGER tr_check_session_validity
+    BEFORE UPDATE OF last_activity_at ON public.dining_sessions
+    FOR EACH ROW EXECUTE FUNCTION public.check_session_validity();
+
+-- 4. ORDER LIFECYCLE SYNC
+-- Auto-complete all orders when a session is closed to clear POS clutter
+CREATE OR REPLACE FUNCTION public.close_orders_on_session_close()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (NEW.status = 'closed') THEN
+        UPDATE public.orders 
+        SET status = 'completed', updated_at = now()
+        WHERE session_id = NEW.id AND status NOT IN ('completed', 'cancelled');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS tr_close_orders_on_session_close ON public.dining_sessions;
+CREATE TRIGGER tr_close_orders_on_session_close
+    AFTER UPDATE OF status ON public.dining_sessions
+    FOR EACH ROW EXECUTE FUNCTION public.close_orders_on_session_close();
+
+-- 5. ORDER AGGREGATION LOGIC
 -- Function to calculate total session bill across multiple orders
 CREATE OR REPLACE FUNCTION public.get_session_total(p_session_id UUID)
 RETURNS NUMERIC AS $$
@@ -104,7 +131,7 @@ BEGIN
         FROM public.dining_sessions
         WHERE session_token = p_client_token
           AND table_id = p_table_id
-          AND status IN ('active', 'awaiting_payment')
+          AND status IN ('active', 'awaiting_payment', 'paid')
         LIMIT 1;
 
         IF v_session_id IS NOT NULL THEN
@@ -115,20 +142,29 @@ BEGIN
     END IF;
 
     -- 3. Check for existing active group session (if any)
+    -- Tuning: 24 hour window for continuity
+    -- Robust coalesce for legacy rows
     SELECT id, session_token, status INTO v_session_id, v_token, v_status
     FROM public.dining_sessions
     WHERE table_id = p_table_id 
       AND restaurant_id = p_restaurant_id
-      AND status = 'active'
-      AND last_activity_at > (now() - interval '2 hours')
-    ORDER BY started_at DESC 
+      AND status IN ('active', 'awaiting_payment')
+      AND COALESCE(last_activity_at, started_at, now()) > (now() - interval '24 hours')
+    ORDER BY started_at DESC NULLS LAST
     LIMIT 1;
+
+    -- CRITICAL FIX: Return early if joining existing session to avoid "replacement" of other user sessions
+    IF v_session_id IS NOT NULL THEN
+        UPDATE public.dining_sessions SET last_activity_at = now() WHERE id = v_session_id;
+        RETURN QUERY SELECT v_session_id, v_token, v_status, false;
+        RETURN;
+    END IF;
 
     -- 4. Create New Session if nothing found
     IF v_session_id IS NULL THEN
         -- Force expire any lingering active sessions for safety
         UPDATE public.dining_sessions SET status = 'replaced', closed_at = now() 
-        WHERE table_id = p_table_id AND status = 'active';
+        WHERE table_id = p_table_id AND status IN ('active', 'awaiting_payment');
 
         v_token := lower(encode(gen_random_bytes(16), 'hex'));
         v_is_new := true;
@@ -140,7 +176,9 @@ BEGIN
             status, 
             fulfillment_type,
             created_by_device,
-            table_name_snapshot
+            table_name_snapshot,
+            started_at,
+            last_activity_at
         )
         VALUES (
             p_restaurant_id, 
@@ -149,7 +187,9 @@ BEGIN
             'active', 
             p_fulfillment,
             p_device_info,
-            (SELECT name FROM public.tables WHERE id = p_table_id)
+            (SELECT name FROM public.tables WHERE id = p_table_id),
+            now(),
+            now()
         )
         RETURNING id, session_token, status INTO v_session_id, v_token, v_status;
     END IF;
@@ -179,14 +219,18 @@ CREATE TRIGGER tr_session_notify
     FOR EACH ROW EXECUTE FUNCTION public.notify_session_update();
 
 -- 8. SECURITY RULES (RLS) FOR ORDERS
--- Lockdown orders to session token possession
--- (This requires the client to pass session_id in the where clause)
+-- Lockdown orders to session token possession + table matching
 DROP POLICY IF EXISTS "Session token access orders" ON public.orders;
 CREATE POLICY "Session token access orders" ON public.orders
 FOR ALL USING (
     -- Admin override
     (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'staff')))
     OR
-    -- Session valid
-    (EXISTS (SELECT 1 FROM public.dining_sessions ds WHERE ds.id = public.orders.session_id AND ds.status != 'closed'))
+    -- Session valid AND belongs to the same table the order is claiming
+    (EXISTS (
+        SELECT 1 FROM public.dining_sessions ds 
+        WHERE ds.id = public.orders.session_id 
+          AND ds.status NOT IN ('closed', 'expired', 'replaced')
+          AND ds.table_id = public.orders.table_id
+    ))
 );

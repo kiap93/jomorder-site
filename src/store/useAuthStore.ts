@@ -37,7 +37,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
           if (error) {
             // Retry on connection issues (up to 3 times)
-            if (retryCount < 3 && (error.message.includes('fetch') || error.status === 0)) {
+            if (retryCount < 3 && (error.message?.includes('fetch') || error.message?.includes('network') || !error.code)) {
                console.warn(`Profile fetch failed (attempt ${retryCount + 1}), retrying...`);
                setTimeout(() => fetchProfile(currentUser, retryCount + 1), 1000 * Math.pow(2, retryCount));
                return;

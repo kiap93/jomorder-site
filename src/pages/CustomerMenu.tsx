@@ -19,6 +19,37 @@ export function CustomerMenu() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [originalMenuItems, setOriginalMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<OrderItem[]>([]);
+  
+  // Persistence for Cart
+  useEffect(() => {
+    if (restId && tableId) {
+      const savedCart = localStorage.getItem(`cart_${restId}_${tableId}`);
+      if (savedCart) {
+        try {
+          const parsed = JSON.parse(savedCart);
+          if (Array.isArray(parsed)) {
+            setCart(parsed);
+          } else {
+            setCart([]);
+          }
+        } catch (e) {
+          console.error("Failed to parse saved cart", e);
+          setCart([]);
+        }
+      } else {
+        setCart([]);
+      }
+    }
+  }, [restId, tableId]);
+
+  useEffect(() => {
+    if (restId && tableId && cart.length > 0) {
+      localStorage.setItem(`cart_${restId}_${tableId}`, JSON.stringify(cart));
+    } else if (restId && tableId && cart.length === 0) {
+      localStorage.removeItem(`cart_${restId}_${tableId}`);
+    }
+  }, [cart, restId, tableId]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -31,8 +62,12 @@ export function CustomerMenu() {
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
-  const [lastOrderId, setLastOrderId] = useState<string | null>(localStorage.getItem(`last_order_${restId}_${tableId}`));
+  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
+
+  useEffect(() => {
+    setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
+  }, [restId, tableId]);
 
   const isPreviewMode = tableId === 'preview' || tableId === 'default';
 
@@ -118,6 +153,8 @@ export function CustomerMenu() {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      // Removed setCart([]) to allow persistence
+      setDiningSession(null); // Clear session until re-resolved
       
       try {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
@@ -172,6 +209,11 @@ export function CustomerMenu() {
 
           if (sessionError) {
             console.error("Session resolution failed:", sessionError);
+            // If it's a structural error (column missing etc), retry with a simpler fallback if possible
+            // or at least notify the dev
+            if (sessionError.message?.includes('column') || sessionError.message?.includes('parameter')) {
+               setError("The database schema is out of date. Please run SUPABASE_FINAL_SETUP.sql in your Supabase SQL editor.");
+            }
           } else if (sessionData && sessionData[0]) {
             currentSession = {
               id: sessionData[0].session_id,
@@ -431,6 +473,8 @@ export function CustomerMenu() {
                token: res.data[0].token,
                status: res.data[0].session_status
             });
+         } else if (res.error) {
+            console.error("Secondary session resolution failed:", res.error);
          }
        };
 
@@ -455,9 +499,19 @@ export function CustomerMenu() {
           status: payload.new.status
         }));
         
-        if (payload.new.status === 'closed' || payload.new.status === 'expired') {
-          // Session was closed by staff or expired, clear local storage and reset
+        if (payload.new.status === 'closed' || payload.new.status === 'expired' || payload.new.status === 'replaced') {
+          // Session was closed by staff, expired, or replaced by another user scanning.
+          // In case of 'replaced', we might want to try to join the new session automatically.
+          if (payload.new.status === 'replaced') {
+             console.log("Session replaced. Attempting to join the new active session...");
+             // Clear this token and reload to trigger fresh resolution
+             localStorage.removeItem(`dining_session_token_${table.id}`);
+             window.location.reload();
+             return;
+          }
+
           localStorage.removeItem(`dining_session_token_${table.id}`);
+          localStorage.removeItem(`cart_${restId}_${tableId}`);
           setDiningSession(null);
           setCart([]);
           window.location.reload(); // Refresh to get a fresh state
@@ -583,7 +637,9 @@ export function CustomerMenu() {
 
       if (error) throw error;
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
+      localStorage.removeItem(`cart_${restId}_${tableId}`);
       setLastOrderId(data.id);
+      setCart([]);
       navigate(`/restaurant/${restId}/order/${data.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
@@ -649,7 +705,9 @@ export function CustomerMenu() {
 
       if (error) throw error;
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
+      localStorage.removeItem(`cart_${restId}_${tableId}`);
       setLastOrderId(data.id);
+      setCart([]);
       // Lead to the dedicated elegant checkout page
       navigate(`/restaurant/${restId}/order/${data.id}/checkout`);
     } catch (err: any) {

@@ -41,9 +41,14 @@ ADD COLUMN IF NOT EXISTS fulfillment_type TEXT CHECK (fulfillment_type IN ('dine
 ADD COLUMN IF NOT EXISTS total_amount NUMERIC(15, 2) DEFAULT 0.00,
 ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(15, 2) DEFAULT 0.00,
 ADD COLUMN IF NOT EXISTS session_type TEXT CHECK (session_type IN ('qr', 'pos', 'kiosk')) DEFAULT 'qr',
-ADD COLUMN IF NOT EXISTS table_name_snapshot TEXT;
+ADD COLUMN IF NOT EXISTS table_name_snapshot TEXT,
+ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT now(),
+ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT now(),
+ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS created_by_device TEXT;
 
 -- 3. UPDATED RESOLVER FUNCTION (5 Parameters)
+-- Long-live optimization: 24 hour session window, fallback to created_at if started_at missing (though we add it above)
 DROP FUNCTION IF EXISTS public.resolve_dining_session(UUID, UUID, TEXT);
 DROP FUNCTION IF EXISTS public.resolve_dining_session(UUID, UUID, TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.resolve_dining_session(UUID, UUID, TEXT, TEXT, TEXT);
@@ -70,12 +75,13 @@ BEGIN
         RAISE EXCEPTION 'Invalid table or restaurant target';
     END IF;
 
+    -- 1. Try Reconnect (Possess valid token) - Always try this first for continuity
     IF p_client_token IS NOT NULL AND p_client_token != '' THEN
         SELECT id, session_token, status INTO v_session_id, v_token, v_status
         FROM public.dining_sessions
         WHERE session_token = p_client_token
           AND table_id = p_table_id
-          AND status IN ('active', 'awaiting_payment')
+          AND status IN ('active', 'awaiting_payment', 'paid') -- Allow rejoin even if paid
         LIMIT 1;
 
         IF v_session_id IS NOT NULL THEN
@@ -85,18 +91,29 @@ BEGIN
         END IF;
     END IF;
 
+    -- 2. Check for existing active group session (shared window)
+    -- Also allow joining sessions that are awaiting payment for group continuity
     SELECT id, session_token, status INTO v_session_id, v_token, v_status
     FROM public.dining_sessions
     WHERE table_id = p_table_id 
       AND restaurant_id = p_restaurant_id
-      AND status = 'active'
-      AND last_activity_at > (now() - interval '2 hours')
-    ORDER BY started_at DESC 
+      AND status IN ('active', 'awaiting_payment')
+      AND COALESCE(last_activity_at, started_at, now()) > (now() - interval '24 hours')
+    ORDER BY started_at DESC NULLS LAST
     LIMIT 1;
 
+    -- CRITICAL FIX: Update activity and return early if found, preventing "missing orders" issue
+    IF v_session_id IS NOT NULL THEN
+        UPDATE public.dining_sessions SET last_activity_at = now() WHERE id = v_session_id;
+        RETURN QUERY SELECT v_session_id, v_token, v_status, false;
+        RETURN;
+    END IF;
+
+    -- 3. Create New Session if nothing found
     IF v_session_id IS NULL THEN
+        -- Force close any dangling sessions on this table ONLY
         UPDATE public.dining_sessions SET status = 'replaced', closed_at = now() 
-        WHERE table_id = p_table_id AND status = 'active';
+        WHERE table_id = p_table_id AND status IN ('active', 'awaiting_payment');
 
         v_token := lower(encode(gen_random_bytes(16), 'hex'));
         v_is_new := true;
@@ -108,7 +125,9 @@ BEGIN
             status, 
             fulfillment_type,
             created_by_device,
-            table_name_snapshot
+            table_name_snapshot,
+            started_at,
+            last_activity_at
         )
         VALUES (
             p_restaurant_id, 
@@ -117,7 +136,9 @@ BEGIN
             'active', 
             p_fulfillment,
             p_device_info,
-            (SELECT name FROM public.tables WHERE id = p_table_id)
+            (SELECT name FROM public.tables WHERE id = p_table_id),
+            now(),
+            now()
         )
         RETURNING id, session_token, status INTO v_session_id, v_token, v_status;
     END IF;
