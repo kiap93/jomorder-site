@@ -816,7 +816,7 @@ export function CustomerMenu() {
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
       setLastOrderId(data.id);
       setCart([]);
-      navigate(`/restaurant/${restId}/order/${data.id}`);
+      navigate(`/restaurant/${restId}/table/${tableId}/order/${data.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
       setLoading(false);
@@ -890,7 +890,7 @@ export function CustomerMenu() {
       setLastOrderId(data.id);
       setCart([]);
       // Lead to the dedicated elegant checkout page
-      navigate(`/restaurant/${restId}/order/${data.id}/checkout`);
+      navigate(`/restaurant/${restId}/table/${tableId}/order/${data.id}/checkout`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
       setLoading(false);
@@ -1112,7 +1112,7 @@ export function CustomerMenu() {
         {!isPreviewMode && lastOrderId && cart.length === 0 && (!diningSession || diningSession.status === 'active') && (
           <div className="px-4 pb-2">
             <button 
-              onClick={() => navigate(`/restaurant/${restId}/order/${lastOrderId}`)}
+              onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${lastOrderId}`)}
               className="w-full bg-orange-600 rounded-2xl p-4 flex items-center justify-between group active:scale-[0.98] transition-all shadow-lg shadow-orange-600/20"
             >
               <div className="flex items-center gap-3">
