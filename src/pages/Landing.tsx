@@ -1,11 +1,26 @@
-import { Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { ChefHat, ShoppingBag, ArrowRight, Eye } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export function Landing() {
-  const { profile } = useAuthStore();
+  const navigate = useNavigate();
+  const { profile, init } = useAuthStore();
   const restId = profile?.restaurantId;
+
+  const handleManagementClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    // Ensure auth is initialized/refreshed before navigating
+    await init();
+    
+    // Check current state after init
+    const currentProfile = useAuthStore.getState().profile;
+    if (currentProfile?.restaurantId) {
+      navigate(`/restaurant/${currentProfile.restaurantId}/orders`);
+    } else {
+      navigate('/login');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
@@ -32,18 +47,9 @@ export function Landing() {
         </div>
 
         <div className="grid gap-4 pt-8">
-          {/* <div className="p-8 border-2 border-gray-50 rounded-[3rem] bg-gray-50/50 space-y-4">
-            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-              <ShoppingBag size={24} className="text-orange-600" />
-            </div>
-            <h3 className="font-black text-gray-900">Are you a Customer?</h3>
-            <p className="text-gray-400 text-sm font-medium">
-              Please scan the QR code located on your table to start ordering.
-            </p>
-          </div> */}
-
           <Link 
             to="/login"
+            onClick={handleManagementClick}
             className="w-full bg-gray-900 text-white py-6 rounded-[2rem] font-bold text-lg flex items-center justify-center gap-3 hover:bg-black transition-all shadow-xl hover:shadow-orange-200/40 group"
           >
             Restaurant Management

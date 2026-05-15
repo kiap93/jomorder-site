@@ -13,38 +13,60 @@ export function PosDashboard() {
   const [filter, setFilter] = useState<string>('active');
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [settlingCashOrder, setSettlingCashOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!restId) return;
 
     let fetchTimeout: NodeJS.Timeout;
+    let loadingTimer: NodeJS.Timeout;
 
     // 1. Initial Fetch
     const fetchOrders = async () => {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, tables(name)')
-        .eq('restaurant_id', restId)
-        .order('created_at', { ascending: false });
+      // Set a safety timeout to stop loading spinner even if query hangs
+      loadingTimer = setTimeout(() => {
+        setLoading(false);
+        if (orders.length === 0) {
+          setError("Data fetch is taking longer than expected. Please check your connection or refresh.");
+        }
+      }, 10000);
 
-      if (error) {
-        console.error('Error fetching POS orders:', error);
-        return;
-      }
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, tables(name)')
+          .eq('restaurant_id', restId)
+          .order('created_at', { ascending: false });
 
-      if (data) {
-        setOrders(data.map(o => ({
-          id: o.id,
-          tableId: o.table_id,
-          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
-          orderType: o.order_type,
-          status: o.status as OrderStatus,
-          totalPrice: parseFloat(o.total_price),
-          paymentMethod: o.payment_method,
-          items: o.items,
-          paid_at: o.paid_at,
-          createdAt: { toDate: () => new Date(o.created_at) }
-        })) as any);
+        clearTimeout(loadingTimer);
+
+        if (error) {
+          console.error('Error fetching POS orders:', error);
+          setError(error.message);
+          return;
+        }
+
+        if (data) {
+          setOrders(data.map(o => ({
+            id: o.id,
+            tableId: o.table_id,
+            tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+            orderType: o.order_type,
+            status: o.status as OrderStatus,
+            totalPrice: parseFloat(o.total_price),
+            paymentMethod: o.payment_method,
+            items: o.items,
+            paid_at: o.paid_at,
+            createdAt: { toDate: () => new Date(o.created_at) }
+          })) as any);
+          setError(null);
+        }
+      } catch (err: any) {
+        console.error("Fetch orders exception:", err);
+        setError(err.message || "An unexpected error occurred");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -56,7 +78,13 @@ export function PosDashboard() {
     fetchOrders();
 
     // 2. Refresh on Focus
+    let lastFocusRefresh = 0;
     const handleFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusRefresh < 30000) return; // 30s throttle
+      lastFocusRefresh = now;
+      
+      console.log("POS: Window focused, refreshing orders...");
       fetchOrders();
     };
     window.addEventListener('focus', handleFocus);
@@ -155,6 +183,27 @@ export function PosDashboard() {
     setSettlingCashOrder(null);
   };
 
+  if (loading && orders.length === 0) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
+      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Scanning orders...</p>
+    </div>
+  );
+
+  if (error && orders.length === 0) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-[3rem] border border-gray-100 shadow-sm mx-4">
+      <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 font-black text-4xl">!</div>
+      <h2 className="text-2xl font-black text-gray-900 mb-2">Sync Error</h2>
+      <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
+      <button 
+        onClick={() => window.location.reload()}
+        className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl"
+      >
+        Force Refresh
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-8">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm">
@@ -202,7 +251,7 @@ export function PosDashboard() {
                     <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
                        order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                     }`}>
-                      {order.orderType || 'dine-in'}
+                      {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
                     </span>
                     {(order as any).paid_at ? (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-emerald-100 text-emerald-700">

@@ -22,7 +22,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (initializationPromise) return initializationPromise;
 
     initializationPromise = (async () => {
-      const fetchProfile = async (currentUser: User | null, retryCount = 0) => {
+      const fetchProfile = async (currentUser: User | null, retryCount = 0): Promise<void> => {
         if (!currentUser) {
           set({ user: null, profile: null, loading: false });
           return;
@@ -39,8 +39,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             // Retry on connection issues (up to 3 times)
             if (retryCount < 3 && (error.message?.includes('fetch') || error.message?.includes('network') || !error.code)) {
                console.warn(`Profile fetch failed (attempt ${retryCount + 1}), retrying...`);
-               setTimeout(() => fetchProfile(currentUser, retryCount + 1), 1000 * Math.pow(2, retryCount));
-               return;
+               await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+               return fetchProfile(currentUser, retryCount + 1);
             }
             throw error;
           }
@@ -102,21 +102,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Listen for auth changes
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        console.log("Auth Event:", event);
+        if (event === 'SIGNED_OUT') {
           set({ user: null, profile: null, loading: false });
-        }
-        
-        if (session) {
-          await fetchProfile(session.user);
-        } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
-           // Basic handle
-        } else {
-          set({ user: null, profile: null, loading: false });
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          if (session?.user) {
+            await fetchProfile(session.user);
+          }
+        } else if (event === 'INITIAL_SESSION') {
+          if (session?.user) {
+            await fetchProfile(session.user);
+          } else {
+            set({ user: null, profile: null, loading: false });
+          }
         }
       });
 
       // Handle window focus - check if session is still valid after a long time
+      let lastFocusCheck = 0;
       const handleFocus = () => {
+        const now = Date.now();
+        if (now - lastFocusCheck < 10000) return; // Only check at most every 10 seconds
+        lastFocusCheck = now;
+        
+        console.log("Window focused, checking session...");
         checkSession();
       };
       window.addEventListener('focus', handleFocus);

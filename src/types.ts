@@ -197,6 +197,7 @@ export interface OrderItemOption {
 }
 
 export interface OrderItem {
+  id?: string; // Optional for basket items
   menuItemId: string;
   name: string;
   kitchenName?: string;
@@ -204,6 +205,7 @@ export interface OrderItem {
   quantity: number;
   options: OrderItemOption[];
   selection?: ProductSelection;
+  specialInstructions?: string;
   smartRenderedLines?: {
     kds?: string[];
     receipt?: string[];
@@ -211,12 +213,35 @@ export interface OrderItem {
   };
 }
 
+export type BasketStatus = 'active' | 'locked' | 'submitted' | 'abandoned' | 'expired' | 'merged';
+
+export interface Basket {
+  id: string;
+  restaurantId: string;
+  sessionId: string;
+  status: BasketStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BasketItem {
+  id: string;
+  basketId: string;
+  productId: string;
+  quantity: number;
+  configuration: any;
+  specialInstructions?: string;
+  createdByDevice?: string;
+  createdAt: string;
+  product?: Product;
+}
+
 export interface Order {
   id: string;
   tableId: string;
   sessionId?: string;
   tableName?: string;
-  orderType: 'dine-in' | 'takeaway';
+  orderType: 'dine_in' | 'takeaway';
   status: OrderStatus;
   totalPrice: number;
   paymentMethod: 'counter' | 'online';

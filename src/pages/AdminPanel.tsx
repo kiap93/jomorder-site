@@ -170,6 +170,15 @@ export function AdminPanel() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
+    
+    // Safety timeout for fetching data
+    const timeoutTimer = setTimeout(() => {
+      if (loading) {
+        setLoading(false);
+        setError("Data sync is taking too long. Please refresh the page.");
+      }
+    }, 15000);
+
     try {
       const [restRes, catsRes, itemsRes, tablesRes, ordersRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', restId).maybeSingle(),
@@ -206,6 +215,8 @@ export function AdminPanel() {
           .order('created_at', { ascending: false })
           .limit(100)
       ]);
+
+      clearTimeout(timeoutTimer);
 
       if (restRes.error) throw restRes.error;
       if (catsRes.error) throw catsRes.error;

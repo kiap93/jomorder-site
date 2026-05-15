@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
@@ -19,36 +19,40 @@ export function CustomerMenu() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [originalMenuItems, setOriginalMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<OrderItem[]>([]);
-  
-  // Persistence for Cart
-  useEffect(() => {
-    if (restId && tableId) {
-      const savedCart = localStorage.getItem(`cart_${restId}_${tableId}`);
-      if (savedCart) {
-        try {
-          const parsed = JSON.parse(savedCart);
-          if (Array.isArray(parsed)) {
-            setCart(parsed);
-          } else {
-            setCart([]);
-          }
-        } catch (e) {
-          console.error("Failed to parse saved cart", e);
-          setCart([]);
-        }
-      } else {
-        setCart([]);
-      }
-    }
-  }, [restId, tableId]);
+  const [basketId, setBasketId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (restId && tableId && cart.length > 0) {
-      localStorage.setItem(`cart_${restId}_${tableId}`, JSON.stringify(cart));
-    } else if (restId && tableId && cart.length === 0) {
-      localStorage.removeItem(`cart_${restId}_${tableId}`);
-    }
-  }, [cart, restId, tableId]);
+  const syncLocalCartFromServer = (basketItems: any[], allProducts: MenuItem[]) => {
+    const newCart: OrderItem[] = basketItems.map(item => {
+      const product = allProducts.find(p => p.id === item.product_id);
+      if (!product) return null;
+
+      const selection = item.configuration as ProductSelection;
+      const kdsMods = getVisibleModifiers(product, selection, 'kds');
+      const customerMods = getVisibleModifiers(product, selection, 'qr_cart');
+      const receiptMods = getVisibleModifiers(product, selection, 'receipt');
+
+      return {
+        id: item.id,
+        menuItemId: product.id,
+        name: product.name,
+        price: calculateSelectionPrice(product, selection),
+        quantity: item.quantity,
+        options: [],
+        selection: selection,
+        specialInstructions: item.special_instructions,
+        smartRenderedLines: {
+          kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+          customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+          receipt: receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`)
+        }
+      };
+    }).filter(i => i !== null) as OrderItem[];
+
+    setCart(newCart);
+  };
+  
+  // Persistence for Cart is now handled by the server. 
+  // We keep a local cache for offline/optimistic if needed, but primarily use server data.
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +65,10 @@ export function CustomerMenu() {
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
 
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
-  const [orderType, setOrderType] = useState<'dine-in' | 'takeaway'>('dine-in');
+  const [orderType, setOrderType] = useState<'dine_in' | 'takeaway'>('dine_in');
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
+  const fetchDataInProgress = useRef(false);
 
   useEffect(() => {
     setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
@@ -148,46 +153,72 @@ export function CustomerMenu() {
     });
   };
 
-  useEffect(() => {
-    if (!restId) return;
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
-      // Removed setCart([]) to allow persistence
-      setDiningSession(null); // Clear session until re-resolved
-      
-      try {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
-        const tableQuery = (tableId && tableId !== 'default')
-          ? (isUuid 
-              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
-              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
-          : Promise.resolve({ data: null, error: null });
+  const lastFocusRefresh = useRef(0);
+  const restaurantRef = useRef<Restaurant | null>(null);
+  const menuItemsLengthRef = useRef(0);
 
-        const initialFetch = await Promise.all([
+  useEffect(() => {
+    restaurantRef.current = restaurant;
+    menuItemsLengthRef.current = menuItems.length;
+  }, [restaurant, menuItems.length]);
+
+  const fetchData = useCallback(async (isInitial = false) => {
+    // Only prevent concurrent MANUAL or FOCUS refreshes.
+    // Initial effect-triggered ones must ALWAYS proceed to set loading state correctly.
+    if (fetchDataInProgress.current && !isInitial) return;
+    fetchDataInProgress.current = true;
+    
+    const shouldShowLoading = isInitial || (!restaurantRef.current && menuItemsLengthRef.current === 0);
+    if (shouldShowLoading) {
+      setLoading(true);
+      setDiningSession(null); // Only clear session on initial/full load
+    }
+    setError(null);
+    let processedItems: any[] = [];
+    try {
+      console.time("fetchData-initial");
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+      const tableQuery = (tableId && tableId !== 'default')
+        ? (isUuid 
+            ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
+            : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
+        : Promise.resolve({ data: null, error: null });
+
+      // Add a safety timeout for the parallel fetch
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Loading restaurant data timed out. Please try again or check your connection.")), 15000)
+      );
+
+      console.log("Fetching primary data: restaurant, categories, table...");
+      const [restRes, catsRes, tableRes] = await Promise.race([
+        Promise.all([
           supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
           supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
           tableQuery
-        ]);
+        ]),
+        timeoutPromise
+      ]) as any;
+      console.timeEnd("fetchData-initial");
 
-        const [restRes, catsRes, tableRes] = initialFetch;
+      if (restRes.error) throw restRes.error;
+      if (!restRes.data) throw new Error("Restaurant not found. Please check correctly.");
+      
+      const resolvedTable = tableRes.data as Table | null;
+      if (resolvedTable) {
+        setTable(prev => (prev?.id === resolvedTable.id && prev?.status === resolvedTable.status) ? prev : resolvedTable);
+      }
 
-        if (restRes.error) throw restRes.error;
-        if (!restRes.data) throw new Error("Restaurant not found. Please check the URL.");
-        
-        const resolvedTable = tableRes.data as Table | null;
-        if (resolvedTable) {
-          setTable(resolvedTable);
-        }
+      // Resolve Dining Session if not in preview mode and we have a resolved UUID
+      let currentSession = null;
+      if (!isPreviewMode && resolvedTable?.id) {
+        console.time("fetchData-session");
+        const storageKey = `dining_session_token_${resolvedTable.id}`;
+        const existingToken = localStorage.getItem(storageKey);
 
-        // Resolve Dining Session if not in preview mode and we have a resolved UUID
-        let currentSession = null;
-        if (!isPreviewMode && resolvedTable?.id) {
-          const storageKey = `dining_session_token_${resolvedTable.id}`;
-          const existingToken = localStorage.getItem(storageKey);
-
-          // Resilient RPC call to handle potential PostgREST cache issues or version mismatches
-          let sessionResult = await supabase.rpc('resolve_dining_session', {
+        // Resilient RPC call
+        try {
+          console.log("Resolving dining session...");
+          let sessionResultPromise = supabase.rpc('resolve_dining_session', {
             p_restaurant_id: restId,
             p_table_id: resolvedTable.id,
             p_device_info: navigator.userAgent,
@@ -195,7 +226,13 @@ export function CustomerMenu() {
             p_fulfillment: orderType
           });
 
-          // If 5-param version fails with PGRST202, fallback to 4-param version
+          // Add timeout for RPC
+          let sessionResult = await Promise.race([
+            sessionResultPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Session resolution timeout")), 15000))
+          ]) as any;
+
+          // If 5-param version fails, fallback
           if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
              sessionResult = await supabase.rpc('resolve_dining_session', {
                 p_restaurant_id: restId,
@@ -209,8 +246,6 @@ export function CustomerMenu() {
 
           if (sessionError) {
             console.error("Session resolution failed:", sessionError);
-            // If it's a structural error (column missing etc), retry with a simpler fallback if possible
-            // or at least notify the dev
             if (sessionError.message?.includes('column') || sessionError.message?.includes('parameter')) {
                setError("The database schema is out of date. Please run SUPABASE_FINAL_SETUP.sql in your Supabase SQL editor.");
             }
@@ -221,201 +256,251 @@ export function CustomerMenu() {
               status: sessionData[0].session_status
             };
             
-            // Persist the token tightly to this table
             localStorage.setItem(storageKey, sessionData[0].token);
-            setDiningSession(currentSession);
+            setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
           }
+        } catch (e) {
+          console.warn("Session resolution timed out or failed quietly", e);
         }
+        console.timeEnd("fetchData-session");
+      }
 
-        const itemsRes = await supabase.from('menu_items')
-            .select(`
+      console.time("fetchData-items");
+      console.log("Fetching menu items with modifiers and combos...");
+      const itemsResPromise = supabase.from('menu_items')
+          .select(`
+            *,
+            display_behavior,
+            combo_groups (
               *,
-              display_behavior,
-              combo_groups (
+              items:combo_group_items (
                 *,
-                items:combo_group_items (
+                child_product:menu_items (
                   *,
-                  child_product:menu_items (
+                  combo_groups (
                     *,
-                    combo_groups (
-                      *,
-                      items:combo_group_items (*)
-                    ),
-                    modifier_groups (
-                      *,
-                      modifiers!modifiers_group_id_fkey (*)
-                    )
+                    items:combo_group_items (*)
+                  ),
+                  modifier_groups (
+                    *,
+                    modifiers!modifiers_group_id_fkey (*)
                   )
                 )
-              ),
-              modifier_groups (
-                *,
-                modifiers!modifiers_group_id_fkey (*)
               )
-            `)
-            .eq('restaurant_id', restId)
-            .eq('is_active', true);
-        
-        if (itemsRes.error) throw itemsRes.error;
-        
-        // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
-        let processedItems = [];
-        if (itemsRes?.data) {
-          processedItems = itemsRes.data.map((i: any) => ({
-            id: i.id,
-            restaurantId: i.restaurant_id,
-            categoryId: i.category_id,
-            name: i.name,
-            price: parseFloat(i.price || i.base_price || 0),
-            basePrice: parseFloat(i.base_price || i.price || 0),
-            imageUrl: i.image_url,
-            description: i.description,
-            isActive: i.is_active,
-            status: i.status || 'Available',
-            displayBehavior: i.display_behavior,
-            productType: i.product_type || 'single',
-            comboGroups: i.combo_groups?.map((g: any) => ({
-              id: g.id,
-              name: g.name,
-              description: g.description,
-              required: g.required,
-              minSelect: g.min_select,
-              maxSelect: g.max_select,
-              displayBehavior: g.display_behavior,
-              importance: g.importance,
-              sortOrder: g.sort_order,
-              items: g.items?.map((gi: any) => ({
-                id: gi.id,
-                groupId: gi.group_id,
-                childProductId: gi.child_product_id,
-                priceDelta: parseFloat(gi.price_delta || 0),
-                defaultSelected: gi.default_selected,
-                displayBehavior: gi.display_behavior,
-                importance: gi.importance,
-                sortOrder: gi.sort_order,
-                childProduct: gi.child_product ? {
-                  id: gi.child_product.id,
-                  name: gi.child_product.name,
-                  basePrice: parseFloat(gi.child_product.base_price || 0),
-                  productType: gi.child_product.product_type,
-                  comboGroups: gi.child_product.combo_groups?.map((ng: any) => ({
-                    id: ng.id,
-                    name: ng.name,
-                    description: ng.description,
-                    required: ng.required,
-                    minSelect: ng.min_select,
-                    maxSelect: ng.max_select,
-                    displayBehavior: ng.display_behavior,
-                    importance: ng.importance,
-                    sortOrder: ng.sort_order,
-                    items: ng.items?.map((ni: any) => ({
-                      id: ni.id,
-                      groupId: ni.group_id,
-                      childProductId: ni.child_product_id,
-                      priceDelta: parseFloat(ni.price_delta || 0),
-                      defaultSelected: ni.default_selected,
-                      displayBehavior: ni.display_behavior,
-                      importance: ni.importance,
-                      sortOrder: ni.sort_order
-                    })) || []
-                  })),
-                  modifierGroups: gi.child_product.modifier_groups?.map((ng: any) => ({
-                    id: ng.id,
-                    name: ng.name,
-                    required: ng.required,
-                    minSelect: ng.min_select,
-                    maxSelect: ng.max_select,
-                    displayBehavior: ng.display_behavior,
-                    sortOrder: ng.sort_order,
-                    modifiers: ng.modifiers?.map((nm: any) => ({
-                      id: nm.id,
-                      groupId: nm.group_id,
-                      name: nm.name,
-                      priceDelta: parseFloat(nm.price_delta || 0),
-                      isDefault: nm.is_default,
-                      renderImportance: nm.render_importance,
-                      displayBehavior: nm.display_behavior,
-                      sortOrder: nm.sort_order
-                    })) || []
-                  }))
-                } : undefined
-              })) || []
-            })) || [],
-            modifierGroups: i.modifier_groups?.map((g: any) => ({
-              id: g.id,
-              name: g.name,
-              required: g.required,
-              minSelect: g.min_select,
-              maxSelect: g.max_select,
-              displayBehavior: g.display_behavior,
-              sortOrder: g.sort_order,
-              modifiers: g.modifiers?.map((m: any) => ({
-                id: m.id,
-                groupId: m.group_id,
-                name: m.name,
-                priceDelta: parseFloat(m.price_delta || 0),
-                isDefault: m.is_default,
-                renderImportance: m.render_importance,
-                displayBehavior: m.display_behavior,
-                sortOrder: m.sort_order
-              })) || []
-            })) || []
-          }));
-        } else if (itemsRes?.error || !itemsRes?.data) {
-          console.warn("Complex items fetch failed or empty, trying simple list.");
-          const simpleRes = await supabase.from('menu_items')
-            .select('*')
-            .eq('restaurant_id', restId)
-            .eq('is_active', true);
-          
-          if (simpleRes.error) throw simpleRes.error;
-          processedItems = (simpleRes.data || []).map((i: any) => ({
-            id: i.id,
-            restaurantId: i.restaurant_id,
-            categoryId: i.category_id,
-            name: i.name,
-            price: parseFloat(i.price || i.base_price || 0),
-            basePrice: parseFloat(i.base_price || i.price || 0),
-            imageUrl: i.image_url,
-            description: i.description,
-            isActive: i.is_active,
-            status: i.status || 'Available',
-            productType: i.product_type || 'single'
-          }));
-        }
+            ),
+            modifier_groups (
+              *,
+              modifiers!modifiers_group_id_fkey (*)
+            )
+          `)
+          .eq('restaurant_id', restId)
+          .eq('is_active', true);
 
-        if (!restRes.data) throw new Error("Restaurant not found");
+      const itemsRes = await Promise.race([
+        itemsResPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Menu items load timeout")), 15000))
+      ]) as any;
+      
+      if (itemsRes.error) throw itemsRes.error;
+      console.timeEnd("fetchData-items");
+      
+      // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
+      if (itemsRes?.data) {
+        processedItems = itemsRes.data.map((i: any) => ({
+          id: i.id,
+          restaurantId: i.restaurant_id,
+          categoryId: i.category_id,
+          name: i.name,
+          price: parseFloat(i.price || i.base_price || 0),
+          basePrice: parseFloat(i.base_price || i.price || 0),
+          imageUrl: i.image_url,
+          description: i.description,
+          isActive: i.is_active,
+          status: i.status || 'Available',
+          displayBehavior: i.display_behavior,
+          productType: i.product_type || 'single',
+          comboGroups: i.combo_groups?.map((g: any) => ({
+            id: g.id,
+            name: g.name,
+            description: g.description,
+            required: g.required,
+            minSelect: g.min_select,
+            maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            importance: g.importance,
+            sortOrder: g.sort_order,
+            items: g.items?.map((gi: any) => ({
+              id: gi.id,
+              groupId: gi.group_id,
+              childProductId: gi.child_product_id,
+              priceDelta: parseFloat(gi.price_delta || 0),
+              defaultSelected: gi.default_selected,
+              displayBehavior: gi.display_behavior,
+              importance: gi.importance,
+              sortOrder: gi.sort_order,
+              childProduct: gi.child_product ? {
+                id: gi.child_product.id,
+                name: gi.child_product.name,
+                basePrice: parseFloat(gi.child_product.base_price || 0),
+                productType: gi.child_product.product_type,
+                comboGroups: gi.child_product.combo_groups?.map((ng: any) => ({
+                  id: ng.id,
+                  name: ng.name,
+                  description: ng.description,
+                  required: ng.required,
+                  minSelect: ng.min_select,
+                  maxSelect: ng.max_select,
+                  displayBehavior: ng.display_behavior,
+                  importance: ng.importance,
+                  sortOrder: ng.sort_order,
+                  items: ng.items?.map((ni: any) => ({
+                    id: ni.id,
+                    groupId: ni.group_id,
+                    childProductId: ni.child_product_id,
+                    priceDelta: parseFloat(ni.price_delta || 0),
+                    defaultSelected: ni.default_selected,
+                    displayBehavior: ni.display_behavior,
+                    importance: ni.importance,
+                    sortOrder: ni.sort_order
+                  })) || []
+                })),
+                modifierGroups: gi.child_product.modifier_groups?.map((ng: any) => ({
+                  id: ng.id,
+                  name: ng.name,
+                  required: ng.required,
+                  minSelect: ng.min_select,
+                  maxSelect: ng.max_select,
+                  displayBehavior: ng.display_behavior,
+                  sortOrder: ng.sort_order,
+                  modifiers: ng.modifiers?.map((nm: any) => ({
+                    id: nm.id,
+                    groupId: nm.group_id,
+                    name: nm.name,
+                    priceDelta: parseFloat(nm.price_delta || 0),
+                    isDefault: nm.is_default,
+                    renderImportance: nm.render_importance,
+                    displayBehavior: nm.display_behavior,
+                    sortOrder: nm.sort_order
+                  })) || []
+                }))
+              } : undefined
+            })) || []
+          })) || [],
+          modifierGroups: i.modifier_groups?.map((g: any) => ({
+            id: g.id,
+            name: g.name,
+            required: g.required,
+            minSelect: g.min_select,
+            maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            sortOrder: g.sort_order,
+            modifiers: g.modifiers?.map((m: any) => ({
+              id: m.id,
+              groupId: m.group_id,
+              name: m.name,
+              priceDelta: parseFloat(m.price_delta || 0),
+              isDefault: m.is_default,
+              renderImportance: m.render_importance,
+              displayBehavior: m.display_behavior,
+              sortOrder: m.sort_order
+            })) || []
+          })) || []
+        }));
+      } else if (itemsRes?.error || !itemsRes?.data) {
+        console.warn("Complex items fetch failed or empty, trying simple list.");
+        const simpleRes = await supabase.from('menu_items')
+          .select('*')
+          .eq('restaurant_id', restId)
+          .eq('is_active', true);
         
-        setRestaurant({
-          id: restRes.data.id,
-          name: restRes.data.name,
-          currency: restRes.data.currency,
-          serviceCharge: parseFloat(restRes.data.service_charge),
-          sst: parseFloat(restRes.data.sst),
-          franchiseId: restRes.data.franchise_id
-        } as any);
-        
-        if (tableRes.data) {
-          setTable({ id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
-        }
-        if (catsRes.data) {
-          const processedCats = catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order }));
-          setOriginalCategories(processedCats);
-          setCategories(processedCats);
-        }
-        setOriginalMenuItems(processedItems);
-        setMenuItems(processedItems);
-      } catch (err: any) {
-        console.error("Fetch data failed:", err);
-        setError(err.message || "Failed to load menu data");
-      } finally {
-        setLoading(false);
+        if (simpleRes.error) throw simpleRes.error;
+        processedItems = (simpleRes.data || []).map((i: any) => ({
+          id: i.id,
+          restaurantId: i.restaurant_id,
+          categoryId: i.category_id,
+          name: i.name,
+          price: parseFloat(i.price || i.base_price || 0),
+          basePrice: parseFloat(i.base_price || i.price || 0),
+          imageUrl: i.image_url,
+          description: i.description,
+          isActive: i.is_active,
+          status: i.status || 'Available',
+          productType: i.product_type || 'single'
+        }));
       }
-    };
-    fetchData();
+
+      if (!restRes.data) throw new Error("Restaurant not found");
+      
+      const newRestaurant = {
+        id: restRes.data.id,
+        name: restRes.data.name,
+        currency: restRes.data.currency,
+        serviceCharge: parseFloat(restRes.data.service_charge),
+        sst: parseFloat(restRes.data.sst),
+        franchiseId: restRes.data.franchise_id
+      };
+
+      setRestaurant(prev => (
+        prev?.id === newRestaurant.id && 
+        prev?.name === newRestaurant.name && 
+        prev?.serviceCharge === newRestaurant.serviceCharge &&
+        prev?.sst === newRestaurant.sst
+      ) ? prev : newRestaurant as any);
+      
+      if (tableRes.data) {
+        setTable(prev => prev?.id === tableRes.data.id && prev?.status === tableRes.data.status ? prev : { id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
+      }
+      if (catsRes.data) {
+        const processedCats = catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order }));
+        setOriginalCategories(processedCats);
+        setCategories(processedCats);
+      }
+      setOriginalMenuItems(processedItems);
+      setMenuItems(processedItems);
+
+      // Fetch Basket AFTER items are processed
+      if (currentSession?.id) {
+        const { data: basketData } = await supabase
+          .from('baskets')
+          .select('id')
+          .eq('session_id', currentSession.id)
+          .eq('status', 'active')
+          .maybeSingle();
+        
+        if (basketData) {
+          setBasketId(basketData.id);
+          const { data: items } = await supabase
+            .from('basket_items')
+            .select('*')
+            .eq('basket_id', basketData.id);
+          
+          if (items) {
+            syncLocalCartFromServer(items, processedItems);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Fetch data failed:", err);
+      setError(err.message || "Failed to load menu data");
+    } finally {
+      fetchDataInProgress.current = false;
+      setLoading(false);
+    }
+  }, [restId, tableId, orderType, isPreviewMode]); // Stabilized dependencies
+
+  useEffect(() => {
+    if (!restId) return;
+    const controller = new AbortController();
+    
+    fetchData(true);
 
     const handleFocus = () => {
-      fetchData();
+      const now = Date.now();
+      if (now - lastFocusRefresh.current < 30000) return; // 30s throttle
+      lastFocusRefresh.current = now;
+      
+      console.log("Window focused, refreshing menu...");
+      if (!fetchDataInProgress.current) fetchData(false);
     };
     window.addEventListener('focus', handleFocus);
 
@@ -438,6 +523,7 @@ export function CustomerMenu() {
     }
 
     return () => {
+      controller.abort();
       if (subscription) supabase.removeChannel(subscription);
       window.removeEventListener('focus', handleFocus);
     };
@@ -500,21 +586,16 @@ export function CustomerMenu() {
         }));
         
         if (payload.new.status === 'closed' || payload.new.status === 'expired' || payload.new.status === 'replaced') {
-          // Session was closed by staff, expired, or replaced by another user scanning.
-          // In case of 'replaced', we might want to try to join the new session automatically.
           if (payload.new.status === 'replaced') {
-             console.log("Session replaced. Attempting to join the new active session...");
-             // Clear this token and reload to trigger fresh resolution
              localStorage.removeItem(`dining_session_token_${table.id}`);
              window.location.reload();
              return;
           }
 
           localStorage.removeItem(`dining_session_token_${table.id}`);
-          localStorage.removeItem(`cart_${restId}_${tableId}`);
           setDiningSession(null);
           setCart([]);
-          window.location.reload(); // Refresh to get a fresh state
+          window.location.reload();
         }
       })
       .subscribe();
@@ -523,6 +604,35 @@ export function CustomerMenu() {
       supabase.removeChannel(channel);
     };
   }, [diningSession?.id, table?.id]);
+
+  // Real-time synchronization for collaborative ordering
+  useEffect(() => {
+    if (!basketId) return;
+
+    const channel = supabase
+      .channel(`basket-${basketId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'basket_items',
+        filter: `basket_id=eq.${basketId}`
+      }, async (payload) => {
+        // Redownload all items to ensure consistency (simpler than manual merging)
+        const { data: items } = await supabase
+          .from('basket_items')
+          .select('*')
+          .eq('basket_id', basketId);
+        
+        if (items) {
+          syncLocalCartFromServer(items, originalMenuItems);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [basketId, originalMenuItems]);
 
   // Handle translation updates
   useEffect(() => {
@@ -548,66 +658,127 @@ export function CustomerMenu() {
     return () => clearTimeout(timeoutId);
   }, [currentLanguage, originalMenuItems, originalCategories, restaurant]);
 
-  const addToCart = (item: MenuItem, selection: ProductSelection) => {
-    const itemTotalPrice = calculateSelectionPrice(item, selection);
+  const addToCart = async (item: MenuItem, selection: ProductSelection) => {
+    // 1. Ensure we have a session
+    let currentSessionId = diningSession?.id;
     
-    // Generate smart lines for local display
-    const kdsMods = getVisibleModifiers(item as any as Product, selection, 'kds');
-    const customerMods = getVisibleModifiers(item as any as Product, selection, 'qr_cart');
-    const receiptMods = getVisibleModifiers(item as any as Product, selection, 'receipt');
+    if (!currentSessionId) {
+      if (isPreviewMode) {
+        alert("Ordering is disabled in Preview Mode. Scan a real QR at a table to start a session.");
+        return;
+      }
+      
+      console.log("No session found for addToCart, attempting recovery...");
+      // Proactive recovery attempt
+      await fetchData(false);
+      currentSessionId = diningSession?.id;
+      
+      if (!currentSessionId) {
+        console.error("Could not resolve session for addToCart.");
+        return;
+      }
+    }
 
-    const smartLines = {
-      kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
-      customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
-      receipt: receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`)
+    // 2. Optimistic Update for immediate feedback
+    const kdsMods = getVisibleModifiers(item, selection, 'kds');
+    const customerMods = getVisibleModifiers(item, selection, 'qr_cart');
+    const receiptMods = getVisibleModifiers(item, selection, 'receipt');
+
+    const optimisticItem: OrderItem = {
+      id: 'optimistic-' + Math.random().toString(36).substr(2, 9),
+      menuItemId: item.id,
+      name: item.name,
+      price: calculateSelectionPrice(item, selection),
+      quantity: 1,
+      options: [],
+      selection: selection,
+      specialInstructions: '',
+      smartRenderedLines: {
+        kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+        customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
+        receipt: receiptMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`)
+      }
     };
 
-    setCart(prev => {
-      const existingIndex = prev.findIndex(i => {
-        if (i.menuItemId !== item.id) return false;
-        return i.selection && JSON.stringify(i.selection) === JSON.stringify(selection);
+    const existingIndex = cart.findIndex(i => {
+      if (i.menuItemId !== item.id) return false;
+      return i.selection && JSON.stringify(i.selection) === JSON.stringify(selection);
+    });
+
+    if (existingIndex > -1) {
+      const newCart = [...cart];
+      newCart[existingIndex].quantity += 1;
+      setCart(newCart);
+    } else {
+      setCart(prev => [...prev, optimisticItem]);
+    }
+
+    // 3. Sync with Server
+    const newQuantity = existingIndex > -1 ? cart[existingIndex].quantity + 1 : 1;
+
+    try {
+      const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
+        p_session_id: currentSessionId,
+        p_product_id: item.id,
+        p_quantity: newQuantity,
+        p_configuration: selection,
+        p_device_info: navigator.userAgent
       });
 
-      if (existingIndex > -1) {
-        const newCart = [...prev];
-        const existingItem = newCart[existingIndex];
-        newCart[existingIndex] = {
-          ...existingItem,
-          quantity: existingItem.quantity + 1,
-          smartRenderedLines: smartLines
-        };
-        return newCart;
+      if (error) {
+        console.error("Failed to sync basket item:", error);
+        // Rollback optimistic update if needed, or let real-time fix it
+        return;
       }
 
-      return [...prev, {
-        menuItemId: item.id,
-        name: item.name,
-        price: itemTotalPrice,
-        quantity: 1,
-        options: [],
-        selection: selection,
-        smartRenderedLines: smartLines
-      }];
-    });
+      if (basketItem && !basketId) {
+        setBasketId(basketItem.basket_id);
+      }
+    } catch (err) {
+      console.error("Network error adding to basket:", err);
+    }
   };
 
-  const updateQuantity = (index: number, delta: number) => {
-    setCart(prev => {
-      const existingItem = prev[index];
-      if (!existingItem) return prev;
-      
-      const newQty = Math.max(0, existingItem.quantity + delta);
-      if (newQty === 0) {
-        return prev.filter((_, i) => i !== index);
+  const updateQuantity = async (index: number, delta: number) => {
+    let currentSessionId = diningSession?.id;
+    const item = cart[index];
+    if (!item) return;
+
+    // 1. Session Recovery
+    if (!currentSessionId) {
+      console.log("No session found for updateQuantity, attempting recovery...");
+      await fetchData(false);
+      currentSessionId = diningSession?.id;
+      if (!currentSessionId) return;
+    }
+
+    const newQty = Math.max(0, item.quantity + delta);
+
+    // 2. Optimistic Update
+    const newCart = [...cart];
+    if (newQty === 0) {
+      newCart.splice(index, 1);
+    } else {
+      newCart[index] = { ...item, quantity: newQty };
+    }
+    setCart(newCart);
+
+    // 3. Sync with Server
+    try {
+      const { error } = await supabase.rpc('sync_basket_item', {
+        p_session_id: currentSessionId,
+        p_product_id: item.menuItemId,
+        p_quantity: newQty,
+        p_configuration: item.selection,
+        p_device_info: navigator.userAgent
+      });
+
+      if (error) {
+        console.error("Failed to update basket quantity:", error);
       }
-      
-      const newCart = [...prev];
-      newCart[index] = {
-        ...existingItem,
-        quantity: newQty
-      };
-      return newCart;
-    });
+    } catch (err) {
+      console.error("Network error updating quantity:", err);
+    }
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -636,8 +807,13 @@ export function CustomerMenu() {
         .single();
 
       if (error) throw error;
+      
+      // Submit basket - marks active basket as submitted
+      if (basketId) {
+        await supabase.rpc('submit_basket', { p_basket_id: basketId });
+      }
+
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
-      localStorage.removeItem(`cart_${restId}_${tableId}`);
       setLastOrderId(data.id);
       setCart([]);
       navigate(`/restaurant/${restId}/order/${data.id}`);
@@ -704,8 +880,13 @@ export function CustomerMenu() {
         .single();
 
       if (error) throw error;
+
+      // Submit basket - marks active basket as submitted
+      if (basketId) {
+        await supabase.rpc('submit_basket', { p_basket_id: basketId });
+      }
+
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
-      localStorage.removeItem(`cart_${restId}_${tableId}`);
       setLastOrderId(data.id);
       setCart([]);
       // Lead to the dedicated elegant checkout page
@@ -725,9 +906,29 @@ export function CustomerMenu() {
   });
 
   if (loading) return (
-    <div className="h-screen flex flex-col items-center justify-center bg-white gap-4">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-      <p className="text-zinc-500 font-semibold text-[10px] uppercase tracking-wider animate-pulse">Loading Menu...</p>
+    <div className="h-screen flex flex-col items-center justify-center bg-white gap-6 px-12 text-center">
+      <div className="relative">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-600"></div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="h-2 w-2 bg-orange-600 rounded-full animate-ping"></div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-zinc-500 font-bold text-xs uppercase tracking-[0.2em] animate-pulse">Loading Menu</p>
+        <p className="text-[10px] text-zinc-400 font-medium max-w-[180px] mx-auto leading-relaxed">
+          Retrieving the latest delicious offerings for you...
+        </p>
+      </div>
+      
+      {/* Delayed hint */}
+      <motion.p 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 10 }}
+        className="text-[9px] text-zinc-300 font-bold max-w-[200px]"
+      >
+        Taking a bit longer than usual. Please stay with us or check your connection.
+      </motion.p>
     </div>
   );
 
@@ -931,91 +1132,108 @@ export function CustomerMenu() {
 
       {/* Menu Grid */}
       <div className="px-4 py-4 space-y-3">
-        {filteredItems.map(item => (
-          <motion.div
-            layout
-            key={item.id}
-            onClick={() => {
-              if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
-                addToCart(item, { productId: item.id, selections: {} });
-                return;
-              }
-              setSelectedItemForDetail(item);
-              initializeSelection(item);
-            }}
-            className="bg-white border border-zinc-100 rounded-2xl p-3 flex gap-3 hover:shadow-md transition-all group cursor-pointer"
-          >
-            <div className="w-20 h-20 rounded-xl bg-zinc-50 flex-shrink-0 overflow-hidden relative border border-zinc-100">
-              {item.imageUrl ? (
-                <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-zinc-200">
-                  <ShoppingBag size={24} />
-                </div>
-              )}
-              {item.status !== 'Available' && (
-                <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-0.5">
-                  <p className="text-[8px] text-center font-bold text-white uppercase tracking-wider">{item.status}</p>
-                </div>
-              )}
-            </div>
-            <div className={`flex-1 flex flex-col justify-center min-w-0 ${(item.status === 'Out of Stock' || item.status === 'Paused') ? 'opacity-50' : ''}`}>
-              <div className="flex justify-between items-start">
-                <h3 className="text-sm font-semibold text-zinc-900 truncate leading-snug">{item.name}</h3>
-                {item.status === 'Low Stock' && <span className="text-[7px] bg-yellow-50 text-yellow-600 font-bold px-1.5 py-0.5 rounded-full border border-yellow-100 ml-2">LOW</span>}
-              </div>
-              <p className="text-[11px] text-zinc-500 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
-              <div className="mt-2.5 flex justify-between items-center">
-                <span className="text-sm font-bold text-orange-600">RM {item.price.toFixed(2)}</span>
-                
-                {(item.status === 'Out of Stock' || item.status === 'Paused' || isPreviewMode) ? (
-                  <span className="text-[10px] font-bold text-zinc-400">
-                    {isPreviewMode ? 'View' : 'Sold Out'}
-                  </span>
+        {filteredItems.map(item => {
+          const hasOptions = (item.modifierGroups?.length || 0) > 0 || (item.comboGroups?.length || 0) > 0 || (item.groups?.length || 0) > 0;
+          const isUnavailable = item.status === 'Out of Stock' || item.status === 'Paused';
+          
+          return (
+            <motion.div
+              layout
+              key={item.id}
+              onClick={() => {
+                if (isUnavailable) return;
+                setSelectedItemForDetail(item);
+                initializeSelection(item);
+              }}
+              className={`bg-white border border-zinc-100 rounded-2xl p-3 flex gap-3 hover:shadow-md transition-all group cursor-pointer ${isUnavailable ? 'opacity-60 grayscale-[0.5]' : ''}`}
+            >
+              <div className="w-20 h-20 rounded-xl bg-zinc-50 flex-shrink-0 overflow-hidden relative border border-zinc-100">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
                 ) : (
-                  <div className="flex items-center gap-2">
-                    {cart.some(i => i.menuItemId === item.id) ? (
-                      <div className="flex items-center gap-2.5 bg-zinc-100 rounded-lg px-2 py-1">
-                        <span className="text-[11px] font-bold text-zinc-900">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)}</span>
-                        <div className="w-px h-3 bg-zinc-200" />
-                        <button 
+                  <div className="w-full h-full flex items-center justify-center text-zinc-200">
+                    <ShoppingBag size={24} />
+                  </div>
+                )}
+                {item.status !== 'Available' && (
+                  <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-0.5">
+                    <p className="text-[8px] text-center font-bold text-white uppercase tracking-wider">{item.status}</p>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 flex flex-col justify-center min-w-0">
+                <div className="flex justify-between items-start">
+                  <h3 className="text-sm font-semibold text-zinc-900 truncate leading-snug">{item.name}</h3>
+                  {item.status === 'Low Stock' && <span className="text-[7px] bg-yellow-50 text-yellow-600 font-bold px-1.5 py-0.5 rounded-full border border-yellow-100 ml-2">LOW</span>}
+                </div>
+                <p className="text-[11px] text-zinc-500 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
+                <div className="mt-2.5 flex justify-between items-center">
+                  <span className="text-sm font-bold text-orange-600">RM {item.price.toFixed(2)}</span>
+                  
+                  {isUnavailable ? (
+                    <span className="text-[10px] font-bold text-zinc-400">Sold Out</span>
+                  ) : isPreviewMode ? (
+                    <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded-md">View Item</span>
+                  ) : (
+                    <div className="flex items-center">
+                      {cart.some(i => i.menuItemId === item.id) ? (
+                        <div className="flex items-center bg-zinc-100 rounded-xl overflow-hidden shadow-sm border border-zinc-200/50">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const index = [...cart].reverse().findIndex(i => i.menuItemId === item.id);
+                              if (index !== -1) {
+                                updateQuantity(cart.length - 1 - index, -1);
+                              }
+                            }}
+                            className="p-2 hover:bg-zinc-200 text-zinc-600 transition-colors"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          
+                          <div className="px-1 min-w-[24px] text-center">
+                            <span className="text-xs font-black text-zinc-900">{cart.filter(i => i.menuItemId === item.id).reduce((sum, i) => sum + i.quantity, 0)}</span>
+                          </div>
+
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.productType === 'single' && !hasOptions) {
+                                addToCart(item, { productId: item.id, selections: {} });
+                              } else {
+                                setSelectedItemForDetail(item);
+                                initializeSelection(item);
+                              }
+                            }}
+                            className="p-2 hover:bg-zinc-200 text-zinc-900 transition-colors"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
+                            if (item.productType === 'single' && !hasOptions) {
                               addToCart(item, { productId: item.id, selections: {} });
                               return;
                             }
                             setSelectedItemForDetail(item);
                             initializeSelection(item);
-                          }} 
-                          className="text-zinc-600 hover:text-orange-600"
+                          }}
+                          className="h-8 px-3 rounded-lg bg-orange-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm shadow-orange-500/20 active:scale-95 transition-all"
                         >
-                          <Plus size={14} />
+                          <Plus size={13} strokeWidth={3} />
+                          Add
                         </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (item.productType === 'single' && (!item.groups || item.groups.length === 0)) {
-                            addToCart(item, { productId: item.id, selections: {} });
-                            return;
-                          }
-                          setSelectedItemForDetail(item);
-                          initializeSelection(item);
-                        }}
-                        className="h-8 px-3 rounded-lg bg-orange-500 text-white text-xs font-semibold flex items-center gap-1 shadow-sm shadow-orange-500/20 active:scale-95 transition-all"
-                      >
-                        <Plus size={14} />
-                        Add
-                      </button>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {/* Item Detail Configurator (Bottom Sheet Style) */}
@@ -1208,9 +1426,9 @@ export function CustomerMenu() {
               {/* Order Type Selector */}
               <div className="flex p-1 bg-zinc-100 rounded-xl">
                 <button
-                  onClick={() => setOrderType('dine-in')}
+                  onClick={() => setOrderType('dine_in')}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
-                    orderType === 'dine-in' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500'
+                    orderType === 'dine_in' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500'
                   }`}
                 >
                   Dine In

@@ -60,7 +60,7 @@ export function OrderTracker() {
         id: o.id,
         tableId: o.table_id,
         tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
-        orderType: o.order_type || 'dine-in',
+        orderType: o.order_type === 'dine_in' ? 'dine_in' : (o.order_type || 'dine_in'),
         status: o.status as OrderStatus,
         totalPrice: parseFloat(o.total_price),
         paymentMethod: o.payment_method || 'counter',

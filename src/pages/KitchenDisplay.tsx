@@ -17,29 +17,41 @@ export function KitchenDisplay() {
     let fetchTimeout: NodeJS.Timeout;
 
     const fetchOrders = async () => {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, tables(name)')
-        .eq('restaurant_id', restId)
-        .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
-        .order('created_at', { ascending: true });
+      const timeoutTimer = setTimeout(() => {
+        if (orders.length === 0) {
+          console.warn("Kitchen orders fetch taking too long...");
+        }
+      }, 10000);
 
-      if (error) {
-        console.error('Error fetching kitchen orders:', error);
-        return;
-      }
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, tables(name)')
+          .eq('restaurant_id', restId)
+          .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
+          .order('created_at', { ascending: true });
 
-      if (data) {
-        setOrders(data.map(o => ({
-          id: o.id,
-          tableId: o.table_id,
-          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
-          orderType: o.order_type,
-          status: o.status as OrderStatus,
-          totalPrice: parseFloat(o.total_price),
-          items: o.items,
-          createdAt: { toDate: () => new Date(o.created_at) }
-        })) as any);
+        clearTimeout(timeoutTimer);
+
+        if (error) {
+          console.error('Error fetching kitchen orders:', error);
+          return;
+        }
+
+        if (data) {
+          setOrders(data.map(o => ({
+            id: o.id,
+            tableId: o.table_id,
+            tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+            orderType: o.order_type,
+            status: o.status as OrderStatus,
+            totalPrice: parseFloat(o.total_price),
+            items: o.items,
+            createdAt: { toDate: () => new Date(o.created_at) }
+          })) as any);
+        }
+      } catch (err) {
+        console.error("KDS fetch exception:", err);
       }
     };
 
@@ -50,7 +62,13 @@ export function KitchenDisplay() {
 
     fetchOrders();
 
+    let lastFocusRefresh = 0;
     const handleFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusRefresh < 30000) return; // 30s throttle
+      lastFocusRefresh = now;
+      
+      console.log("KDS: Window focused, refreshing orders...");
       fetchOrders();
     };
     window.addEventListener('focus', handleFocus);
@@ -118,7 +136,7 @@ export function KitchenDisplay() {
                     <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
                        order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                     }`}>
-                      {order.orderType || 'dine-in'}
+                      {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
