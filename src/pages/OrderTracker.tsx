@@ -97,7 +97,7 @@ export function OrderTracker() {
 
   const currentOrder = orders.find(o => o.id === orderId) || orders[orders.length - 1];
   const sessionStatus = (currentOrder as any).session_status;
-  const isSessionClosed = sessionStatus === 'completed' || sessionStatus === 'expired';
+  const isSessionClosed = sessionStatus === 'closed' || sessionStatus === 'expired' || sessionStatus === 'replaced';
 
   const steps: OrderStatus[] = ['pending', 'confirmed', 'cooking', 'ready', 'served', 'completed'];
   const currentIndex = steps.indexOf(currentOrder.status);

@@ -34,6 +34,7 @@ export function Checkout() {
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntentResponse | null>(null);
   const [status, setStatus] = useState<'selecting' | 'processing' | 'success' | 'failed'>('selecting');
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
+  const [isMethodsCollapsed, setIsMethodsCollapsed] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -322,8 +323,17 @@ export function Checkout() {
 
               {/* Payment Methods */}
               <div className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 px-2">Select Payment Method</p>
-                <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-center justify-between px-2">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Select Payment Method</p>
+                  <button 
+                    onClick={() => setIsMethodsCollapsed(!isMethodsCollapsed)}
+                    className="text-[10px] font-black uppercase tracking-widest text-orange-500 hover:text-orange-400 transition-colors"
+                  >
+                    {isMethodsCollapsed ? 'Show Details' : 'Compact View'}
+                  </button>
+                </div>
+                
+                <div className={`grid ${isMethodsCollapsed ? 'grid-cols-4' : 'grid-cols-1'} gap-3 transition-all duration-300`}>
                   {[
                     { id: 'duitnow', name: 'DuitNow QR', icon: QrCode, color: 'bg-pink-500' },
                     { id: 'tng', name: 'Touch \'n Go', icon: Wallet, color: 'bg-blue-500' },
@@ -333,18 +343,26 @@ export function Checkout() {
                     <button
                       key={method.id}
                       onClick={() => handleMethodSelect(method.id)}
-                      className="group relative bg-zinc-900 border border-zinc-800/50 hover:border-orange-500/50 rounded-2xl p-4 flex items-center gap-4 transition-all active:scale-[0.98]"
+                      className={`group relative bg-zinc-900 border border-zinc-800/50 hover:border-orange-500/50 rounded-2xl transition-all active:scale-[0.98] flex items-center ${
+                        isMethodsCollapsed ? 'justify-center p-3' : 'p-4 gap-4'
+                      }`}
+                      title={isMethodsCollapsed ? method.name : undefined}
                     >
-                      <div className={`w-12 h-12 ${method.color} rounded-xl flex items-center justify-center text-white shadow-lg`}>
-                        <method.icon size={24} strokeWidth={1.5} />
+                      <div className={`${isMethodsCollapsed ? 'w-10 h-10' : 'w-12 h-12'} ${method.color} rounded-xl flex items-center justify-center text-white shadow-lg shrink-0`}>
+                        <method.icon size={isMethodsCollapsed ? 20 : 24} strokeWidth={1.5} />
                       </div>
-                      <div className="flex-1 text-left">
-                        <p className="text-sm font-bold text-white group-hover:text-orange-500 transition-colors uppercase tracking-tight">{method.name}</p>
-                        <p className="text-[10px] text-zinc-500 font-medium tracking-wide">Instant & Secure Payment</p>
-                      </div>
-                      <div className="w-8 h-8 rounded-full border border-zinc-800 flex items-center justify-center group-hover:bg-orange-500 transition-all">
-                        <div className="w-1.5 h-1.5 bg-zinc-700 rounded-full group-hover:bg-white" />
-                      </div>
+                      
+                      {!isMethodsCollapsed && (
+                        <>
+                          <div className="flex-1 text-left">
+                            <p className="text-sm font-bold text-white group-hover:text-orange-500 transition-colors uppercase tracking-tight">{method.name}</p>
+                            <p className="text-[10px] text-zinc-500 font-medium tracking-wide">Instant & Secure Payment</p>
+                          </div>
+                          <div className="w-8 h-8 rounded-full border border-zinc-800 flex items-center justify-center group-hover:bg-orange-500 transition-all">
+                            <div className="w-1.5 h-1.5 bg-zinc-700 rounded-full group-hover:bg-white" />
+                          </div>
+                        </>
+                      )}
                     </button>
                   ))}
                 </div>

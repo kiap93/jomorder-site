@@ -643,7 +643,7 @@ export function AdminPanel() {
       const { error: sessionError } = await supabase
         .from('dining_sessions')
         .update({ 
-          status: 'completed', 
+          status: 'closed', 
           closed_at: new Date().toISOString() 
         })
         .eq('id', session.id);

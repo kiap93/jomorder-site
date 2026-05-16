@@ -83,8 +83,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
         .from('orders')
         .select('*, payments(amount)')
         .eq('session_id', sessionId)
-        .neq('status', 'cancelled')
-        .is('paid_at', null);
+        .neq('status', 'cancelled');
 
       if (error) throw error;
       if (data) {
@@ -103,18 +102,19 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   // Amounts aggregated for the session (Only unpaid orders as requested)
   const totalAmount = useMemo(() => {
     if (sessionOrders.length > 0) {
-      return sessionOrders.reduce((sum, o) => {
-        const price = parseFloat((o as any).totalPrice || (o as any).total_price || 0);
-        return sum + price;
-      }, 0);
+      return sessionOrders
+        .filter(o => !o.paid_at)
+        .reduce((sum, o) => {
+          const price = parseFloat((o as any).totalPrice || (o as any).total_price || 0);
+          return sum + price;
+        }, 0);
     }
     
-    // Fallback to sessionUnpaid if passed from PosPayments to avoid UI jumps
-    const fallbackUnpaid = (order as any).sessionUnpaid;
-    if (fallbackUnpaid !== undefined && fallbackUnpaid !== null) return parseFloat(fallbackUnpaid);
+    // Fallback logic if sessionOrders not yet loaded or empty
+    if (order.paid_at) return 0;
     
     return parseFloat((order as any).totalPrice || (order as any).total_price || 0);
-  }, [sessionOrders, order.totalPrice, (order as any).total_price, (order as any).sessionUnpaid]);
+  }, [sessionOrders, order.totalPrice, (order as any).total_price, order.paid_at]);
 
   const paidAmount = useMemo(() => attempts.filter(a => a.status === 'paid').reduce((sum, a) => sum + a.amount, 0), [attempts]);
   
