@@ -6,11 +6,13 @@ import { Navbar } from './components/Navbar';
 // Pages (to be created)
 import { CustomerMenu } from './pages/CustomerMenu';
 import { PosDashboard } from './pages/PosDashboard';
+import { PosPayments } from './pages/PosPayments';
 import { KitchenDisplay } from './pages/KitchenDisplay';
 import { AdminPanel } from './pages/AdminPanel';
 import { Login } from './pages/Login';
 import { OrderTracker } from './pages/OrderTracker';
 import { Checkout } from './pages/Checkout';
+import { PaymentSuccess } from './pages/PaymentSuccess';
 
 import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
@@ -57,10 +59,12 @@ export default function App() {
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId/checkout" element={<Checkout />} />
+            <Route path="/restaurant/:restId/table/:tableId/order/:orderId/success" element={<PaymentSuccess />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId" element={<OrderTracker />} />
             
             {/* Staff Flow */}
             <Route path="/restaurant/:restId/orders" element={<PosDashboard />} />
+            <Route path="/restaurant/:restId/payments" element={<PosPayments />} />
             <Route path="/restaurant/:restId/kitchen" element={<KitchenDisplay />} />
             <Route path="/restaurant/:restId/admin" element={<AdminPanel />} />
             

@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut } from 'lucide-react';
+import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export function Navbar() {
@@ -27,40 +27,46 @@ export function Navbar() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-3 flex justify-around items-center md:top-0 md:bottom-auto md:flex-col md:w-20 md:h-full md:border-t-0 md:border-r z-50">
+    <nav className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-zinc-900 px-4 py-2 flex justify-around items-center md:top-0 md:bottom-auto md:flex-col md:w-14 md:h-full md:border-t-0 md:border-r md:pt-4 md:space-y-4 z-50 shadow-2xl">
       <Link 
         to={restId ? `/restaurant/${restId}/table/default` : '/'} 
-        className={`p-2 rounded-xl transition-colors ${location.pathname.includes('/table/') ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:text-orange-600'}`}
+        className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/table/') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
       >
-        <ShoppingBag size={24} />
+        <ShoppingBag size={20} />
       </Link>
       
       {user && restId && (
         <>
           <Link 
-            to={`/restaurant/${restId}/orders`} 
-            className={`p-2 rounded-xl transition-colors ${location.pathname.includes('/orders') ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:text-orange-600'}`}
+            to={`/restaurant/${restId}/payments`} 
+            className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/payments') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'text-zinc-600 hover:text-emerald-500'}`}
           >
-            <LayoutDashboard size={24} />
+            <Banknote size={20} />
+          </Link>
+          <Link 
+            to={`/restaurant/${restId}/orders`} 
+            className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/orders') ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' : 'text-zinc-600 hover:text-blue-500'}`}
+          >
+            <LayoutDashboard size={20} />
           </Link>
           <Link 
             to={`/restaurant/${restId}/kitchen`} 
-            className={`p-2 rounded-xl transition-colors ${location.pathname.includes('/kitchen') ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:text-orange-600'}`}
+            className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/kitchen') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
           >
-            <ChefHat size={24} />
+            <ChefHat size={20} />
           </Link>
           <Link 
             to={`/restaurant/${restId}/admin`} 
-            className={`p-2 rounded-xl transition-colors ${location.pathname.includes('/admin') ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:text-orange-600'}`}
+            className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/admin') ? 'bg-zinc-800 text-zinc-100 border border-zinc-700' : 'text-zinc-600 hover:text-zinc-300'}`}
           >
-            <Settings size={24} />
+            <Settings size={20} />
           </Link>
         </>
       )}
       
       {user && (
-        <button onClick={handleSignOut} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-500 hover:text-red-600">
-          <LogOut size={24} />
+        <button onClick={handleSignOut} className="p-2 hover:bg-red-500/10 rounded transition-all text-zinc-600 hover:text-red-500 md:mt-auto md:mb-4 active:scale-90">
+          <LogOut size={20} />
         </button>
       )}
     </nav>

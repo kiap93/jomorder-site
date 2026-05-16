@@ -1,34 +1,70 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Banknote, Calculator, Check, X, ArrowRight, CornerDownRight, ShieldCheck, Printer } from 'lucide-react';
+import { 
+  Banknote, 
+  Calculator, 
+  Check, 
+  X, 
+  ArrowRight, 
+  CornerDownRight, 
+  ShieldCheck, 
+  Printer, 
+  Plus, 
+  Minus, 
+  AlertCircle,
+  Clock,
+  History,
+  Lock,
+  Unlock,
+  CreditCard,
+  Hash
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
+
+type CashCalculatorStatus = 'idle' | 'calculating' | 'awaiting_confirmation' | 'confirmed' | 'completed' | 'voided';
 
 interface CashCalculatorProps {
   amountDue: number;
   orderId: string;
-  onComplete: (data: { cashReceived: number; changeGiven: number; rounding: number }) => void;
+  orderDetails?: {
+    subtotal: number;
+    serviceCharge: number;
+    sst: number;
+    currency?: string;
+  };
+  onComplete: (data: { 
+    cashReceived: number; 
+    changeGiven: number; 
+    rounding: number;
+    isPartial: boolean;
+    remainingBalance: number;
+  }) => void;
   onCancel: () => void;
 }
 
-export function CashCalculator({ amountDue, orderId, onComplete, onCancel }: CashCalculatorProps) {
+export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDetails, onComplete, onCancel }: CashCalculatorProps) {
   const { profile } = useAuthStore();
   const [cashReceived, setCashReceived] = useState<string>('');
-  const [status, setStatus] = useState<'calculating' | 'awaiting_confirmation' | 'completed'>('calculating');
+  const [status, setStatus] = useState<CashCalculatorStatus>('calculating');
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Malaysian rounding logic (to nearest 0.05) if using cash
   const roundToFiveSen = (amount: number) => {
     return Math.round(amount * 20) / 20;
   };
 
-  const finalAmountDue = useMemo(() => roundToFiveSen(amountDue), [amountDue]);
-  const roundingAdjustment = useMemo(() => finalAmountDue - amountDue, [finalAmountDue, amountDue]);
+  const finalAmountDue = useMemo(() => roundToFiveSen(initialAmountDue), [initialAmountDue]);
+  const roundingAdjustment = useMemo(() => finalAmountDue - initialAmountDue, [finalAmountDue, initialAmountDue]);
 
   const cash = parseFloat(cashReceived || '0');
-  const change = cash - finalAmountDue;
+  const change = Math.max(0, cash - finalAmountDue);
+  const remaining = Math.max(0, finalAmountDue - cash);
   const isSufficient = cash >= finalAmountDue;
+  const isPartial = cash > 0 && cash < finalAmountDue;
 
   const quickCashButtons = [5, 10, 20, 50, 100];
+  const incrementButtons = [1, 5, 10, 50];
   
   // Smart suggestions
   const suggestions = useMemo(() => {
@@ -37,12 +73,17 @@ export function CashCalculator({ amountDue, orderId, onComplete, onCancel }: Cas
     quickCashButtons.forEach(btn => {
       if (btn > finalAmountDue) s.add(btn);
     });
-    // Add specific common higher amounts if not exact
-    if (finalAmountDue > 10 && finalAmountDue < 20) s.add(20);
-    if (finalAmountDue > 20 && finalAmountDue < 50) s.add(50);
-    if (finalAmountDue > 50 && finalAmountDue < 100) s.add(100);
     
-    return Array.from(s).sort((a, b) => a - b).slice(0, 4);
+    // Add common next-level notes
+    const nextFive = Math.ceil(finalAmountDue / 5) * 5;
+    const nextTen = Math.ceil(finalAmountDue / 10) * 10;
+    const nextFifty = Math.ceil(finalAmountDue / 50) * 50;
+    
+    if (nextFive > finalAmountDue) s.add(nextFive);
+    if (nextTen > finalAmountDue) s.add(nextTen);
+    if (nextFifty > finalAmountDue) s.add(nextFifty);
+    
+    return Array.from(s).sort((a, b) => a - b).slice(0, 5);
   }, [finalAmountDue]);
 
   const handleKeypad = (val: string) => {
@@ -52,101 +93,153 @@ export function CashCalculator({ amountDue, orderId, onComplete, onCancel }: Cas
       return;
     }
     if (val === '.' && cashReceived.includes('.')) return;
-    if (cashReceived.split('.')[1]?.length >= 2) return; // Max 2 decimal
+    
+    const parts = cashReceived.split('.');
+    if (parts.length > 1 && parts[1].length >= 2) return; // Max 2 decimal
+    
     setCashReceived(prev => prev + val);
   };
 
-  const handleConfirm = async () => {
-    if (!isSufficient) return;
+  const addIncrement = (val: number) => {
+    if (status !== 'calculating') return;
+    const current = parseFloat(cashReceived || '0');
+    setCashReceived((current + val).toFixed(2).replace(/\.00$/, ''));
+  };
+
+  const handleConfirm = () => {
+    if (cash <= 0) return;
     setStatus('awaiting_confirmation');
   };
 
   const finalize = async () => {
-    if (!profile) return;
+    if (!profile || isProcessing) return;
+    setIsProcessing(true);
+    setStatus('confirmed');
     
     try {
-      // 1. Create Payment record (this usually happens in parent, but we handle the transaction here)
-      // Actually, createPayment should be called by parent to get a payment_id
-      // But for speed, let's assume parent gives us an orderId and we complete it.
+      // Small artificial delay for "Cash Drawer Trigger" feel
+      await new Promise(r => setTimeout(r, 600));
       
       onComplete({
         cashReceived: cash,
         changeGiven: change,
-        rounding: roundingAdjustment
+        rounding: roundingAdjustment,
+        isPartial,
+        remainingBalance: remaining
       });
       setStatus('completed');
     } catch (err) {
       console.error("Cash settlement failed:", err);
+      setStatus('calculating');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-2 bg-zinc-950/95 backdrop-blur-md">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[800px]"
+        initial={{ opacity: 0, scale: 0.99 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-[850px] h-full md:h-[90vh] max-h-[600px] bg-zinc-950 border border-zinc-800/50 md:rounded-xl shadow-2xl overflow-hidden flex flex-col md:flex-row shadow-black"
       >
-        {/* Left Panel: Summary & Status */}
-        <div className="flex-1 p-8 border-r border-zinc-900 flex flex-col justify-between bg-zinc-900/20">
-          <div>
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-orange-500/10 rounded-xl flex items-center justify-center border border-orange-500/20">
-                <Banknote className="w-5 h-5 text-orange-500" />
+        {/* 1️⃣ Total Summary & Calculation Zone (Left) */}
+        <div className="w-full md:w-[280px] bg-zinc-900/30 border-r border-zinc-800/50 flex flex-col shrink-0">
+          <div className="p-4 space-y-4 flex-1">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-emerald-500/10 rounded flex items-center justify-center border border-emerald-500/20 shadow-inner">
+                  <Banknote size={16} className="text-emerald-500" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-white tracking-tight uppercase italic leading-none">Cash Hub</h2>
+                  <div className="flex items-center gap-1.5 text-zinc-600 text-[8px] font-black uppercase tracking-wider mt-1">
+                    <Hash size={8} />
+                    <span>#{orderId.slice(-4).toUpperCase()}</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-black text-white tracking-tight">Cash Settlement</h2>
-                <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-widest leading-none mt-1">POS Malaysia Terminal 01</p>
+              <button onClick={onCancel} className="p-1.5 hover:bg-zinc-800 rounded text-zinc-600 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Total Summary Panel */}
+            <div className="p-4 bg-zinc-900 border border-zinc-800 rounded shadow-inner">
+              <div className="space-y-2">
+                {orderDetails ? (
+                  <>
+                    <div className="flex justify-between items-center text-[9px] font-bold text-zinc-600 uppercase tracking-widest leading-none">
+                      <span>Subtotal</span>
+                      <span className="text-zinc-500">RM {(orderDetails.subtotal || 0).toFixed(2)}</span>
+                    </div>
+                    {(orderDetails.serviceCharge || 0) > 0 && (
+                      <div className="flex justify-between items-center text-[9px] font-bold text-zinc-700 uppercase tracking-widest leading-none">
+                        <span>Tax/Fees</span>
+                        <span>RM {(orderDetails.serviceCharge + orderDetails.sst).toFixed(2)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex justify-between items-center text-[9px] font-bold text-zinc-600 uppercase tracking-widest leading-none">
+                    <span>Order Total</span>
+                    <span className="text-zinc-500">RM {(initialAmountDue || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                
+                {Math.abs(roundingAdjustment || 0) > 0 && (
+                  <div className="flex justify-between items-center text-[8px] font-black text-orange-500/60 uppercase tracking-widest leading-none">
+                    <span>Rounding</span>
+                    <span>{(roundingAdjustment || 0) > 0 ? '+' : ''}{(roundingAdjustment || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="pt-2 mt-2 border-t border-zinc-800">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 leading-none">Required Net</p>
+                  <div className="flex items-baseline gap-1.5 leading-none">
+                    <span className="text-zinc-600 font-black text-base italic leading-none">RM</span>
+                    <span className="text-3xl font-black text-white tabular-nums tracking-tighter leading-none">
+                      {(finalAmountDue || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-6">
-              <div className="p-6 bg-zinc-900/50 rounded-3xl border border-zinc-800/50">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Bill</p>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-zinc-500 font-bold text-xl">RM</span>
-                  <span className="text-4xl font-black text-white tabular-nums tracking-tighter">
-                    {amountDue.toFixed(2)}
-                  </span>
-                </div>
-                {Math.abs(roundingAdjustment) > 0 && (
-                  <div className="mt-3 pt-3 border-t border-zinc-800/50 flex justify-between items-center text-[10px]">
-                    <span className="text-zinc-500 font-bold uppercase tracking-wider">Cash Rounding</span>
-                    <span className={`font-mono ${roundingAdjustment >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {roundingAdjustment > 0 ? '+' : ''}{roundingAdjustment.toFixed(2)}
-                    </span>
-                  </div>
-                )}
-                <div className="mt-4 flex justify-between items-center">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-orange-500">Amount Due</span>
-                  <span className="text-2xl font-black text-white tabular-nums tracking-tight">RM {finalAmountDue.toFixed(2)}</span>
-                </div>
-              </div>
-
-              <AnimatePresence mode="wait">
+            {/* Calculation Panel */}
+            <div className="space-y-2">
+              <AnimatePresence mode="popLayout">
                 {cash > 0 && (
                   <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 10 }}
-                    className="p-6 bg-zinc-900/50 rounded-3xl border border-zinc-800/50"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className={`p-4 rounded border transition-all ${
+                      isSufficient ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-orange-500/5 border-orange-500/20'
+                    }`}
                   >
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-zinc-500 font-medium">Cash Received</span>
-                        <span className="text-white font-black tabular-nums tracking-tight">RM {cash.toFixed(2)}</span>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center leading-none">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600">Input</span>
+                        <span className="text-base font-black text-white tabular-nums tracking-tight">RM {cash.toFixed(2)}</span>
                       </div>
                       <div className="h-px bg-zinc-800/50" />
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Change Due</span>
-                        <div className="text-right">
-                          <span className={`text-3xl font-black tabular-nums tracking-tighter ${isSufficient ? 'text-green-500' : 'text-red-500/50'}`}>
-                            RM {Math.max(0, change).toFixed(2)}
+                      <div className="flex justify-between items-end leading-none">
+                        <div className="leading-none">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 block mb-1">
+                            {isSufficient ? 'Change' : 'Remaining'}
                           </span>
-                          {!isSufficient && cash > 0 && (
-                            <p className="text-[10px] font-bold text-red-500 uppercase mt-1">Insufficient Balance</p>
-                          )}
+                          <span className={`text-2xl font-black tabular-nums tracking-tighter ${
+                            isSufficient ? 'text-emerald-500' : 'text-orange-500'
+                          }`}>
+                            RM {(isSufficient ? change : remaining).toFixed(2)}
+                          </span>
                         </div>
+                        {isPartial && (
+                          <div className="bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20 mb-0.5">
+                            <span className="text-[7px] font-black text-orange-500 uppercase tracking-tighter">PARTIAL</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -155,130 +248,202 @@ export function CashCalculator({ amountDue, orderId, onComplete, onCancel }: Cas
             </div>
           </div>
 
-          <div className="mt-8 flex gap-3">
-             <button 
-              onClick={onCancel}
-              className="px-6 py-4 rounded-2xl bg-zinc-900 text-zinc-500 font-bold text-sm hover:bg-zinc-800 transition-all border border-zinc-800 flex items-center justify-center gap-2"
-            >
-              <X className="w-4 h-4" />
-              Cancel
-            </button>
-            <div className="flex-1 flex items-center gap-2 px-4 py-2 bg-zinc-900/30 rounded-2xl border border-zinc-800/30">
-               <ShieldCheck className="w-4 h-4 text-zinc-600" />
-               <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider">Audit Security Active</span>
+          {/* Bottom Security / Audit */}
+          <div className="p-3 border-t border-zinc-800/50 bg-zinc-950/20">
+            <div className="flex items-center gap-2 text-zinc-700 leading-none">
+              <div className="w-7 h-7 rounded bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0">
+                <ShieldCheck size={12} />
+              </div>
+              <div className="flex-1 min-w-0 leading-none">
+                <p className="text-[8px] font-black uppercase tracking-widest truncate leading-none">Audit Trace</p>
+                <p className="text-[7px] font-bold text-zinc-800 truncate leading-none mt-1 uppercase italic">{profile?.email?.split('@')[0] || 'ADM-01'}</p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right Panel: Input Zone */}
-        <div className="flex-[1.2] p-8 flex flex-col justify-between bg-zinc-950">
-          <div className="space-y-8">
-            {/* Suggested Amounts */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {suggestions.map((amt) => (
+        {/* 2️⃣ Cash Input Panel (Right) */}
+        <div className="flex-1 bg-zinc-950 flex flex-col">
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto scrollbar-none">
+            
+            {/* Quick Multi-Input Panel */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1.5 italic">
+                  <Calculator size={12} />
+                  Matrix Entry
+                </h3>
+                <div className="h-px flex-1 ml-3 bg-zinc-900" />
+              </div>
+
+              {/* Incremental Buttons */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {incrementButtons.map(val => (
+                  <button
+                    key={val}
+                    onClick={() => addIncrement(val)}
+                    className="h-10 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 rounded transition-all active:scale-95 flex flex-col items-center justify-center"
+                  >
+                    <span className="text-[8px] font-black text-zinc-700 mb-0.5 leading-none">+RM</span>
+                    <span className="text-xs font-black text-zinc-300 leading-none">{val}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Exact & Common Denominations */}
+              <div className="grid grid-cols-5 gap-1.5">
                 <button
-                  key={amt}
-                  onClick={() => setCashReceived(amt.toFixed(2))}
-                  className="p-4 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-2xl transition-all group flex flex-col items-center justify-center relative overflow-hidden"
+                  onClick={() => setCashReceived(finalAmountDue.toFixed(2))}
+                  className="col-span-2 h-12 bg-emerald-600/5 hover:bg-emerald-600/10 border border-emerald-500/20 rounded-lg transition-all active:scale-95 flex flex-col items-center justify-center leading-none"
                 >
-                  <div className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <CornerDownRight className="w-3 h-3 text-orange-500" />
-                  </div>
-                  <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 group-hover:text-orange-500/50">RM</span>
-                  <span className="text-xl font-black text-white tabular-nums">{amt.toFixed(finalAmountDue.toString().includes('.') ? 2 : 0)}</span>
+                  <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none italic">EXACT</span>
+                  <span className="text-sm font-black text-white tracking-tighter leading-none">{finalAmountDue.toFixed(2)}</span>
                 </button>
-              ))}
+                {suggestions.filter(s => s !== finalAmountDue).slice(0, 3).map(amt => (
+                  <button
+                    key={amt}
+                    onClick={() => setCashReceived(amt.toFixed(0))}
+                    className="h-12 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-all active:scale-95 flex flex-col items-center justify-center leading-none"
+                  >
+                    <span className="text-[7px] font-black text-zinc-700 uppercase tracking-widest mb-1 leading-none italic">SYNC</span>
+                    <span className="text-sm font-black text-zinc-300 tracking-tighter leading-none">{amt}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Keypad */}
-            <div className="grid grid-cols-3 gap-3">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'CLEAR'].map((key) => (
-                <button
-                  key={key}
-                  onClick={() => handleKeypad(key)}
-                  className={`h-20 rounded-3xl text-2xl font-black transition-all active:scale-95 flex items-center justify-center border ${
-                    key === 'CLEAR' 
-                      ? 'bg-zinc-900/50 text-zinc-500 border-zinc-800/50 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/20' 
-                      : 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 shadow-xl shadow-black/20'
-                  }`}
-                >
-                  {key === 'CLEAR' ? <X className="w-6 h-6" /> : key}
-                </button>
-              ))}
+            {/* Keypad Panel */}
+            <div className="space-y-4">
+               <div className="flex items-center justify-between">
+                <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1.5 italic">
+                  <Banknote size={12} />
+                  Terminal Keypad
+                </h3>
+                <div className="h-px flex-1 ml-3 bg-zinc-900" />
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                  <span className="text-base font-black text-zinc-800">RM</span>
+                </div>
+                <input 
+                  type="text" 
+                  value={cashReceived}
+                  readOnly
+                  placeholder="0.00"
+                  className="w-full bg-zinc-950 border border-zinc-900 rounded-lg py-4 pl-12 pr-12 text-3xl font-black text-white tabular-nums placeholder:text-zinc-900 focus:border-zinc-800 transition-colors leading-none"
+                />
+                {cashReceived && (
+                   <button 
+                    onClick={() => setCashReceived('')}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded text-zinc-600"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'C'].map((key) => (
+                  <button
+                    key={key}
+                    onClick={() => key === 'C' ? handleKeypad('CLEAR') : handleKeypad(key)}
+                    className={`h-14 rounded-lg text-lg font-black transition-all active:scale-95 flex items-center justify-center border shadow-sm ${
+                      key === 'C' 
+                        ? 'bg-zinc-900/50 text-zinc-600 border-zinc-900/50 hover:bg-zinc-900 hover:text-white shadow-inner' 
+                        : 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
+                    }`}
+                  >
+                    {key}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="mt-8">
+          {/* 3️⃣ Action Zone (Bottom) */}
+          <div className="p-4 bg-zinc-900/30 border-t border-zinc-800/50">
             <AnimatePresence mode="wait">
               {status === 'calculating' ? (
                 <motion.button
-                  initial={{ opacity: 0, y: 10 }}
+                  key="confirm"
+                  initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
+                  exit={{ opacity: 0, y: -5 }}
                   onClick={handleConfirm}
-                  disabled={!isSufficient}
-                  className={`w-full py-6 rounded-[2rem] font-black text-base uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
-                    isSufficient 
-                    ? 'bg-orange-600 text-white hover:bg-orange-500 shadow-2xl shadow-orange-600/20' 
-                    : 'bg-zinc-900 text-zinc-700 cursor-not-allowed grayscale'
+                  disabled={cash <= 0}
+                  className={`w-full h-12 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                    cash > 0 
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/10 active:scale-[0.98]' 
+                    : 'bg-zinc-900 text-zinc-800 cursor-not-allowed border border-zinc-800 shadow-inner'
                   }`}
                 >
-                  Confirm Settlement
-                  <ArrowRight className="w-5 h-5" />
+                  {isPartial ? `Submit Partial ${cash.toFixed(2)}` : 'Settle Workspace'}
+                  <ArrowRight size={14} />
                 </motion.button>
               ) : status === 'awaiting_confirmation' ? (
                  <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-orange-600/10 border border-orange-500/20 p-6 rounded-[2rem] flex flex-col items-center gap-6"
+                  key="awaiting"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-emerald-700 p-4 rounded-xl flex flex-col items-center gap-4 shadow-2xl border border-emerald-500/20"
                  >
-                   <div className="text-center">
-                     <p className="text-orange-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Security Confirmation</p>
-                     <h3 className="text-xl font-bold text-white">Give Change RM {change.toFixed(2)}?</h3>
-                     <p className="text-zinc-500 text-xs mt-1">This action will be logged under your ID.</p>
+                   <div className="text-center w-full">
+                     <p className="text-emerald-300 text-[8px] font-black uppercase tracking-widest mb-1 italic">Verify Transaction</p>
+                     <h3 className="text-xl font-black text-white tracking-tight leading-none italic">
+                        {isSufficient ? `Give Change RM ${change.toFixed(2)}?` : `Pay Partial RM ${cash.toFixed(2)}?`}
+                     </h3>
                    </div>
-                   <div className="flex gap-4 w-full">
+                   <div className="flex gap-2 w-full shrink-0">
                      <button 
                       onClick={() => setStatus('calculating')}
-                      className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-bold text-sm tracking-widest hover:bg-zinc-800 border border-zinc-800"
+                      className="flex-1 h-10 bg-black/20 text-white rounded font-bold text-[9px] tracking-widest hover:bg-black/30 transition-colors uppercase"
                      >
                        Edit
                      </button>
                      <button 
                       onClick={finalize}
-                      className="flex-[2] py-4 bg-orange-600 text-white rounded-2xl font-black text-sm tracking-[0.2em] uppercase hover:bg-orange-500 shadow-xl shadow-orange-600/20 flex items-center justify-center gap-3"
+                      disabled={isProcessing}
+                      className="flex-[2] h-10 bg-white text-emerald-800 rounded font-black text-[9px] tracking-[0.2em] uppercase hover:bg-emerald-50 shadow-xl transition-all flex items-center justify-center gap-2"
                      >
-                       Finalize & Pay
-                       <Check className="w-5 h-5" />
+                       {isProcessing ? 'SYC...' : 'COMMIT OPS'}
+                       <Check size={14} />
                      </button>
                    </div>
                  </motion.div>
-              ) : (
+              ) : status === 'confirmed' || status === 'completed' ? (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-green-500/10 border border-green-500/20 p-8 rounded-[2rem] text-center space-y-4"
+                  key="success"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl text-center flex flex-col items-center gap-4"
                 >
-                  <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto shadow-lg shadow-green-500/20">
-                    <Check className="w-8 h-8 text-white" />
+                  <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/10 animate-pulse">
+                    <Check size={24} className="text-white" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-white">Success</h3>
-                    <p className="text-zinc-500 text-sm">Payment of RM {cash.toFixed(2)} processed.</p>
+                    <h3 className="text-xl font-black text-emerald-500 tracking-tighter uppercase italic">Ops Success</h3>
+                    <p className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1 italic">Voucher Synchronized</p>
                   </div>
-                  <div className="flex gap-3 mt-4">
-                    <button className="flex-1 py-4 bg-zinc-900 text-zinc-300 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-zinc-800">
-                      <Printer className="w-4 h-4" /> Receipt
+                  <div className="flex gap-2 w-full max-w-sm">
+                    <button className="flex-1 h-10 bg-zinc-800 text-zinc-400 rounded font-bold text-[9px] uppercase tracking-widest flex items-center justify-center gap-1.5 border border-zinc-700 transition-all">
+                      <Printer size={12} /> Log
                     </button>
                     <button 
-                      onClick={() => onComplete({ cashReceived: cash, changeGiven: change, rounding: roundingAdjustment })}
-                      className="flex-[2] py-4 bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest"
+                      onClick={() => onComplete({ 
+                        cashReceived: cash, 
+                        changeGiven: change, 
+                        rounding: roundingAdjustment,
+                        isPartial,
+                        remainingBalance: remaining
+                      })}
+                      className="flex-[1.5] h-10 bg-white text-black rounded font-black text-[9px] uppercase tracking-[0.2em] transition-all shadow-xl"
                     >
-                      Done
+                      Finish
                     </button>
                   </div>
                 </motion.div>
-              )}
+              ) : null}
             </AnimatePresence>
           </div>
         </div>

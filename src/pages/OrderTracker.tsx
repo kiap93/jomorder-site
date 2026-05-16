@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
-import { ChefHat, CheckCircle2, Clock, MapPin, Plus } from 'lucide-react';
+import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';
 import { flattenSelections } from '../lib/configEngine';
 
 export function OrderTracker() {
@@ -169,6 +169,13 @@ export function OrderTracker() {
               <span className="text-sm font-bold text-zinc-900">Total Charged</span>
               <span className="text-sm font-mono font-bold text-zinc-900">RM {(totalPrice || 0).toFixed(2)}</span>
             </div>
+            <button 
+              onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${orderId}/success`)}
+              className="mt-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:underline flex items-center justify-center gap-1"
+            >
+              <Receipt size={12} />
+              View Digital Receipt
+            </button>
           </div>
           <button
             onClick={() => {

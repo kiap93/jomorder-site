@@ -1,23 +1,50 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock, Banknote } from 'lucide-react';
 import { CashCalculator } from '../components/CashCalculator';
+import { PaymentWorkspace } from '../components/PaymentWorkspace';
 import { flattenSelections } from '../lib/configEngine';
 
 export function PosDashboard() {
   const { restId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [filter, setFilter] = useState<string>('active');
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  
+  const filter = searchParams.get('filter') || 'active';
+  const setFilter = (newFilter: string) => {
+    setSearchParams({ filter: newFilter });
+  };
+  
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
-  const [settlingCashOrder, setSettlingCashOrder] = useState<Order | null>(null);
+  const [settlingOrder, setSettlingOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!restId) return;
+
+    // Fetch Restaurant Details
+    supabase
+      .from('restaurants')
+      .select('*')
+      .eq('id', restId)
+      .maybeSingle()
+      .then(({data}) => {
+        if (data) {
+          setRestaurant({
+            id: data.id,
+            name: data.name,
+            currency: data.currency,
+            serviceCharge: parseFloat(data.service_charge) / 100,
+            sst: parseFloat(data.sst) / 100,
+            franchiseId: data.franchise_id
+          } as any);
+        }
+      });
 
     let fetchTimeout: NodeJS.Timeout;
     let loadingTimer: NodeJS.Timeout;
@@ -35,7 +62,7 @@ export function PosDashboard() {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*, tables(name)')
+          .select('*, tables(name), payments(amount)')
           .eq('restaurant_id', restId)
           .order('created_at', { ascending: false });
 
@@ -55,10 +82,12 @@ export function PosDashboard() {
             orderType: o.order_type,
             status: o.status as OrderStatus,
             totalPrice: parseFloat(o.total_price),
+            paidAmount: ((o as any).payments || []).reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0),
             paymentMethod: o.payment_method,
             items: o.items,
             paid_at: o.paid_at,
-            createdAt: { toDate: () => new Date(o.created_at) }
+            createdAt: o.created_at,
+            sessionId: o.session_id
           })) as any);
           setError(null);
         }
@@ -130,58 +159,9 @@ export function PosDashboard() {
   const filteredOrders = orders.filter(o => {
     if (filter === 'active') return o.status !== 'completed' && o.status !== 'cancelled';
     if (filter === 'paid') return !!(o as any).paid_at;
+    if (filter === 'payments') return o.status !== 'completed' && o.status !== 'cancelled' && ((o as any).paidAmount || 0) < o.totalPrice;
     return o.status === filter;
   });
-
-  const handleCashSettlement = async (order: Order, cashData: { cashReceived: number; changeGiven: number; rounding: number }) => {
-    const now = new Date().toISOString();
-    
-    // 1. Create Payment record
-    const { data: payment, error: pError } = await supabase
-      .from('payments')
-      .insert({
-        restaurant_id: restId,
-        order_id: order.id,
-        amount: order.totalPrice + cashData.rounding,
-        payment_method: 'cash',
-        provider: 'pos_cash',
-        status: 'paid',
-        paid_at: now
-      })
-      .select()
-      .single();
-
-    if (pError) throw pError;
-
-    // 2. Log Cash Transaction for Audit
-    const deviceId = localStorage.getItem('pos_device_id') || `TERMINAL_${navigator.userAgent.slice(0, 10)}_${restId?.slice(0, 5)}`;
-
-    const { error: tError } = await supabase
-      .from('cash_transactions')
-      .insert({
-        payment_id: payment.id,
-        order_id: order.id,
-        cashier_id: (await supabase.auth.getUser()).data.user?.id,
-        restaurant_id: restId,
-        device_id: deviceId,
-        amount_due: order.totalPrice,
-        cash_received: cashData.cashReceived,
-        change_given: cashData.changeGiven,
-        rounding_adjustment: cashData.rounding,
-        status: 'completed'
-      });
-
-    if (tError) throw tError;
-
-    // 3. Update Order
-    await supabase.from('orders').update({ 
-      paid_at: now,
-      payment_method: 'counter',
-      status: (order.status === 'ready' || order.status === 'served') ? 'completed' : order.status
-    }).eq('id', order.id);
-
-    setSettlingCashOrder(null);
-  };
 
   if (loading && orders.length === 0) return (
     <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
@@ -205,18 +185,18 @@ export function PosDashboard() {
   );
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm">
+    <div className="space-y-4">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
         <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight capitalize">{filter} Orders</h1>
-          <p className="text-gray-500 text-sm font-medium">Managing restaurant operations</p>
+          <h1 className="text-lg font-black text-gray-900 tracking-tight capitalize leading-none mb-1">{filter} Queue</h1>
+          <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest leading-none">Ops Monitor</p>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl overflow-x-auto scrollbar-none">
+        <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg overflow-x-auto scrollbar-none">
           {['active', 'paid', 'pending', 'confirmed', 'cooking', 'ready', 'served', 'completed', 'cancelled'].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold capitalize whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-tighter transition-all ${
                 filter === f ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -226,78 +206,69 @@ export function PosDashboard() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
         <AnimatePresence>
           {filteredOrders.map(order => (
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
+              exit={{ opacity: 0, scale: 0.98 }}
               key={order.id}
-              className="bg-white rounded-3xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
+              className="bg-white rounded-lg overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
             >
-              <div className="p-5 border-b flex justify-between items-center bg-gray-50/50">
+              <div className="p-2 border-b flex justify-between items-center bg-gray-50/50">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="bg-gray-900 text-white rounded-lg px-2 py-0.5 text-xs font-bold font-mono">
-                      {order.id.slice(-4).toUpperCase()}
+                    <span className="bg-gray-900 text-white rounded px-1.5 py-0.5 text-[9px] font-black font-mono leading-none">
+                      #{order.id.slice(-4).toUpperCase()}
                     </span>
-                    <h3 className="font-bold text-gray-900">Table {order.tableName || order.tableId}</h3>
+                    <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-tighter">T-{order.tableName || order.tableId}</h3>
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">
-                      {(order.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black leading-none">
+                      {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
-                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
-                       order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none border ${
+                       order.orderType === 'takeaway' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-green-50 text-green-700 border-green-100'
                     }`}>
                       {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
                     </span>
-                    {(order as any).paid_at ? (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-emerald-100 text-emerald-700">
-                        PAID
-                      </span>
-                    ) : (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-orange-100 text-orange-700">
-                        UNPAID
-                      </span>
-                    )}
                   </div>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                  order.status === 'confirmed' ? 'bg-blue-100 text-blue-700' :
-                  order.status === 'cooking' ? 'bg-orange-100 text-orange-700' :
-                  order.status === 'ready' ? 'bg-green-100 text-green-700' :
-                  'bg-gray-100 text-gray-700'
+                <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border ${
+                  order.status === 'pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                  order.status === 'confirmed' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                  order.status === 'cooking' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                  order.status === 'ready' ? 'bg-green-50 text-green-700 border-green-200' :
+                  'bg-gray-50 text-gray-700 border-gray-200'
                 }`}>
                   {order.status}
                 </div>
               </div>
 
-              <div className="p-5 flex-1 space-y-3">
+              <div className="p-3 flex-1 space-y-2">
                 {order.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start">
-                    <div className="flex gap-3">
-                      <span className="font-black text-sm text-gray-900 bg-gray-100 px-1.5 rounded-md h-fit">
-                        {item.quantity}x
+                  <div key={idx} className="flex justify-between items-start border-b border-gray-50 pb-1.5 last:border-0 last:pb-0">
+                    <div className="flex gap-2">
+                      <span className="font-black text-[11px] text-gray-900 bg-gray-100 px-1 rounded h-fit leading-tight mt-0.5">
+                        {item.quantity}
                       </span>
                       <div>
-                        <h4 className="text-sm font-bold text-gray-800 leading-none">{item.name}</h4>
+                        <h4 className="text-[11px] font-bold text-gray-800 leading-tight">{item.name}</h4>
                         {item.smartRenderedLines?.customer ? (
-                          <div className="mt-1 space-y-0.5">
+                          <div className="mt-0.5 space-y-0">
                             {item.smartRenderedLines.customer.map((line, i) => (
-                              <p key={i} className="text-[10px] text-gray-400 font-bold leading-tight">{line}</p>
+                              <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
                             ))}
                           </div>
                         ) : item.selection ? (
-                          <div className="mt-1 space-y-0.5">
+                          <div className="mt-0.5 space-y-0">
                             {flattenSelections(item.selection).map((line, i) => (
-                              <p key={i} className="text-[10px] text-gray-400 font-bold leading-tight">{line}</p>
+                              <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
                             ))}
                           </div>
                         ) : item.options.length > 0 ? (
-                          <p className="text-[10px] text-gray-400 mt-1 italic">
+                          <p className="text-[9px] text-gray-400 mt-0.5 italic leading-[1.3]">
                             {item.options.map(o => o.valueName).join(', ')}
                           </p>
                         ) : null}
@@ -307,95 +278,100 @@ export function PosDashboard() {
                 ))}
               </div>
 
-              <div className="p-5 pt-0 mt-auto">
-                <div className="flex justify-between items-center mb-4 pt-4 border-t border-gray-50">
-                  <span className="text-xs font-bold text-gray-400 uppercase">Total amount</span>
-                  <span className="text-lg font-black text-gray-900">RM {(order.totalPrice || 0).toFixed(2)}</span>
+              <div className="p-3 pt-0 mt-auto bg-gray-50/10">
+                <div className="flex justify-between items-center mb-2 pt-2 border-t border-gray-100">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                    {(order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? 'Due' : 'Sum'}
+                  </span>
+                  <div className="text-right">
+                    <span className="text-sm font-black text-gray-900 tabular-nums">
+                      RM {((order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? order.totalPrice - (order as any).paidAmount : order.totalPrice).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex gap-1.5">
                     {order.status === 'pending' && (
                       <button
                         onClick={() => updateStatus(order.id, 'confirmed')}
-                        className="flex-1 bg-yellow-400 text-yellow-950 py-3 rounded-xl font-bold text-xs hover:bg-yellow-500 transition-colors"
+                        className="flex-1 h-8 bg-yellow-400 text-yellow-950 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-yellow-500 transition-colors shadow-sm"
                       >
-                        Accept Order
+                        Accept
                       </button>
                     )}
                     {order.status === 'confirmed' && (
                       <button
                         onClick={() => updateStatus(order.id, 'cooking')}
-                        className="flex-1 bg-orange-100 text-orange-900 py-3 rounded-xl font-bold text-xs hover:bg-orange-200 transition-colors"
+                        className="flex-1 h-8 bg-blue-100 text-blue-900 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-blue-200 transition-colors"
                       >
-                        Start Cooking
+                        Cook
                       </button>
                     )}
                     {order.status === 'cooking' && (
                       <button
                         onClick={() => updateStatus(order.id, 'ready')}
-                        className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold text-xs hover:bg-orange-700 transition-colors"
+                        className="flex-1 h-8 bg-orange-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/10"
                       >
-                        Mark Ready
+                        Ready
                       </button>
                     )}
                     {order.status === 'ready' && (
                       <button
                         onClick={() => updateStatus(order.id, 'served')}
-                        className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors"
+                        className="flex-1 h-8 bg-emerald-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/10"
                       >
-                        {order.orderType === 'takeaway' ? 'Picked Up' : 'Served'}
+                        {order.orderType === 'takeaway' ? 'Pickup' : 'Serve'}
                       </button>
                     )}
                     {order.status === 'served' && (
                       <button
                         onClick={() => updateStatus(order.id, 'completed')}
-                        className="flex-1 bg-zinc-900 text-white py-3 rounded-xl font-bold text-xs hover:bg-black transition-colors"
+                        className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors"
                       >
-                        Complete Order
+                        Done
                       </button>
                     )}
                     {(order.status === 'completed' || order.status === 'cancelled' || order.status === 'served') && (order as any).session_id && (
                       <button
                         onClick={() => closeSession((order as any).session_id, (order as any).table_id)}
-                        className="flex-1 bg-zinc-900 text-white py-3 rounded-xl font-bold text-xs hover:bg-black transition-colors shadow-lg shadow-zinc-900/20"
+                        className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors shadow-sm"
                       >
-                        Settle & Close Table
+                        Close
                       </button>
                     )}
                     {!(order as any).paid_at && order.status !== 'cancelled' && order.status !== 'completed' && (
                       <button
-                        onClick={() => setSettlingCashOrder(order)}
-                        className="flex-1 bg-emerald-500 text-white py-3 rounded-xl font-bold text-xs hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                        onClick={() => setSettlingOrder(order)}
+                        className="flex-1 h-8 bg-emerald-100 text-emerald-800 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1 border border-emerald-200/50"
                       >
-                        <Banknote size={14} />
-                        Pay Cash
+                        <Banknote size={12} />
+                        Pay
                       </button>
                     )}
                     {confirmingCancel === order.id ? (
-                      <div className="flex gap-1 animate-in fade-in slide-in-from-right-2 duration-300">
+                      <div className="flex gap-1">
                         <button
                           onClick={() => {
                             updateStatus(order.id, 'cancelled');
                             setConfirmingCancel(null);
                           }}
-                          className="px-4 py-3 bg-red-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg active:scale-95"
+                          className="px-2 h-8 bg-red-600 text-white rounded font-black text-[9px] uppercase tracking-widest"
                         >
-                          Confirm
+                          Cancel
                         </button>
                         <button
                           onClick={() => setConfirmingCancel(null)}
-                          className="p-3 bg-gray-100 text-gray-400 rounded-xl hover:bg-gray-200 transition-colors"
+                          className="w-8 h-8 bg-gray-100 text-gray-400 rounded flex items-center justify-center"
                         >
-                          <X size={18} />
+                          <X size={14} />
                         </button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setConfirmingCancel(order.id)}
-                        className="p-3 bg-gray-100 text-gray-500 rounded-xl hover:bg-red-50 hover:text-red-500 transition-colors"
-                        title="Cancel Order"
+                        className="w-8 h-8 bg-gray-50 text-gray-400 rounded border border-gray-100 flex items-center justify-center hover:text-red-500 transition-colors"
                       >
-                        <X size={18} />
+                        <X size={14} />
                       </button>
                     )}
                   </div>
@@ -406,12 +382,15 @@ export function PosDashboard() {
         </AnimatePresence>
       </div>
 
-      {settlingCashOrder && (
-        <CashCalculator 
-          amountDue={settlingCashOrder.totalPrice}
-          orderId={settlingCashOrder.id}
-          onCancel={() => setSettlingCashOrder(null)}
-          onComplete={(data) => handleCashSettlement(settlingCashOrder, data)}
+      {settlingOrder && restaurant && (
+        <PaymentWorkspace 
+          order={settlingOrder}
+          restaurant={restaurant}
+          onClose={() => setSettlingOrder(null)}
+          onPaymentSuccess={() => {
+            setSettlingOrder(null);
+            // Refresh logic is already handled by realtime subscription
+          }}
         />
       )}
     </div>

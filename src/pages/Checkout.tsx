@@ -25,6 +25,7 @@ export function Checkout() {
   
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [sessionOrders, setSessionOrders] = useState<Order[]>([]);
   const [sessionUnpaidTotal, setSessionUnpaidTotal] = useState<number | null>(null);
   const [payTarget, setPayTarget] = useState<'order' | 'session'>('order');
   const [loading, setLoading] = useState(true);
@@ -61,33 +62,37 @@ export function Checkout() {
 
         setRestaurant(restRes.data as any);
         const orderData = orderRes.data as any;
-        setOrder({
-          ...orderData,
-          totalPrice: parseFloat(orderData.total_price || 0)
-        } as any);
-
-        // Fetch session unpaid total if exists
-        if (orderData.session_id) {
-          const { data: sessionOrders } = await supabase
+        
+        // Fetch session orders if exists
+        const sessionId = orderData.session_id;
+        if (sessionId) {
+          const { data: sOrders } = await supabase
             .from('orders')
-            .select('total_price')
-            .eq('session_id', orderData.session_id)
-            .is('paid_at', null)
+            .select('*')
+            .eq('session_id', sessionId)
             .neq('status', 'cancelled');
           
-          if (sessionOrders && sessionOrders.length > 1) {
-            const total = sessionOrders.reduce((sum, o) => sum + parseFloat(o.total_price), 0);
+          if (sOrders && sOrders.length > 0) {
+            setSessionOrders(sOrders as any);
+            const unpaidOrders = sOrders.filter(o => !o.paid_at);
+            const total = unpaidOrders.reduce((sum, o) => sum + parseFloat(o.total_price), 0);
             setSessionUnpaidTotal(total);
             setPayTarget('session');
+            setOrder({
+              ...orderData,
+              totalPrice: parseFloat(orderData.total_price || 0),
+              sessionId: sessionId
+            } as any);
+            return; // Exit early as we've handled everything for session
           }
         }
-        
-        // Map snake_case to camelCase
+
         setOrder({
           ...orderData,
           totalPrice: parseFloat(orderData.total_price || 0),
           sessionId: orderData.session_id
         } as any);
+        setPayTarget('order');
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -95,7 +100,7 @@ export function Checkout() {
       }
     };
     fetchData();
-  }, [restId, orderId]);
+  }, [restId, orderId, tableId]);
 
   // Timer logic
   useEffect(() => {
@@ -148,9 +153,11 @@ export function Checkout() {
   const simulateSuccess = async () => {
     if (!paymentIntent) return;
     
-    // If it was a session payment, mark all session orders as paid
+    // If it was a session payment, mark all session orders as paid and close the session
     if (payTarget === 'session' && order?.sessionId) {
        const now = new Date().toISOString();
+       
+       // Update all unpaid orders in the session
        await supabase.from('orders')
         .update({ 
           paid_at: now, 
@@ -160,6 +167,24 @@ export function Checkout() {
         .eq('session_id', order.sessionId)
         .is('paid_at', null)
         .neq('status', 'cancelled');
+
+       // Close the dining session
+       await supabase.from('dining_sessions')
+        .update({
+          status: 'paid',
+          closed_at: now
+        })
+        .eq('id', order.sessionId);
+    } else if (payTarget === 'order' && order) {
+       // Just update this single order
+       const now = new Date().toISOString();
+       await supabase.from('orders')
+        .update({ 
+          paid_at: now, 
+          status: 'confirmed', 
+          payment_method: 'online' 
+        })
+        .eq('id', order.id);
     }
 
     await paymentEngine.simulateSuccess(paymentIntent.paymentId);
@@ -201,10 +226,10 @@ export function Checkout() {
         <h2 className="text-2xl font-black text-white mb-2">Payment Successful</h2>
         <p className="text-zinc-400 text-sm mb-8">Your order has been sent to the kitchen.</p>
         <button
-          onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${orderId}`)}
+          onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${orderId}/success`)}
           className="w-full max-w-xs h-14 bg-zinc-800 text-white rounded-2xl font-bold text-sm hover:bg-zinc-700 transition-all border border-zinc-700"
         >
-          Track My Order
+          View Receipt
         </button>
       </div>
     );
@@ -249,11 +274,11 @@ export function Checkout() {
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-1">
-                      {payTarget === 'session' ? 'Total Session Bill' : 'Order Amount'}
+                      {order?.sessionId ? 'Open Session Balance' : 'Order Amount'}
                     </p>
                     <div className="text-4xl font-black tabular-nums tracking-tighter">
                       RM <span className="text-white">
-                        {(payTarget === 'session' && sessionUnpaidTotal ? sessionUnpaidTotal : (order?.totalPrice || 0)).toFixed(2)}
+                        {(payTarget === 'session' && sessionUnpaidTotal !== null ? sessionUnpaidTotal : (order?.totalPrice || 0)).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -262,20 +287,25 @@ export function Checkout() {
                   </div>
                 </div>
 
-                {sessionUnpaidTotal && (
-                  <div className="flex gap-2 p-1.5 bg-zinc-800/30 rounded-2xl mb-4 border border-zinc-700/30">
-                    <button 
-                      onClick={() => setPayTarget('order')}
-                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${payTarget === 'order' ? 'bg-orange-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                      Single Order
-                    </button>
-                    <button 
-                      onClick={() => setPayTarget('session')}
-                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${payTarget === 'session' ? 'bg-orange-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                      Full Session
-                    </button>
+                {order?.sessionId && sessionOrders.length > 0 && (
+                  <div className="mb-6 space-y-3">
+                    <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800/50 pb-2">Orders in this session</p>
+                    <div className="max-h-40 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                      {sessionOrders.map(o => (
+                        <div key={o.id} className="flex justify-between items-center text-[11px]">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-1.5 h-1.5 rounded-full ${o.paid_at ? 'bg-emerald-500/50' : 'bg-orange-500'}`} />
+                            <div className="flex flex-col">
+                              <span className="text-zinc-300 font-bold uppercase">Order #{o.id.slice(-4).toUpperCase()}</span>
+                              <span className="text-zinc-500 text-[9px] uppercase">{o.paid_at ? 'Already Paid' : 'Pending Payment'}</span>
+                            </div>
+                          </div>
+                          <span className={`font-black ${o.paid_at ? 'text-zinc-600 line-through' : 'text-white'}`}>
+                            RM {parseFloat((o as any).total_price || (o as any).totalPrice || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 
