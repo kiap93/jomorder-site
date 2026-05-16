@@ -71,6 +71,9 @@ DECLARE
     v_status TEXT;
     v_is_new BOOLEAN := false;
 BEGIN
+    -- Use advisory lock to prevent race conditions on the same table
+    PERFORM pg_advisory_xact_lock(hashtext(p_table_id::text));
+
     IF NOT EXISTS (SELECT 1 FROM public.tables WHERE id = p_table_id AND restaurant_id = p_restaurant_id) THEN
         RAISE EXCEPTION 'Invalid table or restaurant target';
     END IF;

@@ -24,10 +24,19 @@ if (!supabaseUrl || !supabaseAnonKey || !isValidUrl(supabaseUrl)) {
   console.info('Please check your AI Studio Settings (Gear icon) for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
 }
 
+const getAppId = () => {
+  try {
+    return window.location.host.split('.')[0] || 'default';
+  } catch {
+    return 'default';
+  }
+};
+
 export const supabase = createClient(finalUrl, finalKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    storageKey: `sb-${getAppId()}-auth-token`, // Isolated storage key per unique app instance
   }
 });

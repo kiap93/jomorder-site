@@ -246,9 +246,6 @@ export function CustomerMenu() {
 
           if (sessionError) {
             console.error("Session resolution failed:", sessionError);
-            if (sessionError.message?.includes('column') || sessionError.message?.includes('parameter')) {
-               setError("The database schema is out of date. Please run SUPABASE_FINAL_SETUP.sql in your Supabase SQL editor.");
-            }
           } else if (sessionData && sessionData[0]) {
             currentSession = {
               id: sessionData[0].session_id,
@@ -259,8 +256,12 @@ export function CustomerMenu() {
             localStorage.setItem(storageKey, sessionData[0].token);
             setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
           }
-        } catch (e) {
-          console.warn("Session resolution timed out or failed quietly", e);
+        } catch (e: any) {
+          if (e.name === 'AbortError') {
+             console.log("Session resolution aborted - likely background refresh.");
+          } else {
+             console.warn("Session resolution failed quietly", e);
+          }
         }
         console.timeEnd("fetchData-session");
       }
@@ -720,7 +721,7 @@ export function CustomerMenu() {
       const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.id,
-        p_quantity: newQuantity,
+        p_delta: 1,
         p_configuration: selection,
         p_device_info: navigator.userAgent
       });
@@ -768,7 +769,7 @@ export function CustomerMenu() {
       const { error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.menuItemId,
-        p_quantity: newQty,
+        p_delta: delta,
         p_configuration: item.selection,
         p_device_info: navigator.userAgent
       });

@@ -66,15 +66,20 @@ USING (
 CREATE OR REPLACE FUNCTION public.sync_basket_item(
     p_session_id UUID,
     p_product_id UUID,
-    p_quantity INTEGER, -- 0 to remove
+    p_quantity INTEGER DEFAULT NULL, -- Absolute quantity to set
     p_configuration JSONB DEFAULT '{}'::jsonb,
     p_special_instructions TEXT DEFAULT NULL,
-    p_device_info TEXT DEFAULT NULL
+    p_device_info TEXT DEFAULT NULL,
+    p_delta INTEGER DEFAULT NULL -- Relative change (e.g. +1, -1)
 ) RETURNS public.basket_items AS $$
 DECLARE
     v_basket_id UUID;
     v_item public.basket_items;
+    v_new_qty INTEGER;
 BEGIN
+    -- Use advisory lock to prevent race conditions on the same session's basket
+    PERFORM pg_advisory_xact_lock(hashtext(p_session_id::text));
+
     -- 1. Ensure active basket exists for session
     SELECT id INTO v_basket_id FROM public.baskets 
     WHERE session_id = p_session_id AND status = 'active'
@@ -87,32 +92,42 @@ BEGIN
         RETURNING id INTO v_basket_id;
     END IF;
 
-    -- 2. If quantity is 0, attempt to remove existing matching item
-    IF p_quantity <= 0 THEN
-        DELETE FROM public.basket_items
-        WHERE basket_id = v_basket_id
-          AND product_id = p_product_id
-          AND configuration = p_configuration;
-        RETURN NULL;
-    END IF;
-
-    -- 3. Try Update (if same product + exact config exists)
-    UPDATE public.basket_items
-    SET quantity = p_quantity, 
-        special_instructions = p_special_instructions,
-        created_at = now() -- Update timestamp to signal change to others
+    -- 2. Find existing item if any
+    SELECT * INTO v_item FROM public.basket_items
     WHERE basket_id = v_basket_id
       AND product_id = p_product_id
       AND configuration = p_configuration
-    RETURNING * INTO v_item;
+    FOR UPDATE;
 
-    -- 4. If not found, Insert
-    IF v_item.id IS NULL THEN
+    -- 3. Determine new quantity
+    IF p_delta IS NOT NULL THEN
+        v_new_qty := COALESCE(v_item.quantity, 0) + p_delta;
+    ELSE
+        v_new_qty := p_quantity;
+    END IF;
+
+    -- 4. Process deletion if quantity becomes 0 or less
+    IF v_new_qty <= 0 THEN
+        IF v_item.id IS NOT NULL THEN
+            DELETE FROM public.basket_items WHERE id = v_item.id;
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    -- 5. Insert or Update
+    IF v_item.id IS NOT NULL THEN
+        UPDATE public.basket_items
+        SET quantity = v_new_qty, 
+            special_instructions = COALESCE(p_special_instructions, v_item.special_instructions),
+            created_at = now()
+        WHERE id = v_item.id
+        RETURNING * INTO v_item;
+    ELSE
         INSERT INTO public.basket_items (
             basket_id, product_id, quantity, configuration, special_instructions, created_by_device
         )
         VALUES (
-            v_basket_id, p_product_id, p_quantity, p_configuration, p_special_instructions, p_device_info
+            v_basket_id, p_product_id, v_new_qty, p_configuration, p_special_instructions, p_device_info
         )
         RETURNING * INTO v_item;
     END IF;
