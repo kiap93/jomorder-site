@@ -47,6 +47,7 @@ export function KitchenDisplay() {
             status: o.status as OrderStatus,
             totalPrice: parseFloat(o.total_price),
             items: o.items,
+            paidAt: o.paid_at,
             createdAt: { toDate: () => new Date(o.created_at) }
           })) as any);
         }
@@ -138,6 +139,11 @@ export function KitchenDisplay() {
                     }`}>
                       {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
                     </span>
+                    {(order as any).paidAt && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase italic shadow-sm shadow-emerald-500/20">
+                        Paid
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
                     <Clock size={12} />

@@ -233,6 +233,11 @@ export function PosDashboard() {
                     }`}>
                       {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
                     </span>
+                    {(order as any).paid_at && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase leading-none italic shadow-sm shadow-emerald-500/20">
+                        Paid
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border ${

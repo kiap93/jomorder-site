@@ -197,6 +197,26 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   };
 
+  const markOrdersAsPaid = async (paidAmount: number) => {
+    const orderIds = sessionOrders.map(o => o.id);
+    if (orderIds.length > 0) {
+      // Update orders: Mark as paid but keep current status
+      await supabase.from('orders').update({
+        paid_at: new Date().toISOString(),
+        payment_method: 'counter'
+      }).in('id', orderIds);
+
+      // Update session: Mark as paid
+      if (sessionId) {
+        await supabase.from('dining_sessions').update({
+          status: 'paid',
+          paid_amount: paidAmount
+        }).eq('id', sessionId);
+      }
+    }
+    onPaymentSuccess();
+  };
+
   const handlePaymentComplete = async (paymentData: any) => {
     // Refresh history
     await fetchPaymentHistory();
@@ -204,30 +224,14 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     // Check if fully paid
     const newPaidAmount = paidAmount + paymentData.amount;
     if (newPaidAmount >= totalAmount - 0.05) {
-      // Logic for complete payoff - Update all orders in session
-      const orderIds = sessionOrders.map(o => o.id);
-      if (orderIds.length > 0) {
-        await supabase.from('orders').update({
-          paid_at: new Date().toISOString(),
-          payment_method: 'counter',
-          status: 'completed'
-        }).in('id', orderIds);
-
-        if (sessionId) {
-          await supabase.from('dining_sessions').update({
-            status: 'paid',
-            paid_amount: newPaidAmount
-          }).eq('id', sessionId);
-        }
-      }
-      
-      onPaymentSuccess();
+      await markOrdersAsPaid(newPaidAmount);
     }
   };
 
   const handleSplitAllocation = async (splits: { amount: number; method: string }[]) => {
     setIsProcessing(true);
     try {
+      const totalSplit = splits.reduce((s, x) => s + x.amount, 0);
       for (const split of splits) {
         await supabase.from('payments').insert({
           restaurant_id: restaurant.id,
@@ -240,8 +244,8 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
         });
       }
       await fetchPaymentHistory();
-      if (paidAmount + splits.reduce((s, x) => s + x.amount, 0) >= totalAmount - 0.05) {
-        onPaymentSuccess();
+      if (paidAmount + totalSplit >= totalAmount - 0.05) {
+        await markOrdersAsPaid(paidAmount + totalSplit);
       }
     } catch (err) {
       console.error("Split payment failed:", err);
