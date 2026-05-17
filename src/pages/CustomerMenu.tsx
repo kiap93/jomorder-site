@@ -162,7 +162,7 @@ export function CustomerMenu() {
     menuItemsLengthRef.current = menuItems.length;
   }, [restaurant, menuItems.length]);
 
-  const fetchData = useCallback(async (isInitial = false, signal?: AbortSignal) => {
+  const fetchData = useCallback(async (isInitial = false) => {
     // Only prevent concurrent MANUAL or FOCUS refreshes.
     // Initial effect-triggered ones must ALWAYS proceed to set loading state correctly.
     if (fetchDataInProgress.current && !isInitial) return;
@@ -510,7 +510,7 @@ export function CustomerMenu() {
     if (!restId) return;
     const controller = new AbortController();
     
-    fetchData(true, controller.signal);
+    fetchData(true);
 
     const handleFocus = () => {
       const now = Date.now();
@@ -518,7 +518,7 @@ export function CustomerMenu() {
       lastFocusRefresh.current = now;
       
       console.log("Window focused, refreshing menu...");
-      if (!fetchDataInProgress.current) fetchData(false, controller.signal);
+      if (!fetchDataInProgress.current) fetchData(false);
     };
     window.addEventListener('focus', handleFocus);
 
@@ -590,8 +590,9 @@ export function CustomerMenu() {
   useEffect(() => {
     if (!diningSession?.id || !table?.id) return;
     
+    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`session-${diningSession.id}-${Math.random().toString(36).slice(2)}`)
+      .channel(`session-${diningSession.id}-${uniqueSuffix}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -630,8 +631,9 @@ export function CustomerMenu() {
   useEffect(() => {
     if (!basketId) return;
 
+    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`basket-${basketId}-${Math.random().toString(36).slice(2)}`)
+      .channel(`basket-${basketId}-${uniqueSuffix}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -839,6 +841,10 @@ export function CustomerMenu() {
       setCart([]);
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}`);
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
+         console.warn("Order placement potentially interrupted, verifying status...");
+         return;
+      }
       alert(err.message || "Failed to place order");
       setLoading(false);
     }
@@ -913,6 +919,10 @@ export function CustomerMenu() {
       // Lead to the dedicated elegant checkout page
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}/checkout`);
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
+         console.warn("Checkout placement potentially interrupted, verifying status...");
+         return;
+      }
       alert(err.message || "Failed to place order");
       setLoading(false);
     }
