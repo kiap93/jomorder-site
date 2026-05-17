@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { guestSupabase as supabase } from '../lib/supabase';
+import { MutationQueue } from '../lib/mutationQueue';
 import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe } from 'lucide-react';
@@ -68,7 +69,16 @@ export function CustomerMenu() {
   const [orderType, setOrderType] = useState<'dine_in' | 'takeaway'>('dine_in');
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
+  const [basketVersion, setBasketVersion] = useState<number>(0);
+  const mutationQueue = useRef<MutationQueue | null>(null);
   const fetchDataInProgress = useRef(false);
+
+  useEffect(() => {
+    mutationQueue.current = new MutationQueue((data) => {
+      // If mutation returns a new version or status, update it
+      if (data?.basket_version) setBasketVersion(data.basket_version);
+    });
+  }, []);
 
   useEffect(() => {
     setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
@@ -175,327 +185,158 @@ export function CustomerMenu() {
     }
     setError(null);
     let processedItems: any[] = [];
-    try {
-      console.time("fetchData-initial");
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
-      const tableQuery = (tableId && tableId !== 'default')
-        ? (isUuid 
-            ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
-            : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
-        : Promise.resolve({ data: null, error: null });
 
-      // Add a safety timeout for the parallel fetch
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Loading restaurant data timed out. Please try again or check your connection.")), 15000)
-      );
+    const maxRetries = 2;
+    let attempt = 0;
 
-      console.log("Fetching primary data: restaurant, categories, table...");
-      const [restRes, catsRes, tableRes] = await Promise.race([
-        Promise.all([
-          supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
-          supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-          tableQuery
-        ]),
-        timeoutPromise
-      ]) as any;
-      console.timeEnd("fetchData-initial");
+    const tryFetch = async (): Promise<void> => {
+      try {
+        console.time("fetchData-initial");
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        const tableQuery = (tableId && tableId !== 'default')
+          ? (isUuid 
+              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
+              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
+          : Promise.resolve({ data: null, error: null });
 
-      if (restRes.error) throw restRes.error;
-      if (!restRes.data) throw new Error("Restaurant not found. Please check correctly.");
-      
-      const resolvedTable = tableRes.data as Table | null;
-      if (resolvedTable) {
-        setTable(prev => (prev?.id === resolvedTable.id && prev?.status === resolvedTable.status) ? prev : resolvedTable);
-      }
+        // Add a safety timeout for the parallel fetch
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Loading restaurant data timed out. Please try again or check your connection.")), 30000)
+        );
 
-      // Resolve Dining Session if not in preview mode and we have a resolved UUID
-      let currentSession = null;
-      if (!isPreviewMode && resolvedTable?.id) {
-        console.time("fetchData-session");
-        const storageKey = `dining_session_token_${resolvedTable.id}`;
-        let existingToken = localStorage.getItem(storageKey);
+        console.log("Fetching primary data: restaurant, categories, table...");
+        const [restRes, catsRes, tableRes] = await Promise.race([
+          Promise.all([
+            supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
+            supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
+            tableQuery
+          ]),
+          timeoutPromise
+        ]) as any;
+        console.timeEnd("fetchData-initial");
 
-        // If sessionId in URL is different from what we might have, we should probably verify it
-        // Or if we don't have a token, we can try to "peek" or just rely on the token resolution
+        if (restRes.error) throw restRes.error;
+        if (!restRes.data) throw new Error("Restaurant not found. Please check correctly.");
         
-        // Resilient RPC call
-        try {
-          console.log("Resolving dining session...");
-          let sessionResultPromise = supabase.rpc('resolve_dining_session', {
-            p_restaurant_id: restId,
-            p_table_id: resolvedTable.id,
-            p_device_info: navigator.userAgent,
-            p_client_token: existingToken,
-            p_fulfillment: orderType
-          });
+        const resolvedTable = tableRes.data as Table | null;
+        if (resolvedTable) {
+          setTable(prev => (prev?.id === resolvedTable.id && prev?.status === resolvedTable.status) ? prev : resolvedTable);
+        }
 
-          // Add timeout for RPC
-          let sessionResult = await Promise.race([
-            sessionResultPromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Session resolution timeout")), 15000))
-          ]) as any;
+        // Resolve Dining Session if not in preview mode and we have a resolved UUID
+        let currentSession = null;
+        if (!isPreviewMode && resolvedTable?.id) {
+          console.time("fetchData-session");
+          const storageKey = `dining_session_token_${resolvedTable.id}`;
+          let existingToken = localStorage.getItem(storageKey);
 
-          // If 5-param version fails, fallback
-          if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
-             sessionResult = await supabase.rpc('resolve_dining_session', {
-                p_restaurant_id: restId,
-                p_table_id: resolvedTable.id,
-                p_device_info: navigator.userAgent,
-                p_client_token: existingToken
-             });
-          }
+          try {
+            console.log("Resolving dining session...");
+            let sessionResultPromise = supabase.rpc('resolve_dining_session', {
+              p_restaurant_id: restId,
+              p_table_id: resolvedTable.id,
+              p_device_info: navigator.userAgent,
+              p_client_token: existingToken,
+              p_fulfillment: orderType
+            });
 
-          const { data: sessionData, error: sessionError } = sessionResult;
+            // Add timeout for RPC
+            let sessionResult = await Promise.race([
+              sessionResultPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error("Session resolution timeout")), 30000))
+            ]) as any;
 
-          if (sessionError) {
-            console.error("Session resolution failed:", sessionError);
-          } else if (sessionData && sessionData[0]) {
-            currentSession = {
-              id: sessionData[0].session_id,
-              token: sessionData[0].token,
-              status: sessionData[0].session_status
-            };
-            
-            localStorage.setItem(storageKey, sessionData[0].token);
-            const resolvedSession = {
-              id: sessionData[0].session_id,
-              token: sessionData[0].token,
-              status: sessionData[0].session_status
-            };
-            setDiningSession(prev => (prev?.id === resolvedSession?.id && prev?.status === resolvedSession?.status) ? prev : resolvedSession);
-
-            // Redirect if URL doesn't have the session ID or has the wrong one
-            if (urlSessionId !== resolvedSession.id) {
-              navigate(`/restaurant/${restId}/table/${tableId}/session/${resolvedSession.id}`, { replace: true });
+            if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
+               sessionResult = await supabase.rpc('resolve_dining_session', {
+                  p_restaurant_id: restId,
+                  p_table_id: resolvedTable.id,
+                  p_device_info: navigator.userAgent,
+                  p_client_token: existingToken
+               });
             }
+
+            const { data: sessionData, error: sessionError } = sessionResult;
+            if (sessionError) console.error("Session resolution failed:", sessionError);
+            else if (sessionData && sessionData[0]) {
+              currentSession = {
+                id: sessionData[0].session_id,
+                token: sessionData[0].token,
+                status: sessionData[0].session_status
+              };
+              localStorage.setItem(storageKey, sessionData[0].token);
+              setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
+              if (urlSessionId !== currentSession.id) {
+                navigate(`/restaurant/${restId}/table/${tableId}/session/${currentSession.id}`, { replace: true });
+              }
+            }
+          } catch (e: any) {
+            console.warn("Session resolution non-fatal error", e);
           }
-        } catch (e: any) {
-          if (e.name === 'AbortError') {
-             console.log("Session resolution aborted - likely background refresh.");
-          } else {
-             console.warn("Session resolution failed quietly", e);
-          }
+          console.timeEnd("fetchData-session");
         }
-        console.timeEnd("fetchData-session");
-      }
 
-      console.time("fetchData-items");
-      console.log("Fetching menu items with modifiers and combos...");
-      const itemsResPromise = supabase.from('menu_items')
-          .select(`
-            *,
-            display_behavior,
-            combo_groups (
+        console.time("fetchData-items");
+        const itemsRes = await supabase.from('menu_items')
+            .select(`
               *,
-              items:combo_group_items (
-                *,
-                child_product:menu_items (
-                  *,
-                  combo_groups (
-                    *,
-                    items:combo_group_items (*)
-                  ),
-                  modifier_groups (
-                    *,
-                    modifiers!modifiers_group_id_fkey (*)
-                  )
-                )
-              )
-            ),
-            modifier_groups (
-              *,
-              modifiers!modifiers_group_id_fkey (*)
-            )
-          `)
-          .eq('restaurant_id', restId)
-          .eq('is_active', true);
-
-      const itemsRes = await Promise.race([
-        itemsResPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Menu items load timeout")), 15000))
-      ]) as any;
-      
-      if (itemsRes.error) throw itemsRes.error;
-      console.timeEnd("fetchData-items");
-      
-      // Handle menu items with possible null itemsRes (if timeout didn't catch properly or strange response)
-      if (itemsRes?.data) {
-        processedItems = itemsRes.data.map((i: any) => ({
+              combo_groups (*, items:combo_group_items (*, child_product:menu_items (*, combo_groups (*, items:combo_group_items (*)), modifier_groups (*, modifiers!modifiers_group_id_fkey (*))))),
+              modifier_groups (*, modifiers!modifiers_group_id_fkey (*))
+            `)
+            .eq('restaurant_id', restId)
+            .eq('is_active', true);
+        
+        if (itemsRes.error) throw itemsRes.error;
+        processedItems = (itemsRes.data || []).map((i: any) => ({
           id: i.id,
           restaurantId: i.restaurant_id,
           categoryId: i.category_id,
           name: i.name,
-          price: parseFloat(i.price || i.base_price || 0),
+          price: parseFloat(i.price || 0),
           basePrice: parseFloat(i.base_price || i.price || 0),
           imageUrl: i.image_url,
           description: i.description,
           isActive: i.is_active,
           status: i.status || 'Available',
-          displayBehavior: i.display_behavior,
           productType: i.product_type || 'single',
-          comboGroups: i.combo_groups?.map((g: any) => ({
-            id: g.id,
-            name: g.name,
-            description: g.description,
-            required: g.required,
-            minSelect: g.min_select,
-            maxSelect: g.max_select,
-            displayBehavior: g.display_behavior,
-            importance: g.importance,
-            sortOrder: g.sort_order,
-            items: g.items?.map((gi: any) => ({
-              id: gi.id,
-              groupId: gi.group_id,
-              childProductId: gi.child_product_id,
-              priceDelta: parseFloat(gi.price_delta || 0),
-              defaultSelected: gi.default_selected,
-              displayBehavior: gi.display_behavior,
-              importance: gi.importance,
-              sortOrder: gi.sort_order,
-              childProduct: gi.child_product ? {
-                id: gi.child_product.id,
-                name: gi.child_product.name,
-                basePrice: parseFloat(gi.child_product.base_price || 0),
-                productType: gi.child_product.product_type,
-                comboGroups: gi.child_product.combo_groups?.map((ng: any) => ({
-                  id: ng.id,
-                  name: ng.name,
-                  description: ng.description,
-                  required: ng.required,
-                  minSelect: ng.min_select,
-                  maxSelect: ng.max_select,
-                  displayBehavior: ng.display_behavior,
-                  importance: ng.importance,
-                  sortOrder: ng.sort_order,
-                  items: ng.items?.map((ni: any) => ({
-                    id: ni.id,
-                    groupId: ni.group_id,
-                    childProductId: ni.child_product_id,
-                    priceDelta: parseFloat(ni.price_delta || 0),
-                    defaultSelected: ni.default_selected,
-                    displayBehavior: ni.display_behavior,
-                    importance: ni.importance,
-                    sortOrder: ni.sort_order
-                  })) || []
-                })),
-                modifierGroups: gi.child_product.modifier_groups?.map((ng: any) => ({
-                  id: ng.id,
-                  name: ng.name,
-                  required: ng.required,
-                  minSelect: ng.min_select,
-                  maxSelect: ng.max_select,
-                  displayBehavior: ng.display_behavior,
-                  sortOrder: ng.sort_order,
-                  modifiers: ng.modifiers?.map((nm: any) => ({
-                    id: nm.id,
-                    groupId: nm.group_id,
-                    name: nm.name,
-                    priceDelta: parseFloat(nm.price_delta || 0),
-                    isDefault: nm.is_default,
-                    renderImportance: nm.render_importance,
-                    displayBehavior: nm.display_behavior,
-                    sortOrder: nm.sort_order
-                  })) || []
-                }))
-              } : undefined
-            })) || []
-          })) || [],
-          modifierGroups: i.modifier_groups?.map((g: any) => ({
-            id: g.id,
-            name: g.name,
-            required: g.required,
-            minSelect: g.min_select,
-            maxSelect: g.max_select,
-            displayBehavior: g.display_behavior,
-            sortOrder: g.sort_order,
-            modifiers: g.modifiers?.map((m: any) => ({
-              id: m.id,
-              groupId: m.group_id,
-              name: m.name,
-              priceDelta: parseFloat(m.price_delta || 0),
-              isDefault: m.is_default,
-              renderImportance: m.render_importance,
-              displayBehavior: m.display_behavior,
-              sortOrder: m.sort_order
-            })) || []
-          })) || []
+          comboGroups: i.combo_groups || [],
+          modifierGroups: i.modifier_groups || []
         }));
-      } else if (itemsRes?.error || !itemsRes?.data) {
-        console.warn("Complex items fetch failed or empty, trying simple list.");
-        const simpleRes = await supabase.from('menu_items')
-          .select('*')
-          .eq('restaurant_id', restId)
-          .eq('is_active', true);
+        console.timeEnd("fetchData-items");
+
+        setRestaurant(prev => {
+          const nr = { id: restRes.data.id, name: restRes.data.name, currency: restRes.data.currency, serviceCharge: parseFloat(restRes.data.service_charge), sst: parseFloat(restRes.data.sst) };
+          return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
+        });
         
-        if (simpleRes.error) throw simpleRes.error;
-        processedItems = (simpleRes.data || []).map((i: any) => ({
-          id: i.id,
-          restaurantId: i.restaurant_id,
-          categoryId: i.category_id,
-          name: i.name,
-          price: parseFloat(i.price || i.base_price || 0),
-          basePrice: parseFloat(i.base_price || i.price || 0),
-          imageUrl: i.image_url,
-          description: i.description,
-          isActive: i.is_active,
-          status: i.status || 'Available',
-          productType: i.product_type || 'single'
-        }));
-      }
+        if (catsRes.data) setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
+        setOriginalMenuItems(processedItems);
+        setMenuItems(processedItems);
 
-      if (!restRes.data) throw new Error("Restaurant not found");
-      
-      const newRestaurant = {
-        id: restRes.data.id,
-        name: restRes.data.name,
-        currency: restRes.data.currency,
-        serviceCharge: parseFloat(restRes.data.service_charge),
-        sst: parseFloat(restRes.data.sst),
-        franchiseId: restRes.data.franchise_id
-      };
-
-      setRestaurant(prev => (
-        prev?.id === newRestaurant.id && 
-        prev?.name === newRestaurant.name && 
-        prev?.serviceCharge === newRestaurant.serviceCharge &&
-        prev?.sst === newRestaurant.sst
-      ) ? prev : newRestaurant as any);
-      
-      if (tableRes.data) {
-        setTable(prev => prev?.id === tableRes.data.id && prev?.status === tableRes.data.status ? prev : { id: tableRes.data.id, name: tableRes.data.name, status: tableRes.data.status });
-      }
-      if (catsRes.data) {
-        const processedCats = catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order }));
-        setOriginalCategories(processedCats);
-        setCategories(processedCats);
-      }
-      setOriginalMenuItems(processedItems);
-      setMenuItems(processedItems);
-
-      // Fetch Basket AFTER items are processed
-      if (currentSession?.id) {
-        const { data: basketData } = await supabase
-          .from('baskets')
-          .select('id')
-          .eq('session_id', currentSession.id)
-          .eq('status', 'active')
-          .maybeSingle();
-        
-        if (basketData) {
-          setBasketId(basketData.id);
-          const { data: items } = await supabase
-            .from('basket_items')
-            .select('*')
-            .eq('basket_id', basketData.id);
-          
-          if (items) {
-            syncLocalCartFromServer(items, processedItems);
+        if (currentSession?.id) {
+          const { data: basketData } = await supabase.from('baskets').select('id').eq('session_id', currentSession.id).eq('status', 'active').maybeSingle();
+          if (basketData) {
+            setBasketId(basketData.id);
+            const { data: items } = await supabase.from('basket_items').select('*').eq('basket_id', basketData.id);
+            if (items) syncLocalCartFromServer(items, processedItems);
           }
         }
+      } catch (err: any) {
+        const isLockError = err.name === 'AbortError' || err.message?.includes('Lock broken');
+        if (isLockError && attempt < maxRetries) {
+          attempt++;
+          console.warn(`FetchData attempt ${attempt} lock conflict, retrying...`);
+          await new Promise(r => setTimeout(r, 500 * attempt));
+          return tryFetch();
+        }
+        throw err;
       }
+    };
+
+    try {
+      await tryFetch();
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-         console.log("Fetch data aborted.");
+      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
+         console.warn("Fetch data permanently aborted by lock contention.");
          return;
       }
       console.error("Fetch data failed:", err);
@@ -504,7 +345,7 @@ export function CustomerMenu() {
       fetchDataInProgress.current = false;
       setLoading(false);
     }
-  }, [restId, tableId, orderType, isPreviewMode]); // Stabilized dependencies
+  }, [restId, tableId, orderType, isPreviewMode, urlSessionId, navigate]); // Stabilized dependencies
 
   useEffect(() => {
     if (!restId) return;
@@ -554,32 +395,55 @@ export function CustomerMenu() {
        const existingToken = localStorage.getItem(storageKey);
        
        const tryResolve = async () => {
-         let res = await supabase.rpc('resolve_dining_session', {
-            p_restaurant_id: restId,
-            p_table_id: table.id,
-            p_device_info: navigator.userAgent,
-            p_client_token: existingToken,
-            p_fulfillment: orderType
-         });
+         const maxRetries = 2;
+         let attempt = 0;
 
-         if (res.error && (res.error.code === 'PGRST202' || res.error.message.includes('p_fulfillment'))) {
-           res = await supabase.rpc('resolve_dining_session', {
-              p_restaurant_id: restId,
-              p_table_id: table.id,
-              p_device_info: navigator.userAgent,
-              p_client_token: existingToken
-           });
-         }
+         const attemptResolve = async (): Promise<void> => {
+           try {
+             let res = await supabase.rpc('resolve_dining_session', {
+                p_restaurant_id: restId,
+                p_table_id: table.id,
+                p_device_info: navigator.userAgent,
+                p_client_token: existingToken,
+                p_fulfillment: orderType
+             });
 
-         if (res.data && res.data[0]) {
-            setDiningSession({
-               id: res.data[0].session_id,
-               token: res.data[0].token,
-               status: res.data[0].session_status
-            });
-         } else if (res.error) {
-            console.error("Secondary session resolution failed:", res.error);
-         }
+             if (res.error && (res.error.code === 'PGRST202' || res.error.message.includes('p_fulfillment'))) {
+               res = await supabase.rpc('resolve_dining_session', {
+                  p_restaurant_id: restId,
+                  p_table_id: table.id,
+                  p_device_info: navigator.userAgent,
+                  p_client_token: existingToken
+               });
+             }
+
+             if (res.error) {
+                if ((res.error.message?.includes('Lock broken') || res.error.name === 'AbortError') && attempt < maxRetries) {
+                  attempt++;
+                  await new Promise(r => setTimeout(r, 500 * attempt));
+                  return attemptResolve();
+                }
+                console.error("Secondary session resolution failed:", res.error);
+                return;
+             }
+
+             if (res.data && res.data[0]) {
+               setDiningSession({
+                  id: res.data[0].session_id,
+                  token: res.data[0].token,
+                  status: res.data[0].session_status
+               });
+             }
+           } catch (e: any) {
+             if ((e.message?.includes('Lock broken') || e.name === 'AbortError') && attempt < maxRetries) {
+               attempt++;
+               await new Promise(r => setTimeout(r, 500 * attempt));
+               return attemptResolve();
+             }
+           }
+         };
+
+         await attemptResolve();
        };
 
        tryResolve();
@@ -640,14 +504,21 @@ export function CustomerMenu() {
         table: 'basket_items',
         filter: `basket_id=eq.${basketId}`
       }, async (payload) => {
-        // Redownload all items to ensure consistency (simpler than manual merging)
-        const { data: items } = await supabase
-          .from('basket_items')
-          .select('*')
-          .eq('basket_id', basketId);
-        
-        if (items) {
-          syncLocalCartFromServer(items, originalMenuItems);
+        // Only reconcile if we aren't currently pushing mutations
+        // or if it's a mutation from another device/tab
+        if (mutationQueue.current?.isIdle) {
+          try {
+            const { data: items, error } = await supabase
+              .from('basket_items')
+              .select('*')
+              .eq('basket_id', basketId);
+            
+            if (items) {
+              syncLocalCartFromServer(items, originalMenuItems);
+            }
+          } catch (err: any) {
+             console.error("Basket reconciliation error:", err);
+          }
         }
       })
       .subscribe();
@@ -736,30 +607,30 @@ export function CustomerMenu() {
       setCart(prev => [...prev, optimisticItem]);
     }
 
-    // 3. Sync with Server
-    const newQuantity = existingIndex > -1 ? cart[existingIndex].quantity + 1 : 1;
-
-    try {
+    // 3. Sync with Server via Queue
+    const mutationKey = Math.random().toString(36).slice(2, 11);
+    
+    mutationQueue.current?.enqueue(async () => {
       const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.id,
         p_delta: 1,
         p_configuration: selection,
-        p_device_info: navigator.userAgent
+        p_device_info: navigator.userAgent,
+        p_idempotency_key: mutationKey // Assuming RPC supports or ignores safely
       });
 
       if (error) {
         console.error("Failed to sync basket item:", error);
-        // Rollback optimistic update if needed, or let real-time fix it
-        return;
+        // Toast or rollback could be here
+        return null;
       }
 
       if (basketItem && !basketId) {
         setBasketId(basketItem.basket_id);
       }
-    } catch (err) {
-      console.error("Network error adding to basket:", err);
-    }
+      return basketItem;
+    });
   };
 
   const updateQuantity = async (index: number, delta: number) => {
@@ -786,22 +657,25 @@ export function CustomerMenu() {
     }
     setCart(newCart);
 
-    // 3. Sync with Server
-    try {
-      const { error } = await supabase.rpc('sync_basket_item', {
+    // 3. Sync with Server via Queue
+    const mutationKey = Math.random().toString(36).slice(2, 11);
+
+    mutationQueue.current?.enqueue(async () => {
+      const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.menuItemId,
         p_delta: delta,
         p_configuration: item.selection,
-        p_device_info: navigator.userAgent
+        p_device_info: navigator.userAgent,
+        p_idempotency_key: mutationKey
       });
 
       if (error) {
         console.error("Failed to update basket quantity:", error);
+        return null;
       }
-    } catch (err) {
-      console.error("Network error updating quantity:", err);
-    }
+      return basketItem;
+    });
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -812,24 +686,53 @@ export function CustomerMenu() {
   const placeOrderAtCounter = async () => {
     if (!restId || !tableId || cart.length === 0) return;
     setLoading(true);
-    try {
-      const itemsWithMetadata = await prepareItemsForOrder();
-      const { data, error } = await supabase
-        .from('orders')
-        .insert({
-          restaurant_id: restId,
-          table_id: table?.id || tableId,
-          session_id: diningSession?.id,
-          order_type: orderType,
-          status: 'pending',
-          total_price: total,
-          items: itemsWithMetadata,
-          payment_method: 'counter'
-        })
-        .select()
-        .single();
+    
+    const maxRetries = 2;
+    let attempt = 0;
+    const idempotencyKey = Math.random().toString(36).slice(2, 15);
+    
+    const tryInsert = async (): Promise<any> => {
+      try {
+        const itemsWithMetadata = await prepareItemsForOrder();
+        const { data, error } = await supabase
+          .from('orders')
+          .insert({
+            restaurant_id: restId,
+            table_id: table?.id || tableId,
+            session_id: diningSession?.id,
+            order_type: orderType,
+            status: 'pending',
+            total_price: total,
+            items: itemsWithMetadata,
+            payment_method: 'counter',
+            idempotency_key: idempotencyKey
+          })
+          .select()
+          .single();
 
-      if (error) throw error;
+        if (error) {
+          if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
+            attempt++;
+            console.warn(`Place order attempt ${attempt} failed with lock error, retrying...`);
+            await new Promise(r => setTimeout(r, 500 * attempt));
+            return tryInsert();
+          }
+          throw error;
+        }
+        return data;
+      } catch (err: any) {
+        if ((err.message?.includes('Lock broken') || err.name === 'AbortError') && attempt < maxRetries) {
+          attempt++;
+          console.warn(`Place order attempt ${attempt} failed with exception, retrying...`);
+          await new Promise(r => setTimeout(r, 500 * attempt));
+          return tryInsert();
+        }
+        throw err;
+      }
+    };
+
+    try {
+      const data = await tryInsert();
       
       // Submit basket - marks active basket as submitted
       if (basketId) {
@@ -841,10 +744,7 @@ export function CustomerMenu() {
       setCart([]);
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}`);
     } catch (err: any) {
-      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
-         console.warn("Order placement potentially interrupted, verifying status...");
-         return;
-      }
+      console.error("Order completion failed:", err);
       alert(err.message || "Failed to place order");
       setLoading(false);
     }
@@ -888,25 +788,54 @@ export function CustomerMenu() {
   const confirmOrder = async () => {
     if (!restId || !tableId || cart.length === 0) return;
     setLoading(true);
+    
+    const maxRetries = 2;
+    let attempt = 0;
+    const idempotencyKey = Math.random().toString(36).slice(2, 15);
+
+    const tryInsert = async (): Promise<any> => {
+      try {
+        const itemsWithMetadata = await prepareItemsForOrder();
+
+        const { data, error } = await supabase
+          .from('orders')
+          .insert({
+            restaurant_id: restId,
+            table_id: table?.id || tableId, // Use resolved UUID if available
+            session_id: diningSession?.id,
+            order_type: orderType,
+            status: 'pending',
+            total_price: total,
+            items: itemsWithMetadata,
+            payment_method: 'online',
+            idempotency_key: idempotencyKey
+          })
+          .select()
+          .single();
+
+        if (error) {
+          if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
+            attempt++;
+            console.warn(`Checkout attempt ${attempt} failed with lock error, retrying...`);
+            await new Promise(r => setTimeout(r, 500 * attempt));
+            return tryInsert();
+          }
+          throw error;
+        }
+        return data;
+      } catch (err: any) {
+        if ((err.message?.includes('Lock broken') || err.name === 'AbortError') && attempt < maxRetries) {
+          attempt++;
+          console.warn(`Checkout attempt ${attempt} failed with exception, retrying...`);
+          await new Promise(r => setTimeout(r, 500 * attempt));
+          return tryInsert();
+        }
+        throw err;
+      }
+    };
+
     try {
-      const itemsWithMetadata = await prepareItemsForOrder();
-
-      const { data, error } = await supabase
-        .from('orders')
-        .insert({
-          restaurant_id: restId,
-          table_id: table?.id || tableId, // Use resolved UUID if available
-          session_id: diningSession?.id,
-          order_type: orderType,
-          status: 'pending',
-          total_price: total,
-          items: itemsWithMetadata,
-          payment_method: 'online'
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await tryInsert();
 
       // Submit basket - marks active basket as submitted
       if (basketId) {
@@ -919,10 +848,7 @@ export function CustomerMenu() {
       // Lead to the dedicated elegant checkout page
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}/checkout`);
     } catch (err: any) {
-      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
-         console.warn("Checkout placement potentially interrupted, verifying status...");
-         return;
-      }
+      console.error("Checkout placement failed:", err);
       alert(err.message || "Failed to place order");
       setLoading(false);
     }
@@ -955,7 +881,7 @@ export function CustomerMenu() {
       <motion.p 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 10 }}
+        transition={{ delay: 20 }}
         className="text-[9px] text-zinc-300 font-bold max-w-[200px]"
       >
         Taking a bit longer than usual. Please stay with us or check your connection.

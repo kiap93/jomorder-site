@@ -26,17 +26,34 @@ if (!supabaseUrl || !supabaseAnonKey || !isValidUrl(supabaseUrl)) {
 
 const getAppId = () => {
   try {
-    return window.location.host.split('.')[0] || 'default';
+    const host = window.location.host.split('.')[0] || 'default';
+    // Use a unique session-specific ID to isolate tabs. 
+    // This prevents "Lock broken" AbortErrors by giving each tab its own lock namespace.
+    let tabId = window.sessionStorage.getItem('supabase_tab_id');
+    if (!tabId) {
+      tabId = Math.random().toString(36).slice(2, 10);
+      window.sessionStorage.setItem('supabase_tab_id', tabId);
+    }
+    return `${host}-${tabId}`;
   } catch {
     return 'default';
   }
 };
 
+// Main client for staff/admin with persistence
 export const supabase = createClient(finalUrl, finalKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: `sb-${getAppId()}-auth-token`, // Isolated storage key per unique app instance
+    storageKey: `sb-${getAppId()}-auth-token`,
+    storage: window.sessionStorage,
+  }
+});
+
+// Guest client for anonymous QR users - no persistence to avoid multi-tab lock conflicts
+export const guestSupabase = createClient(finalUrl, finalKey, {
+  auth: {
+    persistSession: false,
   }
 });
