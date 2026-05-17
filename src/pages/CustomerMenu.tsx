@@ -10,7 +10,7 @@ import { ProductConfigurator } from '../components/ProductConfigurator';
 import { getVisibleModifiers } from '../lib/modifierEngine';
 
 export function CustomerMenu() {
-  const { restId, tableId } = useParams();
+  const { restId, tableId, sessionId: urlSessionId } = useParams();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [table, setTable] = useState<Table | null>(null);
@@ -213,8 +213,11 @@ export function CustomerMenu() {
       if (!isPreviewMode && resolvedTable?.id) {
         console.time("fetchData-session");
         const storageKey = `dining_session_token_${resolvedTable.id}`;
-        const existingToken = localStorage.getItem(storageKey);
+        let existingToken = localStorage.getItem(storageKey);
 
+        // If sessionId in URL is different from what we might have, we should probably verify it
+        // Or if we don't have a token, we can try to "peek" or just rely on the token resolution
+        
         // Resilient RPC call
         try {
           console.log("Resolving dining session...");
@@ -254,7 +257,17 @@ export function CustomerMenu() {
             };
             
             localStorage.setItem(storageKey, sessionData[0].token);
-            setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
+            const resolvedSession = {
+              id: sessionData[0].session_id,
+              token: sessionData[0].token,
+              status: sessionData[0].session_status
+            };
+            setDiningSession(prev => (prev?.id === resolvedSession?.id && prev?.status === resolvedSession?.status) ? prev : resolvedSession);
+
+            // Redirect if URL doesn't have the session ID or has the wrong one
+            if (urlSessionId !== resolvedSession.id) {
+              navigate(`/restaurant/${restId}/table/${tableId}/session/${resolvedSession.id}`, { replace: true });
+            }
           }
         } catch (e: any) {
           if (e.name === 'AbortError') {
@@ -587,15 +600,18 @@ export function CustomerMenu() {
         }));
         
         if (payload.new.status === 'closed' || payload.new.status === 'expired' || payload.new.status === 'replaced') {
+          localStorage.removeItem(`dining_session_token_${table.id}`);
+          localStorage.removeItem(`last_order_${restId}_${tableId}`);
+          
           if (payload.new.status === 'replaced') {
-             localStorage.removeItem(`dining_session_token_${table.id}`);
-             window.location.reload();
+             window.location.href = `/restaurant/${restId}/table/${tableId}`;
              return;
           }
 
-          localStorage.removeItem(`dining_session_token_${table.id}`);
           setDiningSession(null);
           setCart([]);
+          // Redirect to base URL to clear session from URL
+          navigate(`/restaurant/${restId}/table/${tableId}`, { replace: true });
           window.location.reload();
         }
       })
@@ -817,7 +833,7 @@ export function CustomerMenu() {
       localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
       setLastOrderId(data.id);
       setCart([]);
-      navigate(`/restaurant/${restId}/table/${tableId}/order/${data.id}`);
+      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
       setLoading(false);
@@ -891,7 +907,7 @@ export function CustomerMenu() {
       setLastOrderId(data.id);
       setCart([]);
       // Lead to the dedicated elegant checkout page
-      navigate(`/restaurant/${restId}/table/${tableId}/order/${data.id}/checkout`);
+      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}/checkout`);
     } catch (err: any) {
       alert(err.message || "Failed to place order");
       setLoading(false);
@@ -1113,7 +1129,7 @@ export function CustomerMenu() {
         {!isPreviewMode && lastOrderId && cart.length === 0 && (!diningSession || diningSession.status === 'active') && (
           <div className="px-4 pb-2">
             <button 
-              onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${lastOrderId}`)}
+              onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${lastOrderId}`)}
               className="w-full bg-orange-600 rounded-2xl p-4 flex items-center justify-between group active:scale-[0.98] transition-all shadow-lg shadow-orange-600/20"
             >
               <div className="flex items-center gap-3">

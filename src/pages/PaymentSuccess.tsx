@@ -13,7 +13,7 @@ import {
 import { Restaurant, Order } from '../types';
 
 export function PaymentSuccess() {
-  const { restId, tableId, orderId } = useParams();
+  const { restId, tableId, orderId, sessionId } = useParams();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -143,7 +143,7 @@ export function PaymentSuccess() {
               <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Get Receipt</span>
            </button>
            <Link 
-              to={`/restaurant/${restId}/table/${tableId}`}
+              to={`/restaurant/${restId}/table/${tableId}/session/${sessionId}`}
               className="h-16 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all group"
            >
               <Home size={18} className="text-zinc-400 group-hover:text-orange-500 transition-colors" />

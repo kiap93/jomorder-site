@@ -7,7 +7,7 @@ import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-reac
 import { flattenSelections } from '../lib/configEngine';
 
 export function OrderTracker() {
-  const { orderId, restId, tableId } = useParams();
+  const { orderId, restId, tableId, sessionId } = useParams();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,11 +46,13 @@ export function OrderTracker() {
 
       // 2. If it has a session, fetch all orders in that session
       let allOrders = [mainOrder];
-      if (mainOrder.session_id) {
+      const targetSessionId = sessionId || mainOrder.session_id;
+      
+      if (targetSessionId) {
         const { data: sessionOrders } = await supabase
           .from('orders')
           .select('*, tables(name), dining_sessions(status)')
-          .eq('session_id', mainOrder.session_id)
+          .eq('session_id', targetSessionId)
           .order('created_at', { ascending: true });
         
         if (sessionOrders) allOrders = sessionOrders;

@@ -35,6 +35,7 @@ USING (
 );
 
 -- 2. DINING SESSION ENGINE UPDATES
+ALTER TABLE public.dining_sessions DROP CONSTRAINT IF EXISTS dining_sessions_status_check;
 ALTER TABLE public.dining_sessions 
 ADD COLUMN IF NOT EXISTS payment_mode TEXT CHECK (payment_mode IN ('prepaid', 'postpaid', 'hybrid')) DEFAULT 'postpaid',
 ADD COLUMN IF NOT EXISTS fulfillment_type TEXT CHECK (fulfillment_type IN ('dine_in', 'takeaway', 'delivery', 'kiosk')) DEFAULT 'dine_in',
@@ -46,6 +47,9 @@ ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT now(),
 ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT now(),
 ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS created_by_device TEXT;
+
+ALTER TABLE public.dining_sessions ADD CONSTRAINT dining_sessions_status_check 
+CHECK (status IN ('active', 'idle', 'awaiting_payment', 'paid', 'closing', 'closed', 'completed', 'expired', 'cancelled', 'replaced'));
 
 -- 3. UPDATED RESOLVER FUNCTION (5 Parameters)
 -- Long-live optimization: 24 hour session window, fallback to created_at if started_at missing (though we add it above)

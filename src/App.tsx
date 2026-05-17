@@ -58,9 +58,13 @@ export default function App() {
 
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
+            <Route path="/restaurant/:restId/table/:tableId/session/:sessionId" element={<CustomerMenu />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId/checkout" element={<Checkout />} />
+            <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId/checkout" element={<Checkout />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId/success" element={<PaymentSuccess />} />
+            <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId/success" element={<PaymentSuccess />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId" element={<OrderTracker />} />
+            <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId" element={<OrderTracker />} />
             
             {/* Staff Flow */}
             <Route path="/restaurant/:restId/orders" element={<PosDashboard />} />

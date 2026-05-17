@@ -19,7 +19,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 
 export function Checkout() {
-  const { restId, orderId, tableId } = useParams();
+  const { restId, orderId, tableId, sessionId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
@@ -227,7 +227,7 @@ export function Checkout() {
         <h2 className="text-2xl font-black text-white mb-2">Payment Successful</h2>
         <p className="text-zinc-400 text-sm mb-8">Your order has been sent to the kitchen.</p>
         <button
-          onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${orderId}/success`)}
+          onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/session/${sessionId}/order/${orderId}/success`)}
           className="w-full max-w-xs h-14 bg-zinc-800 text-white rounded-2xl font-bold text-sm hover:bg-zinc-700 transition-all border border-zinc-700"
         >
           View Receipt

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS public.dining_sessions (
     restaurant_id UUID REFERENCES public.restaurants(id) ON DELETE CASCADE,
     table_id UUID REFERENCES public.tables(id) ON DELETE CASCADE,
     session_token TEXT UNIQUE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'awaiting_payment', 'paid', 'completed', 'expired', 'cancelled')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'idle', 'awaiting_payment', 'paid', 'closing', 'closed', 'completed', 'expired', 'cancelled', 'replaced')),
     started_at TIMESTAMPTZ DEFAULT now(),
     last_activity_at TIMESTAMPTZ DEFAULT now(),
     closed_at TIMESTAMPTZ,
