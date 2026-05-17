@@ -162,7 +162,7 @@ export function CustomerMenu() {
     menuItemsLengthRef.current = menuItems.length;
   }, [restaurant, menuItems.length]);
 
-  const fetchData = useCallback(async (isInitial = false) => {
+  const fetchData = useCallback(async (isInitial = false, signal?: AbortSignal) => {
     // Only prevent concurrent MANUAL or FOCUS refreshes.
     // Initial effect-triggered ones must ALWAYS proceed to set loading state correctly.
     if (fetchDataInProgress.current && !isInitial) return;
@@ -494,6 +494,10 @@ export function CustomerMenu() {
         }
       }
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+         console.log("Fetch data aborted.");
+         return;
+      }
       console.error("Fetch data failed:", err);
       setError(err.message || "Failed to load menu data");
     } finally {
@@ -506,7 +510,7 @@ export function CustomerMenu() {
     if (!restId) return;
     const controller = new AbortController();
     
-    fetchData(true);
+    fetchData(true, controller.signal);
 
     const handleFocus = () => {
       const now = Date.now();
@@ -514,7 +518,7 @@ export function CustomerMenu() {
       lastFocusRefresh.current = now;
       
       console.log("Window focused, refreshing menu...");
-      if (!fetchDataInProgress.current) fetchData(false);
+      if (!fetchDataInProgress.current) fetchData(false, controller.signal);
     };
     window.addEventListener('focus', handleFocus);
 
@@ -522,7 +526,7 @@ export function CustomerMenu() {
     let subscription: any;
     if (tableId && tableId !== 'default') {
       subscription = supabase
-        .channel(`table-${tableId}`)
+        .channel(`table-${tableId}-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', {
           event: 'UPDATE',
           schema: 'public',
@@ -587,7 +591,7 @@ export function CustomerMenu() {
     if (!diningSession?.id || !table?.id) return;
     
     const channel = supabase
-      .channel(`session-${diningSession.id}`)
+      .channel(`session-${diningSession.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -627,7 +631,7 @@ export function CustomerMenu() {
     if (!basketId) return;
 
     const channel = supabase
-      .channel(`basket-${basketId}`)
+      .channel(`basket-${basketId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',

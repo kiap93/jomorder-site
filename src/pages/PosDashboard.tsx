@@ -119,7 +119,7 @@ export function PosDashboard() {
     window.addEventListener('focus', handleFocus);
 
     // 3. Realtime Subscription
-    const channelName = `pos-${restId}`;
+    const channelName = `pos-${restId}-${Math.random().toString(36).slice(2)}`;
     const subscription = supabase
       .channel(channelName)
       .on('postgres_changes', { 

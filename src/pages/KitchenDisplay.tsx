@@ -74,7 +74,7 @@ export function KitchenDisplay() {
     };
     window.addEventListener('focus', handleFocus);
 
-    const channelName = `kitchen-${restId}`;
+    const channelName = `kitchen-${restId}-${Math.random().toString(36).slice(2)}`;
     const subscription = supabase
       .channel(channelName)
       .on('postgres_changes', { 

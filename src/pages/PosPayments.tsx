@@ -101,7 +101,7 @@ export function PosPayments() {
     fetchData();
 
     const subscription = supabase
-      .channel('pos-payments')
+      .channel(`pos-payments-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dining_sessions' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, fetchData)

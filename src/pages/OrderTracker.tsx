@@ -79,7 +79,7 @@ export function OrderTracker() {
     
     // Realtime for all orders in session
     const subscription = supabase
-      .channel(`session-updates-${orderId}`)
+      .channel(`session-updates-${orderId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
