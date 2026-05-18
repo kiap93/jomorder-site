@@ -313,9 +313,10 @@ export function CustomerMenu() {
         setMenuItems(processedItems);
 
         if (currentSession?.id) {
-          const { data: basketData } = await supabase.from('baskets').select('id').eq('session_id', currentSession.id).eq('status', 'active').maybeSingle();
+          const { data: basketData } = await supabase.from('baskets').select('id, basket_version').eq('session_id', currentSession.id).eq('status', 'active').maybeSingle();
           if (basketData) {
             setBasketId(basketData.id);
+            if (basketData.basket_version) setBasketVersion(basketData.basket_version);
             const { data: items } = await supabase.from('basket_items').select('*').eq('basket_id', basketData.id);
             if (items) syncLocalCartFromServer(items, processedItems);
           }
@@ -611,25 +612,24 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
     
     mutationQueue.current?.enqueue(async () => {
-      const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
+      const { data: result, error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.id,
         p_delta: 1,
         p_configuration: selection,
         p_device_info: navigator.userAgent,
-        p_idempotency_key: mutationKey // Assuming RPC supports or ignores safely
+        p_idempotency_key: mutationKey
       });
 
       if (error) {
         console.error("Failed to sync basket item:", error);
-        // Toast or rollback could be here
         return null;
       }
 
-      if (basketItem && !basketId) {
-        setBasketId(basketItem.basket_id);
+      if (result?.basket_id && !basketId) {
+        setBasketId(result.basket_id);
       }
-      return basketItem;
+      return result;
     });
   };
 
@@ -661,7 +661,7 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
 
     mutationQueue.current?.enqueue(async () => {
-      const { data: basketItem, error } = await supabase.rpc('sync_basket_item', {
+      const { data: result, error } = await supabase.rpc('sync_basket_item', {
         p_session_id: currentSessionId,
         p_product_id: item.menuItemId,
         p_delta: delta,
@@ -674,7 +674,7 @@ export function CustomerMenu() {
         console.error("Failed to update basket quantity:", error);
         return null;
       }
-      return basketItem;
+      return result;
     });
   };
 
