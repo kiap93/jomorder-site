@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,39 +29,36 @@ export function PosPayments() {
     if (!restId || loadingAuth) return;
     if (!user) return;
 
-    // Fetch Restaurant
-    supabase.from('restaurants').select('*').eq('id', restId).single().then(({data}) => {
-      if (data) setRestaurant(data as any);
-    });
-
     const fetchData = async () => {
+      const token = useAuthStore.getState().token;
+      if (!token) return;
+
       setLoading(true);
       try {
-        // Fetch all tables first
-        const { data: tablesData, error: tablesError } = await supabase
-          .from('tables')
-          .select('*')
-          .eq('restaurant_id', restId)
-          .order('name', { ascending: true });
+        const fetchOptions = {
+          headers: { 'Authorization': `Bearer ${token}` }
+        };
 
-        if (tablesError) throw tablesError;
+        // Fetch Restaurant
+        const restRes = await fetch(`/api/restaurants/${restId}`, fetchOptions);
+        if (restRes.ok) {
+          const restData = await restRes.json();
+          setRestaurant({
+            ...restData,
+            serviceCharge: parseFloat(restData.service_charge || 0),
+            sst: parseFloat(restData.sst || 0)
+          } as any);
+        }
 
-        // Fetch active sessions
-        const { data: sessionsData, error: sessionsError } = await supabase
-          .from('dining_sessions')
-          .select(`
-            *,
-            orders(id, total_price, status, paid_at, items, session_id)
-          `)
-          .eq('restaurant_id', restId)
-          .neq('status', 'paid')
-          .neq('status', 'expired');
-
-        if (sessionsError) throw sessionsError;
+        // Fetch all tables
+        const [tablesData, sessionsData] = await Promise.all([
+          fetch(`/api/restaurants/${restId}/tables`, fetchOptions).then(r => r.json()),
+          fetch(`/api/restaurants/${restId}/dining-sessions?status=active`, fetchOptions).then(r => r.json())
+        ]);
         
-        if (tablesData) {
-          const processedTables = tablesData.map(t => {
-            const activeSession = (sessionsData || []).find(s => s.table_id === t.id);
+        if (tablesData && sessionsData && !tablesData.error && !sessionsData.error) {
+          const processedTables = tablesData.map((t: any) => {
+            const activeSession = sessionsData.find((s: any) => s.table_id === t.id);
             let unpaidTotal = 0;
             let mainOrder = null;
 
@@ -102,17 +99,6 @@ export function PosPayments() {
     };
 
     fetchData();
-
-    const subscription = supabase
-      .channel(`pos-payments-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dining_sessions' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, fetchData)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
   }, [restId]);
 
   const filteredTables = tables.filter(t => {

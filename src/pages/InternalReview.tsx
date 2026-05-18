@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, AlertCircle, Edit3, Search, Filter, Globe, ChevronRight, Activity } from 'lucide-react';
 
@@ -32,21 +32,33 @@ export const InternalReview: React.FC = () => {
 
   const saveEdit = async (job: TranslationJob) => {
     try {
-      const { error } = await supabase
-        .from('translation_jobs')
-        .update({ reviewed_text: editText })
-        .eq('id', job.id);
+      const token = localStorage.getItem('staff_token');
+      const response = await fetch(`/api/translation-jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ reviewed_text: editText })
+      });
       
-      if (error) throw error;
+      if (!response.ok) throw new Error('Save edit failed');
       
       // Also sync to tenant_translations if it exists
-      await supabase
-        .from('tenant_translations')
-        .update({ translated_text: editText })
-        .eq('restaurant_id', job.restaurant_id)
-        .eq('entity_id', job.entity_id)
-        .eq('field_name', job.field_name)
-        .eq('language_code', job.target_language);
+      await fetch(`/api/tenant-translations`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          restaurantId: job.restaurant_id,
+          entityId: job.entity_id,
+          fieldName: job.field_name,
+          languageCode: job.target_language,
+          translatedText: editText
+        })
+      });
 
       setEditingId(null);
       fetchJobs();
@@ -58,19 +70,12 @@ export const InternalReview: React.FC = () => {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('translation_jobs')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (filter !== 'all') {
-        query = query.eq('review_status', filter);
-      } else {
-        query = query.neq('review_status', 'approved'); // Hide approved by default
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
+      const token = localStorage.getItem('staff_token');
+      const response = await fetch(`/api/translation-jobs?filter=${filter}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Fetch jobs failed');
+      const data = await response.json();
       setJobs(data || []);
     } catch (err) {
       console.error('Fetch jobs failed:', err);
@@ -82,27 +87,35 @@ export const InternalReview: React.FC = () => {
   const updateStatus = async (job: TranslationJob, nextStatus: 'reviewed' | 'approved' | 'rejected') => {
     setProcessingId(job.id);
     try {
+      const token = localStorage.getItem('staff_token');
       // 1. Update job status
-      const { error: jobError } = await supabase
-        .from('translation_jobs')
-        .update({ review_status: nextStatus })
-        .eq('id', job.id);
+      const response = await fetch(`/api/translation-jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ review_status: nextStatus })
+      });
 
-      if (jobError) throw jobError;
+      if (!response.ok) throw new Error('Status update failed');
 
       // 2. If approved, update tenant_translations
       if (nextStatus === 'approved') {
-        const { error: transError } = await supabase
-          .from('tenant_translations')
-          .update({ translated_text: job.reviewed_text }) // Use text instead of status
-          .eq('restaurant_id', job.restaurant_id)
-          .eq('entity_id', job.entity_id)
-          .eq('field_name', job.field_name)
-          .eq('language_code', job.target_language);
-
-        if (transError) throw transError;
-      } else if (nextStatus === 'rejected') {
-        // If rejected, maybe we just don't update tenant_translations
+        await fetch(`/api/tenant-translations`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            restaurantId: job.restaurant_id,
+            entityId: job.entity_id,
+            fieldName: job.field_name,
+            languageCode: job.target_language,
+            translatedText: job.reviewed_text
+          })
+        });
       }
 
       // Refresh

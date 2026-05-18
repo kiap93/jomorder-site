@@ -20,6 +20,9 @@ export function KitchenDisplay() {
     let fetchTimeout: NodeJS.Timeout;
 
     const fetchOrders = async () => {
+      const token = useAuthStore.getState().token;
+      if (!token) return;
+
       const timeoutTimer = setTimeout(() => {
         if (orders.length === 0) {
           console.warn("Kitchen orders fetch taking too long...");
@@ -27,19 +30,18 @@ export function KitchenDisplay() {
       }, 10000);
 
       try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('*, tables(name)')
-          .eq('restaurant_id', restId)
-          .in('status', ['pending', 'confirmed', 'cooking', 'ready'])
-          .order('created_at', { ascending: true });
+        const response = await fetch(`/api/restaurants/${restId}/orders?status=active`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!response.ok) {
+          throw new Error("Failed to fetch kitchen orders");
+        }
+
+        const data = await response.json();
+        const filteredData = data.filter((o: any) => ['pending', 'confirmed', 'cooking', 'ready'].includes(o.status));
 
         clearTimeout(timeoutTimer);
-
-        if (error) {
-          console.error('Error fetching kitchen orders:', error);
-          return;
-        }
 
         if (data) {
           setOrders(data.map(o => ({
@@ -98,7 +100,17 @@ export function KitchenDisplay() {
   }, [restId]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
-    await supabase.from('orders').update({ status }).eq('id', orderId);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    await fetch(`/api/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+    });
   };
 
   return (

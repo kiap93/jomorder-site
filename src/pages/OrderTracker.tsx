@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { guestSupabase as supabase } from '../lib/supabase';
+
 import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
 import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';
@@ -17,46 +17,40 @@ export function OrderTracker() {
     localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
 
     const fetchSessionData = async () => {
-      // Resolve table UUID if tableId is a slug
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
-      let actualTableId = tableId;
+      try {
+        // Resolve table UUID if tableId is a slug
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        let actualTableId = tableId;
 
-      if (!isUuid && tableId) {
-        const { data: tData } = await supabase
-          .from('tables')
-          .select('id')
-          .eq('restaurant_id', restId)
-          .eq('name', tableId)
-          .maybeSingle();
-        if (tData) actualTableId = tData.id;
-      }
+        if (!isUuid && tableId) {
+          const tRes = await fetch(`/api/public/tables/${tableId}?restId=${restId}`);
+          if (tRes.ok) {
+            const tData = await tRes.json();
+            if (tData) actualTableId = tData.id;
+          }
+        }
 
-      // 1. Get the current order to find session_id
-      const { data: mainOrder } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', orderId)
-        .eq('table_id', actualTableId) // Hard isolation by resolved tableId
-        .single();
+        // 1. Get the current order to find session_id
+        const orderRes = await fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`);
+        if (!orderRes.ok) throw new Error("Order not found");
+        const mainOrder = await orderRes.json();
 
-      if (!mainOrder) {
-        setLoading(false);
-        return;
-      }
+        if (!mainOrder) {
+          setLoading(false);
+          return;
+        }
 
-      // 2. If it has a session, fetch all orders in that session
-      let allOrders = [mainOrder];
-      const targetSessionId = sessionId || mainOrder.session_id;
-      
-      if (targetSessionId) {
-        const { data: sessionOrders } = await supabase
-          .from('orders')
-          .select('*, tables(name), dining_sessions(status)')
-          .eq('session_id', targetSessionId)
-          .order('created_at', { ascending: true });
+        // 2. If it has a session, fetch all orders in that session
+        let allOrders = [mainOrder];
+        const targetSessionId = sessionId || mainOrder.session_id;
         
-        if (sessionOrders) allOrders = sessionOrders;
-      }
+        if (targetSessionId) {
+          const sRes = await fetch(`/api/public/dining-sessions/${targetSessionId}/orders`);
+          if (sRes.ok) {
+            const sessionOrders = await sRes.json();
+            if (sessionOrders) allOrders = sessionOrders;
+          }
+        }
 
       setOrders(allOrders.map(o => ({
         id: o.id,
@@ -72,26 +66,15 @@ export function OrderTracker() {
         createdAt: { toDate: () => new Date(o.created_at) }
       })) as any);
 
-      setLoading(false);
+      } catch (err) {
+        console.error('Fetch session data failed:', err);
+      } finally {
+        setLoading(false);
+      }
     };
+
 
     fetchSessionData();
-    
-    // Realtime for all orders in session
-    const subscription = supabase
-      .channel(`session-updates-${orderId}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'orders'
-      }, () => {
-        fetchSessionData();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
   }, [orderId, restId]);
 
   if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;

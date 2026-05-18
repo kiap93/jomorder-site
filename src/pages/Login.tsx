@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, AlertCircle } from 'lucide-react';
+import { LogIn, AlertCircle, Mail, Lock } from 'lucide-react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useAuthStore } from '../store/useAuthStore';
 
 export function Login() {
   const navigate = useNavigate();
-  const { user, profile, loading } = useAuthStore();
+  const { user, profile, loading, signIn, signInWithGoogle } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     if (!loading && user) {
@@ -21,37 +22,44 @@ export function Login() {
     }
   }, [user, profile, loading, navigate]);
 
-  const isSupabaseMissing = import.meta.env.VITE_SUPABASE_URL?.includes('missing-project-id') || !import.meta.env.VITE_SUPABASE_URL;
-  const isGoogleMissing = !import.meta.env.VITE_GOOGLE_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID === "";
-
-  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
-    if (!credentialResponse.credential) {
-      setError("No credential received from Google.");
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError("Please enter both email and password.");
       return;
     }
 
     setError(null);
     setIsLoggingIn(true);
     try {
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: credentialResponse.credential,
-      });
-
-      if (error) throw error;
-      
+      await signIn(email, password);
     } catch (err: any) {
-      console.error("Supabase authentication failed:", err);
-      setError(err.message || "Failed to sync Google account with portal.");
+      console.error("Authentication failed:", err);
+      setError(err.message || "Invalid credentials.");
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    if (!credentialResponse.credential) {
+      setError("No Google credential received.");
+      return;
+    }
+
+    setError(null);
+    setIsLoggingIn(true);
+    try {
+      await signInWithGoogle(credentialResponse.credential);
+    } catch (err: any) {
+      console.error("Google login failed:", err);
+      setError(err.message || "Google login failed.");
       setIsLoggingIn(false);
     }
   };
 
   const handleGoogleError = () => {
-    setError("Google Sign-In failed. Please try again.");
+    setError("Google Sign-In failed.");
   };
-
-  const isConfigMissing = isSupabaseMissing || isGoogleMissing;
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
@@ -60,69 +68,69 @@ export function Login() {
           <LogIn size={40} className="text-orange-600 -rotate-12" />
         </div>
         <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-4">Staff Portal</h1>
-        <p className="text-gray-500 font-medium mb-6">Access your restaurant management dashboard</p>
+        <p className="text-gray-500 font-medium mb-8">Login to your dashboard</p>
 
-        {isConfigMissing && (
-          <div className="mb-8 p-6 bg-red-50 border-2 border-red-100 rounded-3xl text-left w-full">
-            <div className="flex items-center gap-2 text-red-800 font-bold mb-3">
-              <AlertCircle size={20} />
-              <h3>Setup Required</h3>
-            </div>
-            <p className="text-red-700 text-[10px] leading-relaxed font-medium mb-4">
-              To use Google Auth, add these variables in <strong>Settings (Gear icon)</strong> and ensure the <strong>Authorized JavaScript origins</strong> in Google Cloud Console includes the current URL.
-            </p>
-            <ul className="text-[10px] space-y-2 text-red-600 font-mono bg-white/50 p-3 rounded-xl border border-red-100">
-              <li className="flex justify-between">
-                <span>VITE_SUPABASE_URL</span>
-                <span>{isSupabaseMissing ? '❌ Missing' : '✅ Set'}</span>
-              </li>
-              <li className="flex justify-between">
-                <span>VITE_SUPABASE_ANON_KEY</span>
-                <span>{isSupabaseMissing ? '❌ Missing' : '✅ Set'}</span>
-              </li>
-              <li className="flex justify-between">
-                <span>VITE_GOOGLE_CLIENT_ID</span>
-                <span>{isGoogleMissing ? '❌ Missing' : '✅ Set'}</span>
-              </li>
-            </ul>
+        <form onSubmit={handleLogin} className="w-full space-y-4">
+          <div className="relative">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+              type="email"
+              placeholder="Email Address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl outline-none transition-all font-medium text-sm"
+              required
+            />
           </div>
-        )}
-        
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white rounded-2xl outline-none transition-all font-medium text-sm"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoggingIn || loading}
+            className="w-full py-4 bg-orange-600 text-white rounded-2xl font-black text-lg shadow-lg shadow-orange-200 hover:bg-orange-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none mt-2"
+          >
+            {isLoggingIn ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+
+        <div className="w-full flex items-center gap-4 my-6">
+          <div className="h-[1px] bg-gray-100 flex-1"></div>
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Or continue with</span>
+          <div className="h-[1px] bg-gray-100 flex-1"></div>
+        </div>
+
+        <div className="w-full flex justify-center scale-110 mb-4 h-12">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            theme="outline"
+            shape="pill"
+            width="full"
+          />
+        </div>
+
         {error && (
-          <div className="mb-6 p-4 bg-red-50 text-red-600 text-xs font-bold rounded-2xl border border-red-100 w-full">
+          <div className="mt-4 p-4 bg-red-50 text-red-600 text-[10px] font-bold rounded-2xl border border-red-100 flex items-center gap-2 text-left w-full">
+            <AlertCircle size={14} className="shrink-0" />
             {error}
           </div>
         )}
         
-        <div className="w-full flex justify-center py-2">
-          {loading || isLoggingIn ? (
-            <div className="flex flex-col items-center gap-4">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-600"></div>
-              <p className="text-xs font-bold text-gray-400 animate-pulse uppercase tracking-widest">Verifying Account...</p>
-            </div>
-          ) : !isConfigMissing ? (
-            <div className="scale-125 origin-center">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                use_fedcm_for_prompt={false}
-                theme="outline"
-                shape="pill"
-                size="large"
-                width="250"
-              />
-            </div>
-          ) : (
-            <div className="w-full bg-gray-100 text-gray-400 py-4 rounded-[2rem] font-bold">
-              Waiting for Configuration...
-            </div>
-          )}
-        </div>
-        
-        <p className="mt-12 text-xs text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
-          Powered by Supabase & Google
+        <p className="mt-8 text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
+          Secure JWT Authentication
         </p>
       </div>
     </div>
   );
 }
+

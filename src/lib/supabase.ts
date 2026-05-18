@@ -41,28 +41,20 @@ const getAppId = () => {
   }
 };
 
-// Main client for staff/admin - we use a custom storage key to isolate tabs
-// For multi-tenant support and "JWT session" pattern, we manage persistence manually in useAuthStore
+// Main client for staff/admin - stateless, no built-in auth to follow "custom JWT" pattern
 export const supabase = createClient(finalUrl, finalKey, {
   auth: {
-    persistSession: false, // Disabled for manual JWT control
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.localStorage,
-    lock: async (_name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
-      return await callback();
-    }
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false
   }
 });
 
-// Guest client for anonymous QR users - stateless and no locking
+// Guest client for anonymous QR users
 export const guestSupabase = createClient(finalUrl, finalKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
-    detectSessionInUrl: false,
-    lock: async (_name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
-      return await callback();
-    }
+    detectSessionInUrl: false
   }
 });

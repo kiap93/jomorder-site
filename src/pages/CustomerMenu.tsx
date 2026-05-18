@@ -89,16 +89,17 @@ export function CustomerMenu() {
     if (!diningSession?.id) return;
 
     const checkOrders = async () => {
-      const { data, count } = await supabase
-        .from('orders')
-        .select('id', { count: 'exact' })
-        .eq('session_id', diningSession.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      setHasActiveOrders(!!count && count > 0);
-      if (data && data.length > 0) {
-        setLastOrderId(data[0].id);
+      try {
+        const response = await fetch(`/api/public/orders/check?sessionId=${diningSession.id}`);
+        if (!response.ok) throw new Error("Failed to check orders");
+        const { orders: data, count } = await response.json();
+        
+        setHasActiveOrders(!!count && count > 0);
+        if (data && data.length > 0) {
+          setLastOrderId(data[0].id);
+        }
+      } catch (err) {
+        console.error("Error checking orders:", err);
       }
     };
 
@@ -240,18 +241,17 @@ export function CustomerMenu() {
         console.log("Fetching primary data: restaurant, categories, table...");
         const [restRes, catsRes, tableRes] = await Promise.race([
           Promise.all([
-            supabase.from('restaurants').select('*, franchise_id').eq('id', restId).maybeSingle(),
-            supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-            tableQuery
+            fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
+            fetch(`/api/public/restaurants/${restId}/categories`).then(r => r.json()),
+            fetch(`/api/public/tables/${tableId}?restId=${restId}`).then(r => r.json())
           ]),
           timeoutPromise
         ]) as any;
-        console.timeEnd("fetchData-initial");
 
-        if (restRes.error) throw restRes.error;
-        if (!restRes.data) throw new Error("Restaurant not found. Please check correctly.");
+        if (restRes.error) throw new Error(restRes.error);
+        if (!restRes) throw new Error("Restaurant not found. Please check correctly.");
         
-        const resolvedTable = tableRes.data as Table | null;
+        const resolvedTable = tableRes as Table | null;
         if (resolvedTable) {
           setTable(prev => (prev?.id === resolvedTable.id && prev?.status === resolvedTable.status) ? prev : resolvedTable);
         }
@@ -265,32 +265,22 @@ export function CustomerMenu() {
 
           try {
             console.log("Resolving dining session...");
-            let sessionResultPromise = supabase.rpc('resolve_dining_session_v2', {
-              p_restaurant_id: restId,
-              p_table_id: resolvedTable.id,
-              p_device_info: navigator.userAgent,
-              p_client_token: existingToken,
-              p_fulfillment: orderType
+            const sessionRes = await fetch(`/api/public/resolve-session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                restaurantId: restId,
+                tableId: resolvedTable.id,
+                deviceInfo: navigator.userAgent,
+                clientToken: existingToken,
+                fulfillment: orderType
+              })
             });
 
-            // Add timeout for RPC
-            let sessionResult = await Promise.race([
-              sessionResultPromise,
-              new Promise((_, reject) => setTimeout(() => reject(new Error("Session resolution timeout")), 30000))
-            ]) as any;
+            if (!sessionRes.ok) throw new Error("Session resolution failed");
+            const sessionData = await sessionRes.json();
 
-            if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
-               sessionResult = await supabase.rpc('resolve_dining_session_v2', {
-                  p_restaurant_id: restId,
-                  p_table_id: resolvedTable.id,
-                  p_device_info: navigator.userAgent,
-                  p_client_token: existingToken
-               });
-            }
-
-            const { data: sessionData, error: sessionError } = sessionResult;
-            if (sessionError) console.error("Session resolution failed:", sessionError);
-            else if (sessionData && sessionData[0]) {
+            if (sessionData && sessionData[0]) {
               currentSession = {
                 id: sessionData[0].session_id,
                 token: sessionData[0].token,
@@ -309,17 +299,11 @@ export function CustomerMenu() {
         }
 
         console.time("fetchData-items");
-        const itemsRes = await supabase.from('menu_items')
-            .select(`
-              *,
-              combo_groups (*, items:combo_group_items (*, child_product:menu_items (*, combo_groups (*, items:combo_group_items (*)), modifier_groups (*, modifiers!modifiers_group_id_fkey (*))))),
-              modifier_groups (*, modifiers!modifiers_group_id_fkey (*))
-            `)
-            .eq('restaurant_id', restId)
-            .eq('is_active', true);
-        
-        if (itemsRes.error) throw itemsRes.error;
-        processedItems = (itemsRes.data || []).map((i: any) => ({
+        const itemsRes = await fetch(`/api/public/restaurants/${restId}/menu-items`);
+        if (!itemsRes.ok) throw new Error("Failed to fetch menu items");
+        const itemsData = await itemsRes.json();
+
+        processedItems = (itemsData || []).map((i: any) => ({
           id: i.id,
           restaurantId: i.restaurant_id,
           categoryId: i.category_id,
@@ -346,12 +330,18 @@ export function CustomerMenu() {
         setMenuItems(processedItems);
 
         if (currentSession?.id) {
-          const { data: basketData } = await supabase.from('baskets').select('id, basket_version').eq('session_id', currentSession.id).eq('status', 'active').maybeSingle();
-          if (basketData) {
-            setBasketId(basketData.id);
-            if (basketData.basket_version) setBasketVersion(basketData.basket_version);
-            const { data: items } = await supabase.from('basket_items').select('*').eq('basket_id', basketData.id);
-            if (items) syncLocalCartFromServer(items, processedItems);
+          const bRes = await fetch(`/api/public/baskets?sessionId=${currentSession.id}`);
+          if (bRes.ok) {
+            const basketData = await bRes.json();
+            if (basketData) {
+              setBasketId(basketData.id);
+              if (basketData.basket_version) setBasketVersion(basketData.basket_version);
+              const biRes = await fetch(`/api/public/baskets/${basketData.id}/items`);
+              if (biRes.ok) {
+                const items = await biRes.json();
+                if (items) syncLocalCartFromServer(items, processedItems);
+              }
+            }
           }
         }
       } catch (err: any) {
@@ -647,21 +637,26 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
     
     mutationQueue.current?.enqueue(async () => {
-      const { data: result, error } = await supabase.rpc('sync_basket_item_v2', {
-        p_session_id: currentSessionId,
-        p_session_token: currentSessionToken,
-        p_product_id: item.id,
-        p_delta: 1,
-        p_configuration: selection,
-        p_device_info: navigator.userAgent,
-        p_idempotency_key: mutationKey
+      const response = await fetch(`/api/public/sync-basket-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          p_session_id: currentSessionId,
+          p_session_token: currentSessionToken,
+          p_product_id: item.id,
+          p_delta: 1,
+          p_configuration: selection,
+          p_device_info: navigator.userAgent,
+          p_idempotency_key: mutationKey
+        })
       });
 
-      if (error) {
-        console.error("Failed to sync basket item:", error);
+      if (!response.ok) {
+        console.error("Failed to sync basket item");
         return null;
       }
 
+      const result = await response.json();
       if (result?.basket_id && !basketId) {
         setBasketId(result.basket_id);
       }
@@ -699,21 +694,25 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
 
     mutationQueue.current?.enqueue(async () => {
-      const { data: result, error } = await supabase.rpc('sync_basket_item_v2', {
-        p_session_id: currentSessionId,
-        p_session_token: currentSessionToken,
-        p_product_id: item.menuItemId,
-        p_delta: delta,
-        p_configuration: item.selection,
-        p_device_info: navigator.userAgent,
-        p_idempotency_key: mutationKey
+      const response = await fetch(`/api/public/sync-basket-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          p_session_id: currentSessionId,
+          p_session_token: currentSessionToken,
+          p_product_id: item.menuItemId,
+          p_delta: delta,
+          p_configuration: item.selection,
+          p_device_info: navigator.userAgent,
+          p_idempotency_key: mutationKey
+        })
       });
 
-      if (error) {
-        console.error("Failed to update basket quantity:", error);
+      if (!response.ok) {
+        console.error("Failed to update basket quantity");
         return null;
       }
-      return result;
+      return await response.json();
     });
   };
 
@@ -733,35 +732,27 @@ export function CustomerMenu() {
     const tryInsert = async (): Promise<any> => {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
-        const { data, error } = await supabase.rpc('place_order_v3', {
-          p_restaurant_id: restId,
-          p_table_id: table?.id || tableId,
-          p_session_id: diningSession?.id,
-          p_session_token: diningSession?.token,
-          p_order_type: orderType,
-          p_items: itemsWithMetadata,
-          p_total_price: total,
-          p_payment_method: 'counter',
-          p_idempotency_key: idempotencyKey
+        const response = await fetch(`/api/public/place-order`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            p_restaurant_id: restId,
+            p_table_id: table?.id || tableId,
+            p_session_id: diningSession?.id,
+            p_session_token: diningSession?.token,
+            p_order_type: orderType,
+            p_items: itemsWithMetadata,
+            p_total_price: total,
+            p_payment_method: 'counter',
+            p_idempotency_key: idempotencyKey
+          })
         });
 
-        if (error) {
-          if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
-            attempt++;
-            console.warn(`Place order attempt ${attempt} failed with lock error, retrying...`);
-            await new Promise(r => setTimeout(r, 500 * attempt));
-            return tryInsert();
-          }
-          throw error;
+        if (!response.ok) {
+          throw new Error("Order placement failed");
         }
-        return data; // returns { order_id: ... }
+        return await response.json();
       } catch (err: any) {
-        if ((err.message?.includes('Lock broken') || err.name === 'AbortError') && attempt < maxRetries) {
-          attempt++;
-          console.warn(`Place order attempt ${attempt} failed with exception, retrying...`);
-          await new Promise(r => setTimeout(r, 500 * attempt));
-          return tryInsert();
-        }
         throw err;
       }
     };
@@ -832,35 +823,27 @@ export function CustomerMenu() {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
 
-        const { data, error } = await supabase.rpc('place_order_v3', {
-          p_restaurant_id: restId,
-          p_table_id: table?.id || tableId,
-          p_session_id: diningSession?.id,
-          p_session_token: diningSession?.token,
-          p_order_type: orderType,
-          p_items: itemsWithMetadata,
-          p_total_price: total,
-          p_payment_method: 'online',
-          p_idempotency_key: idempotencyKey
+        const response = await fetch(`/api/public/place-order`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            p_restaurant_id: restId,
+            p_table_id: table?.id || tableId,
+            p_session_id: diningSession?.id,
+            p_session_token: diningSession?.token,
+            p_order_type: orderType,
+            p_items: itemsWithMetadata,
+            p_total_price: total,
+            p_payment_method: 'online',
+            p_idempotency_key: idempotencyKey
+          })
         });
 
-        if (error) {
-          if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
-            attempt++;
-            console.warn(`Checkout attempt ${attempt} failed with lock error, retrying...`);
-            await new Promise(r => setTimeout(r, 500 * attempt));
-            return tryInsert();
-          }
-          throw error;
+        if (!response.ok) {
+          throw new Error("Checkout placement failed");
         }
-        return data;
+        return await response.json();
       } catch (err: any) {
-        if ((err.message?.includes('Lock broken') || err.name === 'AbortError') && attempt < maxRetries) {
-          attempt++;
-          console.warn(`Checkout attempt ${attempt} failed with exception, retrying...`);
-          await new Promise(r => setTimeout(r, 500 * attempt));
-          return tryInsert();
-        }
         throw err;
       }
     };

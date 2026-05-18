@@ -190,41 +190,19 @@ export function AdminPanel() {
     try {
       console.log(`Starting data sync for restaurant ${restId}...`);
       const startTime = Date.now();
+      const token = useAuthStore.getState().token;
+      if (!token) return;
+
+      const fetchOptions = {
+        headers: { 'Authorization': `Bearer ${token}` }
+      };
       
-      const [restRes, catsRes, itemsRes, tablesRes, ordersRes] = await Promise.all([
-        supabase.from('restaurants').select('*').eq('id', restId).maybeSingle(),
-        supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
-        supabase.from('menu_items')
-          .select(`
-            *,
-            display_behavior,
-            combo_groups (
-              *,
-              combo_group_items (
-                *,
-                child_product:menu_items (
-                  id,
-                  name,
-                  base_price,
-                  product_type
-                )
-              )
-            ),
-            modifier_groups (
-              *,
-              modifiers!modifiers_group_id_fkey (*)
-            )
-          `)
-          .eq('restaurant_id', restId),
-        supabase.from('tables')
-          .select('*, current_session:dining_sessions!tables_current_session_id_fkey(*)')
-          .eq('restaurant_id', restId)
-          .order('name', { ascending: true }),
-        supabase.from('orders')
-          .select('*, tables(name)')
-          .eq('restaurant_id', restId)
-          .order('created_at', { ascending: false })
-          .limit(100)
+      const [restData, catsData, itemsData, tablesData, ordersData] = await Promise.all([
+        fetch(`/api/restaurants/${restId}`, fetchOptions).then(r => r.json()),
+        fetch(`/api/restaurants/${restId}/categories`, fetchOptions).then(r => r.json()),
+        fetch(`/api/restaurants/${restId}/menu-items`, fetchOptions).then(r => r.json()),
+        fetch(`/api/restaurants/${restId}/tables`, fetchOptions).then(r => r.json()),
+        fetch(`/api/restaurants/${restId}/orders?limit=100`, fetchOptions).then(r => r.json())
       ]);
 
       const duration = Date.now() - startTime;
@@ -232,52 +210,28 @@ export function AdminPanel() {
 
       clearTimeout(timeoutTimer);
 
-      if (restRes.error) {
-        console.error("Restaurant fetch error:", restRes.error);
-        throw new Error(`Restaurant access failed: ${restRes.error.message}`);
-      }
-      if (catsRes.error) {
-        console.error("Categories fetch error:", catsRes.error);
-        throw new Error(`Categories access failed: ${catsRes.error.message}`);
-      }
-      if (tablesRes.error) {
-        console.error("Tables fetch error:", tablesRes.error);
-        throw new Error(`Tables access failed: ${tablesRes.error.message}`);
-      }
-      if (ordersRes.error) {
-        console.error("Orders fetch error:", ordersRes.error);
-        throw new Error(`Orders access failed: ${ordersRes.error.message}`);
-      }
+      if (restData.error) throw new Error(restData.error);
+      if (catsData.error) throw new Error(catsData.error);
+      if (itemsData.error) throw new Error(itemsData.error);
+      if (tablesData.error) throw new Error(tablesData.error);
+      if (ordersData.error) throw new Error(ordersData.error);
       
-      if (!restRes.data) throw new Error("Restaurant not found. Please check your URL or register a restaurant.");
-      
-      if (itemsRes.error) {
-        console.error("Complex items fetch failed:", itemsRes.error);
-        // Attempt fallback to simple fetch
-        const { data: simpleData, error: simpleError } = await supabase.from('menu_items')
-          .select('*')
-          .eq('restaurant_id', restId);
-        
-        if (simpleError) throw simpleError;
-        itemsRes.data = simpleData;
-      }
-
-      if (restRes.data) {
+      if (restData) {
         setRestaurant({
-          id: restRes.data.id,
-          name: restRes.data.name,
-          currency: restRes.data.currency,
-          serviceCharge: parseFloat(restRes.data.service_charge || 0),
-          sst: parseFloat(restRes.data.sst || 0)
+          id: restData.id,
+          name: restData.name,
+          currency: restData.currency,
+          serviceCharge: parseFloat(restData.service_charge || 0),
+          sst: parseFloat(restData.sst || 0)
         });
       }
 
-      if (catsRes.data) {
-        setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
+      if (catsData) {
+        setCategories(catsData.map((c: any) => ({ id: c.id, name: c.name, order: c.sort_order })));
       }
 
-      if (itemsRes.data) {
-        setMenuItems(itemsRes.data.map((i: any) => ({
+      if (itemsData) {
+        setMenuItems(itemsData.map((i: any) => ({
           id: i.id,
           restaurantId: restId,
           categoryId: i.category_id,
@@ -343,11 +297,9 @@ export function AdminPanel() {
         })));
       }
 
-      if (tablesRes.data) {
-        setTables(tablesRes.data.map(t => {
-          // Use the aliased current_session join
+      if (tablesData) {
+        setTables(tablesData.map((t: any) => {
           const rawSession = t.current_session;
-          
           let session = null;
           if (rawSession) {
             session = {
@@ -371,8 +323,8 @@ export function AdminPanel() {
         }));
       }
 
-      if (ordersRes.data) {
-        setOrders(ordersRes.data);
+      if (ordersData) {
+        setOrders(ordersData);
       }
     } catch (err: any) {
       console.error("Fetch data failed:", err);
@@ -386,18 +338,29 @@ export function AdminPanel() {
     if (!restaurant || !restId) return;
     setSavingSettings(true);
     setSettingsError(null);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     try {
-      const { error } = await supabase
-        .from('restaurants')
-        .update({
+      const response = await fetch(`/api/restaurants/${restId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           name: restaurant.name,
           service_charge: restaurant.serviceCharge,
           sst: restaurant.sst,
           currency: restaurant.currency
         })
-        .eq('id', restId);
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to save settings");
+      }
+
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
     } catch (err: any) {
@@ -410,17 +373,24 @@ export function AdminPanel() {
 
   const addCategory = async () => {
     if (!newCategoryName.trim() || !restId) return;
-    const { data, error } = await supabase
-      .from('categories')
-      .insert({
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    const response = await fetch(`/api/categories`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         restaurant_id: restId,
         name: newCategoryName.trim(),
         sort_order: categories.length
       })
-      .select()
-      .single();
+    });
 
-    if (data) {
+    if (response.ok) {
+      const data = await response.json();
       setCategories([...categories, { id: data.id, name: data.name, order: data.sort_order }]);
       setNewCategoryName('');
       setIsAddingCategory(false);
@@ -429,11 +399,16 @@ export function AdminPanel() {
 
   const deleteCategory = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this category? Items in this category will remain but will be uncategorized.")) return;
-    
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setLoading(true);
     try {
-      const { error } = await supabase.from('categories').delete().eq('id', id);
-      if (error) throw error;
+      const response = await fetch(`/api/categories/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Delete failed");
       setCategories(categories.filter(c => c.id !== id));
     } catch (err: any) {
       console.error("Delete category failed:", err);
@@ -469,22 +444,29 @@ export function AdminPanel() {
     }
     
     setLoading(true);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     try {
       let finalCategoryId = editingItem.categoryId;
 
       // Handle direct category creation
       if (finalCategoryId === 'CREATE_NEW' && editingItem.newCategoryName?.trim()) {
-        const { data: newCat, error: catError } = await supabase
-          .from('categories')
-          .insert({
+        const catResponse = await fetch(`/api/categories`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
             restaurant_id: restId,
             name: editingItem.newCategoryName.trim(),
             sort_order: categories.length
           })
-          .select()
-          .single();
+        });
         
-        if (catError) throw catError;
+        if (!catResponse.ok) throw new Error("Category creation failed");
+        const newCat = await catResponse.json();
         finalCategoryId = newCat.id;
       }
 
@@ -504,11 +486,26 @@ export function AdminPanel() {
       let itemId = editingItem.id;
 
       if (itemId) {
-        const { error } = await supabase.from('menu_items').update(itemData).eq('id', itemId);
-        if (error) throw error;
+        const response = await fetch(`/api/menu-items/${itemId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(itemData)
+        });
+        if (!response.ok) throw new Error("Update failed");
       } else {
-        const { data, error } = await supabase.from('menu_items').insert(itemData).select().single();
-        if (error) throw error;
+        const response = await fetch(`/api/menu-items`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(itemData)
+        });
+        if (!response.ok) throw new Error("Creation failed");
+        const data = await response.json();
         itemId = data.id;
       }
 
@@ -609,11 +606,16 @@ export function AdminPanel() {
 
   const deleteMenuItem = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this item?")) return;
+    const token = useAuthStore.getState().token;
+    if (!token) return;
     
     setLoading(true);
     try {
-      const { error } = await supabase.from('menu_items').delete().eq('id', id);
-      if (error) throw error;
+      const response = await fetch(`/api/menu-items/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Delete failed");
       setMenuItems(menuItems.filter(i => i.id !== id));
     } catch (err: any) {
       console.error("Delete menu item failed:", err);
@@ -626,16 +628,23 @@ export function AdminPanel() {
   const addTable = async () => {
     const name = prompt("Table Name (e.g. T1)");
     if (!name || !restId) return;
-    
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('tables')
-        .insert({ restaurant_id: restId, name, status: 'available' })
-        .select()
-        .single();
+      const response = await fetch(`/api/tables`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ restaurant_id: restId, name, status: 'available' })
+      });
       
-      if (error) throw error;
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
       if (data) setTables([...tables, { id: data.id, name: data.name, status: data.status }]);
     } catch (err: any) {
       console.error("Add table failed:", err);
@@ -647,11 +656,16 @@ export function AdminPanel() {
 
   const deleteTable = async (id: string) => {
     if (!window.confirm("Delete this table? This will invalidate any active sessions.")) return;
-    
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setLoading(true);
     try {
-      const { error } = await supabase.from('tables').delete().eq('id', id);
-      if (error) throw error;
+      const response = await fetch(`/api/tables/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Delete failed");
       setTables(tables.filter(t => t.id !== id));
     } catch (err: any) {
       console.error("Delete table failed:", err);
@@ -663,26 +677,29 @@ export function AdminPanel() {
 
   const closeDiningSession = async (session: DiningSession) => {
     if (!window.confirm("Close this dining session? The customer will no longer be able to order using their current link.")) return;
-    
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setLoading(true);
     try {
-      const { error: sessionError } = await supabase
-        .from('dining_sessions')
-        .update({ 
-          status: 'closed', 
-          closed_at: new Date().toISOString() 
-        })
-        .eq('id', session.id);
-      
-      if (sessionError) throw sessionError;
+      await fetch(`/api/dining-sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
+      });
 
       // Reset table pointer
-      const { error: tableError } = await supabase
-        .from('tables')
-        .update({ current_session_id: null, status: 'available' })
-        .eq('id', session.tableId);
-      
-      if (tableError) throw tableError;
+      await fetch(`/api/tables/${session.tableId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ current_session_id: null, status: 'available' })
+      });
       
       await fetchData();
     } catch (err: any) {
@@ -694,12 +711,19 @@ export function AdminPanel() {
   };
 
   const updateTableStatus = async (id: string, status: 'available' | 'occupied') => {
-    const { error } = await supabase
-      .from('tables')
-      .update({ status })
-      .eq('id', id);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    const response = await fetch(`/api/tables/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status })
+    });
     
-    if (!error) {
+    if (response.ok) {
       setTables(tables.map(t => t.id === id ? { ...t, status } : t));
     }
   };

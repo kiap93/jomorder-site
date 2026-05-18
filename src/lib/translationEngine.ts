@@ -83,7 +83,7 @@ export async function resolveTranslation(
 
 /**
  * Bulk resolves translations for a list of products.
- * Optimization: Fetches all level translations in parallel.
+ * Optimization: Uses a single backend call.
  */
 export async function resolveMenuTranslations(
   items: MenuItem[],
@@ -92,45 +92,19 @@ export async function resolveMenuTranslations(
   const { targetLanguage } = context;
   if (targetLanguage === 'en') return items;
 
-  return await Promise.all(
-    items.map(async (item) => {
-      const translatedName = await resolveTranslation(item.id, 'menu_item', 'name', item.name, context);
-      const translatedDesc = item.description 
-        ? await resolveTranslation(item.id, 'menu_item', 'description', item.description, context)
-        : item.description;
-
-      // Translate groups if they exist
-      const translatedGroups = item.groups ? await Promise.all(item.groups.map(async (group) => {
-        const groupName = await resolveTranslation(group.id, 'product_group', 'name', group.name, context);
-        
-        // Translate group items
-        const translatedGroupItems = group.items ? await Promise.all(group.items.map(async (gi) => {
-          if (!gi.childProduct) return gi;
-          const childName = await resolveTranslation(gi.childProduct.id, 'menu_item', 'name', gi.childProduct.name, context);
-          return {
-            ...gi,
-            childProduct: {
-              ...gi.childProduct,
-              name: childName
-            }
-          };
-        })) : group.items;
-
-        return {
-          ...group,
-          name: groupName,
-          items: translatedGroupItems
-        };
-      })) : item.groups;
-
-      return {
-        ...item,
-        name: translatedName,
-        description: translatedDesc,
-        groups: translatedGroups
-      };
-    })
-  );
+  try {
+    const response = await fetch('/api/public/batch-translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, context })
+    });
+    if (!response.ok) return items;
+    const data = await response.json();
+    return data.items || items;
+  } catch (err) {
+    console.error('Batch translation failed:', err);
+    return items;
+  }
 }
 
 /**
@@ -143,26 +117,31 @@ export async function resolveCategoryTranslations(
   const { targetLanguage } = context;
   if (targetLanguage === 'en') return categories;
 
-  return await Promise.all(
-    categories.map(async (cat) => {
-      const translatedName = await resolveTranslation(cat.id, 'category', 'name', cat.name, context);
-      return {
-        ...cat,
-        name: translatedName
-      };
-    })
-  );
+  try {
+    const response = await fetch('/api/public/batch-translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories, context })
+    });
+    if (!response.ok) return categories;
+    const data = await response.json();
+    return data.categories || categories;
+  } catch (err) {
+    console.error('Batch translation failed:', err);
+    return categories;
+  }
 }
 
 /**
  * Fetches Kitchen Canonical Language names.
  */
 export async function getKitchenCanonical(menuItemId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('kitchen_canonical_names')
-    .select('canonical_name')
-    .eq('menu_item_id', menuItemId)
-    .maybeSingle();
-  
-  return data?.canonical_name || null;
+  try {
+    const response = await fetch(`/api/public/kitchen-canonical/${menuItemId}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.canonical_name || null;
+  } catch (err) {
+    return null;
+  }
 }

@@ -31,13 +31,15 @@ export function PosDashboard() {
     if (!user) return;
 
     // Fetch Restaurant Details
-    supabase
-      .from('restaurants')
-      .select('*')
-      .eq('id', restId)
-      .maybeSingle()
-      .then(({data}) => {
-        if (data) {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    fetch(`/api/restaurants/${restId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && !data.error) {
           setRestaurant({
             id: data.id,
             name: data.name,
@@ -63,19 +65,18 @@ export function PosDashboard() {
       }, 10000);
 
       try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('*, tables(name), payments(amount)')
-          .eq('restaurant_id', restId)
-          .order('created_at', { ascending: false });
+        const response = await fetch(`/api/restaurants/${restId}/orders`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "Failed to fetch orders");
+        }
+
+        const data = await response.json();
 
         clearTimeout(loadingTimer);
-
-        if (error) {
-          console.error('Error fetching POS orders:', error);
-          setError(error.message);
-          return;
-        }
 
         if (data) {
           setOrders(data.map(o => ({
@@ -143,20 +144,42 @@ export function PosDashboard() {
   }, [restId]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
-    await supabase
-      .from('orders')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', orderId);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    await fetch(`/api/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+    });
   };
 
   const closeSession = async (sessionId: string, tableId: string) => {
-    // 1. Mark session as closed
-    await supabase
-      .from('dining_sessions')
-      .update({ status: 'closed', closed_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
 
-    // 2. Clear the table is handled by the DB trigger sync_table_status_on_session_change
+    // 1. Mark session as closed
+    await fetch(`/api/dining-sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
+    });
+
+    // 2. Clear the table status
+    await fetch(`/api/tables/${tableId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ current_session_id: null, status: 'available' })
+    });
   };
 
   const filteredOrders = orders.filter(o => {

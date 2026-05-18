@@ -44,47 +44,43 @@ export function Checkout() {
         let actualTableId = tableId;
 
         if (!isUuid && tableId) {
-          const { data: tData } = await supabase
-            .from('tables')
-            .select('id')
-            .eq('restaurant_id', restId)
-            .eq('name', tableId)
-            .maybeSingle();
-          if (tData) actualTableId = tData.id;
+          const tRes = await fetch(`/api/public/tables/${tableId}?restId=${restId}`);
+          if (tRes.ok) {
+            const tData = await tRes.json();
+            if (tData) actualTableId = tData.id;
+          }
         }
 
         const [restRes, orderRes] = await Promise.all([
-          supabase.from('restaurants').select('*').eq('id', restId).single(),
-          supabase.from('orders').select('*').eq('id', orderId).eq('table_id', actualTableId).single()
+          fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
+          fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`).then(r => r.json())
         ]);
 
-        if (restRes.error) throw restRes.error;
-        if (orderRes.error) throw orderRes.error;
+        if (restRes.error) throw new Error(restRes.error);
+        if (orderRes.error) throw new Error(orderRes.error);
 
-        setRestaurant(restRes.data as any);
-        const orderData = orderRes.data as any;
+        setRestaurant(restRes as any);
+        const orderData = orderRes as any;
         
         // Fetch session orders if exists
-        const sessionId = orderData.session_id;
-        if (sessionId) {
-          const { data: sOrders } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('session_id', sessionId)
-            .neq('status', 'cancelled');
-          
-          if (sOrders && sOrders.length > 0) {
-            setSessionOrders(sOrders as any);
-            const unpaidOrders = sOrders.filter(o => !o.paid_at);
-            const total = unpaidOrders.reduce((sum, o) => sum + parseFloat(o.total_price), 0);
-            setSessionUnpaidTotal(total);
-            setPayTarget('session');
-            setOrder({
-              ...orderData,
-              totalPrice: parseFloat(orderData.total_price || 0),
-              sessionId: sessionId
-            } as any);
-            return; // Exit early as we've handled everything for session
+        const currentSessionId = orderData.session_id;
+        if (currentSessionId) {
+          const sRes = await fetch(`/api/public/dining-sessions/${currentSessionId}/orders`);
+          if (sRes.ok) {
+            const sOrders = await sRes.json();
+            if (sOrders && sOrders.length > 0) {
+              setSessionOrders(sOrders as any);
+              const unpaidOrders = sOrders.filter((o: any) => !o.paid_at);
+              const total = unpaidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price), 0);
+              setSessionUnpaidTotal(total);
+              setPayTarget('session');
+              setOrder({
+                ...orderData,
+                totalPrice: parseFloat(orderData.total_price || 0),
+                sessionId: currentSessionId
+              } as any);
+              return; // Exit early as we've handled everything for session
+            }
           }
         }
 
@@ -154,38 +150,24 @@ export function Checkout() {
   const simulateSuccess = async () => {
     if (!paymentIntent) return;
     
+    // Recovery of session token from localStorage
+    const storageKey = `dining_session_token_${tableId}`;
+    const sessionToken = localStorage.getItem(storageKey) || '';
+
     // If it was a session payment, mark all session orders as paid and close the session
     if (payTarget === 'session' && order?.sessionId) {
-       const now = new Date().toISOString();
-       
-       // Update all unpaid orders in the session
-       await supabase.from('orders')
-        .update({ 
-          paid_at: now, 
-          status: 'confirmed', 
-          payment_method: 'online' 
-        })
-        .eq('session_id', order.sessionId)
-        .is('paid_at', null)
-        .neq('status', 'cancelled');
-
-       // Close the dining session
-       await supabase.from('dining_sessions')
-        .update({
-          status: 'paid',
-          closed_at: now
-        })
-        .eq('id', order.sessionId);
+       await fetch(`/api/public/dining-sessions/${order.sessionId}/mark-paid`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ sessionToken })
+       });
     } else if (payTarget === 'order' && order) {
        // Just update this single order
-       const now = new Date().toISOString();
-       await supabase.from('orders')
-        .update({ 
-          paid_at: now, 
-          status: 'confirmed', 
-          payment_method: 'online' 
-        })
-        .eq('id', order.id);
+       await fetch(`/api/public/orders/${order.id}/mark-paid`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ sessionToken })
+       });
     }
 
     await paymentEngine.simulateSuccess(paymentIntent.paymentId);

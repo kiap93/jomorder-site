@@ -77,17 +77,19 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   }, [order.id, sessionId]);
 
   const fetchSessionOrders = async () => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setIsLoadingSession(true);
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, payments(amount)')
-        .eq('session_id', sessionId)
-        .neq('status', 'cancelled');
-
-      if (error) throw error;
+      const response = await fetch(`/api/dining-sessions/${sessionId}/orders`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Failed to fetch session orders");
+      const data = await response.json();
+      
       if (data) {
-        setSessionOrders(data.map(o => ({
+        setSessionOrders(data.map((o: any) => ({
           ...o,
           paidAmount: (o.payments || []).reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
         })));
@@ -156,33 +158,25 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   }, [onClose]);
 
   const fetchPaymentHistory = async () => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setIsLoadingHistory(true);
     try {
-      let query;
-      if (sessionId) {
-        // Find all payments for any order in this session
-        const orderIds = sessionOrders.map(o => o.id);
-        if (orderIds.length === 0) {
-           setAttempts([]);
-           setIsLoadingHistory(false);
-           return;
-        }
-        query = supabase
-          .from('payments')
-          .select('*')
-          .in('order_id', orderIds);
-      } else {
-        query = supabase
-          .from('payments')
-          .select('*')
-          .eq('order_id', order.id);
+      const orderIds = sessionOrders.map(o => o.id);
+      if (orderIds.length === 0) {
+          setAttempts([]);
+          setIsLoadingHistory(false);
+          return;
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const response = await fetch(`/api/orders/${orderIds[0]}/payments?sessionId=${sessionId || ''}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Failed to fetch payment history");
+      const data = await response.json();
       
-      setAttempts((data || []).map(p => ({
+      setAttempts((data || []).map((p: any) => ({
         id: p.id,
         method: p.payment_method,
         amount: parseFloat(p.amount),
@@ -197,22 +191,21 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   };
 
-  const markOrdersAsPaid = async (paidAmount: number) => {
+  const markOrdersAsPaid = async (paidAmountValue: number) => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     const orderIds = sessionOrders.map(o => o.id);
     if (orderIds.length > 0) {
-      // Update orders: Mark as paid but keep current status
-      await supabase.from('orders').update({
-        paid_at: new Date().toISOString(),
-        payment_method: 'counter'
-      }).in('id', orderIds);
-
-      // Update session: Mark as paid
-      if (sessionId) {
-        await supabase.from('dining_sessions').update({
-          status: 'paid',
-          paid_amount: paidAmount
-        }).eq('id', sessionId);
-      }
+      // API call to batch update orders and session status
+      await fetch(`/api/dining-sessions/${sessionId}/settle`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ orderIds, paidAmount: paidAmountValue })
+      });
     }
     onPaymentSuccess();
   };
@@ -229,18 +222,27 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   };
 
   const handleSplitAllocation = async (splits: { amount: number; method: string }[]) => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
     setIsProcessing(true);
     try {
       const totalSplit = splits.reduce((s, x) => s + x.amount, 0);
       for (const split of splits) {
-        await supabase.from('payments').insert({
-          restaurant_id: restaurant.id,
-          order_id: order.id,
-          amount: split.amount,
-          payment_method: split.method,
-          provider: 'pos_split',
-          status: 'paid',
-          currency: restaurant.currency || 'MYR'
+        await fetch(`/api/orders/${order.id}/payments`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            restaurant_id: restaurant.id,
+            amount: split.amount,
+            payment_method: split.method,
+            provider: 'pos_split',
+            status: 'paid',
+            currency: restaurant.currency || 'MYR'
+          })
         });
       }
       await fetchPaymentHistory();
@@ -401,53 +403,65 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         currency: restaurant.currency
                       }}
                       onCancel={() => {}}
-                      onComplete={async (data) => {
-                        setIsProcessing(true);
-                        try {
-                          const remainingAmount = totalAmount - paidAmount;
-                          const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
-                          
-                          const { data: payment, error: pError } = await supabase
-                            .from('payments')
-                            .insert({
-                              restaurant_id: restaurant.id,
-                              order_id: order.id,
-                              amount: amountPaid,
-                              payment_method: 'cash',
-                              provider: 'pos_cash',
-                              status: 'paid',
-                              currency: restaurant.currency || 'MYR'
-                            })
-                            .select()
-                            .single();
+                        onComplete={async (data) => {
+                          const token = useAuthStore.getState().token;
+                          if (!token) return;
 
-                          if (pError) throw pError;
-
-                          const deviceId = localStorage.getItem('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
-                          await supabase
-                            .from('cash_transactions')
-                            .insert({
-                              payment_id: payment.id,
-                              order_id: order.id,
-                              cashier_id: profile?.id,
-                              restaurant_id: restaurant.id,
-                              device_id: deviceId,
-                              amount_due: remainingAmount,
-                              cash_received: data.cashReceived,
-                              change_given: data.changeGiven,
-                              rounding_adjustment: data.rounding,
-                              status: 'completed',
-                              metadata: {
-                                is_partial: data.isPartial,
-                                remaining_balance: data.remainingBalance
-                              }
+                          setIsProcessing(true);
+                          try {
+                            const remainingAmount = totalAmount - paidAmount;
+                            const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
+                            
+                            const pRes = await fetch(`/api/orders/${order.id}/payments`, {
+                              method: 'POST',
+                              headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                              },
+                              body: JSON.stringify({
+                                restaurant_id: restaurant.id,
+                                amount: amountPaid,
+                                payment_method: 'cash',
+                                provider: 'pos_cash',
+                                status: 'paid',
+                                currency: restaurant.currency || 'MYR'
+                              })
                             });
 
-                          await handlePaymentComplete(payment);
-                        } finally {
-                          setIsProcessing(false);
-                        }
-                      }}
+                            if (!pRes.ok) throw new Error("Payment record failed");
+                            const payment = await pRes.json();
+
+                            const deviceId = localStorage.getItem('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
+                            
+                            await fetch(`/api/cash-transactions`, {
+                              method: 'POST',
+                              headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                              },
+                              body: JSON.stringify({
+                                payment_id: payment.id,
+                                order_id: order.id,
+                                cashier_id: profile?.id,
+                                restaurant_id: restaurant.id,
+                                device_id: deviceId,
+                                amount_due: remainingAmount,
+                                cash_received: data.cashReceived,
+                                change_given: data.changeGiven,
+                                rounding_adjustment: data.rounding,
+                                status: 'completed',
+                                metadata: {
+                                  is_partial: data.isPartial,
+                                  remaining_balance: data.remainingBalance
+                                }
+                              })
+                            });
+
+                            await handlePaymentComplete(payment);
+                          } finally {
+                            setIsProcessing(false);
+                          }
+                        }}
                     />
                    </div>
                 </div>
@@ -484,16 +498,29 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       <button className="flex-1 h-10 bg-zinc-900 text-zinc-500 rounded font-black text-[9px] uppercase tracking-widest hover:bg-zinc-800 transition-all border border-zinc-800">Abort</button>
                       <button 
                         onClick={async () => {
-                          const { data: pData } = await supabase.from('payments').insert({
-                            restaurant_id: restaurant.id,
-                            order_id: order.id,
-                            amount: remainingBalance,
-                            payment_method: 'card',
-                            provider: 'pos_terminal',
-                            status: 'paid',
-                            currency: restaurant.currency || 'MYR'
-                          }).select().single();
-                          if (pData) handlePaymentComplete(pData);
+                          const token = useAuthStore.getState().token;
+                          if (!token) return;
+
+                          const response = await fetch(`/api/orders/${order.id}/payments`, {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${token}`,
+                              'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                              restaurant_id: restaurant.id,
+                              amount: remainingBalance,
+                              payment_method: 'card',
+                              provider: 'pos_terminal',
+                              status: 'paid',
+                              currency: restaurant.currency || 'MYR'
+                            })
+                          });
+                          
+                          if (response.ok) {
+                            const pData = await response.json();
+                            handlePaymentComplete(pData);
+                          }
                         }}
                         className="flex-[2] h-10 bg-white text-black rounded font-black text-[9px] uppercase tracking-[0.2em] hover:bg-zinc-200 transition-all shadow-xl"
                       >
@@ -600,16 +627,29 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
                     <button 
                       onClick={async () => {
-                        const { data: pData } = await supabase.from('payments').insert({
-                          restaurant_id: restaurant.id,
-                          order_id: order.id,
-                          amount: remainingBalance,
-                          payment_method: 'qr',
-                          provider: 'duitnow_pos',
-                          status: 'paid',
-                          currency: restaurant.currency || 'MYR'
-                        }).select().single();
-                        if (pData) handlePaymentComplete(pData);
+                        const token = useAuthStore.getState().token;
+                        if (!token) return;
+
+                        const response = await fetch(`/api/orders/${order.id}/payments`, {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify({
+                            restaurant_id: restaurant.id,
+                            amount: remainingBalance,
+                            payment_method: 'qr',
+                            provider: 'duitnow_pos',
+                            status: 'paid',
+                            currency: restaurant.currency || 'MYR'
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          const pData = await response.json();
+                          handlePaymentComplete(pData);
+                        }
                       }}
                       className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded font-black text-[9px] uppercase tracking-widest transition-all"
                     >

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { guestSupabase as supabase } from '../lib/supabase';
+
 import { motion } from 'motion/react';
 import { 
   CheckCircle2, 
@@ -22,20 +22,18 @@ export function PaymentSuccess() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const { data: orderData } = await supabase
-          .from('orders')
-          .select('session_id')
-          .eq('id', orderId)
-          .single();
+        const orderRes = await fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`);
+        if (!orderRes.ok) throw new Error("Order not found");
+        const orderData = await orderRes.json();
 
         if (orderData?.session_id) {
           const [restRes, ordersRes] = await Promise.all([
-            supabase.from('restaurants').select('*').eq('id', restId).single(),
-            supabase.from('orders').select('*').eq('session_id', orderData.session_id).order('created_at', { ascending: true })
+            fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
+            fetch(`/api/public/dining-sessions/${orderData.session_id}/orders`).then(r => r.json())
           ]);
           
-          setRestaurant(restRes.data as any);
-          setOrders((ordersRes.data || []).map(o => ({
+          setRestaurant(restRes as any);
+          setOrders((ordersRes || []).map((o: any) => ({
             ...o,
             totalPrice: parseFloat(o.total_price),
             createdAt: o.created_at
