@@ -13,6 +13,12 @@ interface AuthState {
 
 let initializationPromise: Promise<(() => void)> | null = null;
 
+const getStorageKey = () => {
+  const match = window.location.pathname.match(/\/restaurant\/([^\/]+)/);
+  const restId = match ? match[1] : 'global';
+  return `manual_supabase_session_${restId}`;
+};
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   profile: null,
@@ -75,6 +81,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const checkSession = async () => {
         try {
+          // Manual session recovery for "JWT session" pattern
+          const savedSession = window.sessionStorage.getItem(getStorageKey());
+          if (savedSession) {
+            const session = JSON.parse(savedSession);
+            await supabase.auth.setSession(session);
+          }
+
           const { data: { session }, error: sessionError } = await supabase.auth.getSession();
           
           if (sessionError) {
@@ -86,6 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               sessionError.status === 401
             ) {
               console.warn("Stale session detected, clearing...");
+              window.sessionStorage.removeItem(getStorageKey());
               await supabase.auth.signOut();
               set({ user: null, profile: null, loading: false });
               return;
@@ -110,6 +124,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Listen for auth changes
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         console.log("Auth Event:", event);
+        
+        // Persist session manually for multi-tenant isolation
+        if (session) {
+          window.sessionStorage.setItem(getStorageKey(), JSON.stringify(session));
+        } else {
+          window.sessionStorage.removeItem(getStorageKey());
+        }
+
         if (event === 'SIGNED_OUT') {
           set({ user: null, profile: null, loading: false });
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
@@ -147,6 +169,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return initializationPromise;
   },
   signOut: async () => {
+    window.sessionStorage.removeItem(getStorageKey());
     await supabase.auth.signOut();
     set({ user: null, profile: null });
   }

@@ -41,32 +41,26 @@ const getAppId = () => {
   }
 };
 
-// Main client for staff/admin with persistence
+// Main client for staff/admin - we use a custom storage key to isolate tabs
+// For multi-tenant support and "JWT session" pattern, we manage persistence manually in useAuthStore
 export const supabase = createClient(finalUrl, finalKey, {
   auth: {
-    persistSession: true,
+    persistSession: false, // Disabled for manual JWT control
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: `sb-${getAppId()}-auth-token`,
     storage: window.sessionStorage,
-    // Use unique lock per tab to avoid "Lock broken" cross-tab theft
-    lock: async (name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
-      const tabUniqueName = `${name}-${getAppId()}`;
-      if (typeof navigator !== 'undefined' && navigator.locks) {
-        return await navigator.locks.request(tabUniqueName, callback);
-      }
+    lock: async (_name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
       return await callback();
     }
   }
 });
 
-// Guest client for anonymous QR users - no persistence and no locking to avoid multi-tab conflicts
+// Guest client for anonymous QR users - stateless and no locking
 export const guestSupabase = createClient(finalUrl, finalKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
-    // Disable locking entirely for guests to prevent "Lock broken" errors
     lock: async (_name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
       return await callback();
     }
