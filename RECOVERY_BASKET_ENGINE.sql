@@ -26,7 +26,8 @@ CREATE OR REPLACE FUNCTION public.sync_basket_item(
     p_configuration JSONB DEFAULT '{}'::jsonb,
     p_special_instructions TEXT DEFAULT NULL,
     p_device_info TEXT DEFAULT NULL,
-    p_idempotency_key TEXT DEFAULT NULL
+    p_idempotency_key TEXT DEFAULT NULL,
+    p_session_token TEXT DEFAULT NULL -- Added for token validation
 ) RETURNS JSONB AS $$
 DECLARE
     v_basket_id UUID;
@@ -34,6 +35,15 @@ DECLARE
     v_new_qty INTEGER;
     v_version INTEGER;
 BEGIN
+    -- 0. Validate Session Token
+    IF NOT EXISTS (
+        SELECT 1 FROM public.dining_sessions 
+        WHERE id = p_session_id AND session_token = p_session_token
+        AND status IN ('active', 'awaiting_payment', 'paid')
+    ) THEN
+        RAISE EXCEPTION 'Invalid or expired session token';
+    END IF;
+
     -- Advisory lock for concurrency safety on this session
     PERFORM pg_advisory_xact_lock(hashtext(p_session_id::text));
 

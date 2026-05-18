@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { guestSupabase as supabase } from './supabase';
 import { LanguageCode, Product, MenuItem } from '../types';
 
 export interface TranslationContext {

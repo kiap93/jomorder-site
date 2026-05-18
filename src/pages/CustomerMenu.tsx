@@ -232,7 +232,7 @@ export function CustomerMenu() {
 
           try {
             console.log("Resolving dining session...");
-            let sessionResultPromise = supabase.rpc('resolve_dining_session', {
+            let sessionResultPromise = supabase.rpc('resolve_dining_session_v2', {
               p_restaurant_id: restId,
               p_table_id: resolvedTable.id,
               p_device_info: navigator.userAgent,
@@ -247,7 +247,7 @@ export function CustomerMenu() {
             ]) as any;
 
             if (sessionResult.error && (sessionResult.error.code === 'PGRST202' || sessionResult.error.message.includes('p_fulfillment'))) {
-               sessionResult = await supabase.rpc('resolve_dining_session', {
+               sessionResult = await supabase.rpc('resolve_dining_session_v2', {
                   p_restaurant_id: restId,
                   p_table_id: resolvedTable.id,
                   p_device_info: navigator.userAgent,
@@ -401,7 +401,7 @@ export function CustomerMenu() {
 
          const attemptResolve = async (): Promise<void> => {
            try {
-             let res = await supabase.rpc('resolve_dining_session', {
+             let res = await supabase.rpc('resolve_dining_session_v2', {
                 p_restaurant_id: restId,
                 p_table_id: table.id,
                 p_device_info: navigator.userAgent,
@@ -410,7 +410,7 @@ export function CustomerMenu() {
              });
 
              if (res.error && (res.error.code === 'PGRST202' || res.error.message.includes('p_fulfillment'))) {
-               res = await supabase.rpc('resolve_dining_session', {
+               res = await supabase.rpc('resolve_dining_session_v2', {
                   p_restaurant_id: restId,
                   p_table_id: table.id,
                   p_device_info: navigator.userAgent,
@@ -556,6 +556,7 @@ export function CustomerMenu() {
   const addToCart = async (item: MenuItem, selection: ProductSelection) => {
     // 1. Ensure we have a session
     let currentSessionId = diningSession?.id;
+    let currentSessionToken = diningSession?.token;
     
     if (!currentSessionId) {
       if (isPreviewMode) {
@@ -567,6 +568,7 @@ export function CustomerMenu() {
       // Proactive recovery attempt
       await fetchData(false);
       currentSessionId = diningSession?.id;
+      currentSessionToken = diningSession?.token;
       
       if (!currentSessionId) {
         console.error("Could not resolve session for addToCart.");
@@ -612,8 +614,9 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
     
     mutationQueue.current?.enqueue(async () => {
-      const { data: result, error } = await supabase.rpc('sync_basket_item', {
+      const { data: result, error } = await supabase.rpc('sync_basket_item_v2', {
         p_session_id: currentSessionId,
+        p_session_token: currentSessionToken,
         p_product_id: item.id,
         p_delta: 1,
         p_configuration: selection,
@@ -635,6 +638,7 @@ export function CustomerMenu() {
 
   const updateQuantity = async (index: number, delta: number) => {
     let currentSessionId = diningSession?.id;
+    let currentSessionToken = diningSession?.token;
     const item = cart[index];
     if (!item) return;
 
@@ -643,6 +647,7 @@ export function CustomerMenu() {
       console.log("No session found for updateQuantity, attempting recovery...");
       await fetchData(false);
       currentSessionId = diningSession?.id;
+      currentSessionToken = diningSession?.token;
       if (!currentSessionId) return;
     }
 
@@ -661,8 +666,9 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
 
     mutationQueue.current?.enqueue(async () => {
-      const { data: result, error } = await supabase.rpc('sync_basket_item', {
+      const { data: result, error } = await supabase.rpc('sync_basket_item_v2', {
         p_session_id: currentSessionId,
+        p_session_token: currentSessionToken,
         p_product_id: item.menuItemId,
         p_delta: delta,
         p_configuration: item.selection,
@@ -694,21 +700,17 @@ export function CustomerMenu() {
     const tryInsert = async (): Promise<any> => {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
-        const { data, error } = await supabase
-          .from('orders')
-          .insert({
-            restaurant_id: restId,
-            table_id: table?.id || tableId,
-            session_id: diningSession?.id,
-            order_type: orderType,
-            status: 'pending',
-            total_price: total,
-            items: itemsWithMetadata,
-            payment_method: 'counter',
-            idempotency_key: idempotencyKey
-          })
-          .select()
-          .single();
+        const { data, error } = await supabase.rpc('place_order_v3', {
+          p_restaurant_id: restId,
+          p_table_id: table?.id || tableId,
+          p_session_id: diningSession?.id,
+          p_session_token: diningSession?.token,
+          p_order_type: orderType,
+          p_items: itemsWithMetadata,
+          p_total_price: total,
+          p_payment_method: 'counter',
+          p_idempotency_key: idempotencyKey
+        });
 
         if (error) {
           if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
@@ -719,7 +721,7 @@ export function CustomerMenu() {
           }
           throw error;
         }
-        return data;
+        return data; // returns { order_id: ... }
       } catch (err: any) {
         if ((err.message?.includes('Lock broken') || err.name === 'AbortError') && attempt < maxRetries) {
           attempt++;
@@ -732,17 +734,17 @@ export function CustomerMenu() {
     };
 
     try {
-      const data = await tryInsert();
+      const result = await tryInsert();
+      const orderId = result?.order_id;
       
-      // Submit basket - marks active basket as submitted
-      if (basketId) {
-        await supabase.rpc('submit_basket', { p_basket_id: basketId });
+      if (!orderId) {
+        throw new Error(result?.message || "Order placement rejected by server. This may happen if the session was closed or the table was reassigned.");
       }
 
-      localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
-      setLastOrderId(data.id);
+      localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+      setLastOrderId(orderId);
       setCart([]);
-      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}`);
+      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${orderId}`);
     } catch (err: any) {
       console.error("Order completion failed:", err);
       alert(err.message || "Failed to place order");
@@ -797,21 +799,17 @@ export function CustomerMenu() {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
 
-        const { data, error } = await supabase
-          .from('orders')
-          .insert({
-            restaurant_id: restId,
-            table_id: table?.id || tableId, // Use resolved UUID if available
-            session_id: diningSession?.id,
-            order_type: orderType,
-            status: 'pending',
-            total_price: total,
-            items: itemsWithMetadata,
-            payment_method: 'online',
-            idempotency_key: idempotencyKey
-          })
-          .select()
-          .single();
+        const { data, error } = await supabase.rpc('place_order_v3', {
+          p_restaurant_id: restId,
+          p_table_id: table?.id || tableId,
+          p_session_id: diningSession?.id,
+          p_session_token: diningSession?.token,
+          p_order_type: orderType,
+          p_items: itemsWithMetadata,
+          p_total_price: total,
+          p_payment_method: 'online',
+          p_idempotency_key: idempotencyKey
+        });
 
         if (error) {
           if ((error.message?.includes('Lock broken') || error.name === 'AbortError') && attempt < maxRetries) {
@@ -835,18 +833,18 @@ export function CustomerMenu() {
     };
 
     try {
-      const data = await tryInsert();
+      const result = await tryInsert();
+      const orderId = result?.order_id;
 
-      // Submit basket - marks active basket as submitted
-      if (basketId) {
-        await supabase.rpc('submit_basket', { p_basket_id: basketId });
+      if (!orderId) {
+        throw new Error(result?.message || "Checkout failed. This may happen if the session was closed or the table was reassigned.");
       }
 
-      localStorage.setItem(`last_order_${restId}_${tableId}`, data.id);
-      setLastOrderId(data.id);
+      localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+      setLastOrderId(orderId);
       setCart([]);
       // Lead to the dedicated elegant checkout page
-      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${data.id}/checkout`);
+      navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${orderId}/checkout`);
     } catch (err: any) {
       console.error("Checkout placement failed:", err);
       alert(err.message || "Failed to place order");
@@ -1484,7 +1482,7 @@ export function CustomerMenu() {
             <div className="p-4 bg-white border-t border-zinc-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] space-y-3">
               <button
                 onClick={confirmOrder}
-                disabled={loading || cart.length === 0}
+                disabled={loading || cart.length === 0 || !diningSession?.id}
                 className="w-full h-14 bg-zinc-900 text-white rounded-xl font-bold text-base hover:bg-black transition-all flex items-center justify-center shadow-lg shadow-zinc-900/10 disabled:bg-zinc-200 disabled:text-zinc-400"
               >
                 {loading ? (
@@ -1495,8 +1493,8 @@ export function CustomerMenu() {
               </button>
               <button
                 onClick={placeOrderAtCounter}
-                disabled={loading || cart.length === 0}
-                className="w-full h-12 bg-white text-zinc-900 border border-zinc-200 rounded-xl font-bold text-sm hover:bg-zinc-50 transition-all flex items-center justify-center"
+                disabled={loading || cart.length === 0 || !diningSession?.id}
+                className="w-full h-12 bg-white text-zinc-900 border border-zinc-200 rounded-xl font-bold text-sm hover:bg-zinc-50 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Place Order, Pay Later
               </button>

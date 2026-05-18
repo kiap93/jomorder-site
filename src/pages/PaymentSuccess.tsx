@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { guestSupabase as supabase } from '../lib/supabase';
 import { motion } from 'motion/react';
 import { 
   CheckCircle2, 

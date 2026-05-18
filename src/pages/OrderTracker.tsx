@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { guestSupabase as supabase } from '../lib/supabase';
 import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
 import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';

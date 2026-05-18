@@ -22,6 +22,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (initializationPromise) return initializationPromise;
 
     initializationPromise = (async () => {
+      // Skip persistent auth check for guest QR ordering routes
+      if (window.location.pathname.includes('/table/')) {
+        set({ loading: false });
+        // Return a no-op cleanup
+        return () => {};
+      }
+
       const fetchProfile = async (currentUser: User | null, retryCount = 0): Promise<void> => {
         if (!currentUser) {
           set({ user: null, profile: null, loading: false });

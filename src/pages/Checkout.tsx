@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { guestSupabase as supabase } from '../lib/supabase';
 import { paymentEngine, PaymentIntentResponse } from '../lib/paymentEngine';
 import { Restaurant, Order, Payment } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
