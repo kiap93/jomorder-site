@@ -48,7 +48,7 @@ export const supabase = createClient(finalUrl, finalKey, {
     persistSession: false, // Disabled for manual JWT control
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storage: window.sessionStorage,
+    storage: window.localStorage,
     lock: async (_name: string, _acquireTimeout: number, callback: () => Promise<any>) => {
       return await callback();
     }

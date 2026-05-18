@@ -79,7 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
           console.log("AuthStore: Checking for manual JWT session...");
           const storageKey = getStorageKey();
-          const savedSession = window.sessionStorage.getItem(storageKey);
+          const savedSession = window.localStorage.getItem(storageKey);
           
           if (savedSession) {
             try {
@@ -88,16 +88,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               const { data, error: setError } = await supabase.auth.setSession(session);
               if (setError) {
                 console.warn("AuthStore: Failed to restore session from storage:", setError.message);
-                window.sessionStorage.removeItem(storageKey);
+                window.localStorage.removeItem(storageKey);
               } else {
                 console.log("AuthStore: Session restored successfully for user:", data.session?.user?.id);
               }
             } catch (pErr) {
               console.error("AuthStore: Error parsing saved session:", pErr);
-              window.sessionStorage.removeItem(storageKey);
+              window.localStorage.removeItem(storageKey);
             }
           } else {
-            console.log("AuthStore: No saved session found in sessionStorage.");
+            console.log("AuthStore: No saved session found in localStorage.");
           }
 
           const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -111,7 +111,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               sessionError.status === 401
             ) {
               console.warn("Stale session detected, clearing...");
-              window.sessionStorage.removeItem(getStorageKey());
+              window.localStorage.removeItem(getStorageKey());
               await supabase.auth.signOut();
               set({ user: null, profile: null, loading: false });
               return;
@@ -139,9 +139,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         
         // Persist session manually for multi-tenant isolation
         if (session) {
-          window.sessionStorage.setItem(getStorageKey(), JSON.stringify(session));
+          window.localStorage.setItem(getStorageKey(), JSON.stringify(session));
         } else {
-          window.sessionStorage.removeItem(getStorageKey());
+          window.localStorage.removeItem(getStorageKey());
         }
 
         if (event === 'SIGNED_OUT') {
@@ -184,17 +184,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       console.log("AuthStore: Signing out...");
       const storageKey = getStorageKey();
-      window.sessionStorage.removeItem(storageKey);
+      window.localStorage.removeItem(storageKey);
       
       // Collect keys first to avoid iteration issues while removing
       const keysToRemove: string[] = [];
-      for (let i = 0; i < window.sessionStorage.length; i++) {
-        const key = window.sessionStorage.key(i);
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
         if (key?.startsWith('manual_supabase_')) {
           keysToRemove.push(key);
         }
       }
-      keysToRemove.forEach(k => window.sessionStorage.removeItem(k));
+      keysToRemove.forEach(k => window.localStorage.removeItem(k));
 
       await supabase.auth.signOut();
     } catch (err) {
