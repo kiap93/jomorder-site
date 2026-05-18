@@ -29,6 +29,7 @@ const getAppId = () => {
     const host = window.location.host.split('.')[0] || 'default';
     // Use a unique session-specific ID to isolate tabs. 
     // This prevents "Lock broken" AbortErrors by giving each tab its own lock namespace.
+    // We use sessionStorage because it is unique to the tab but survives reloads.
     let tabId = window.sessionStorage.getItem('supabase_tab_id');
     if (!tabId) {
       tabId = Math.random().toString(36).slice(2, 10);

@@ -4,7 +4,7 @@ import { guestSupabase as supabase } from '../lib/supabase';
 import { MutationQueue } from '../lib/mutationQueue';
 import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe, ChefHat } from 'lucide-react';
 import { resolveMenuTranslations, resolveCategoryTranslations, TranslationContext, getKitchenCanonical } from '../lib/translationEngine';
 import { calculateSelectionPrice, validateSelection, flattenSelections } from '../lib/configEngine';
 import { ProductConfigurator } from '../components/ProductConfigurator';
@@ -68,6 +68,7 @@ export function CustomerMenu() {
   const [isReviewingOrder, setIsReviewingOrder] = useState(false);
   const [orderType, setOrderType] = useState<'dine_in' | 'takeaway'>('dine_in');
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [hasActiveOrders, setHasActiveOrders] = useState(false);
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
   const [basketVersion, setBasketVersion] = useState<number>(0);
   const mutationQueue = useRef<MutationQueue | null>(null);
@@ -83,6 +84,33 @@ export function CustomerMenu() {
   useEffect(() => {
     setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
   }, [restId, tableId]);
+
+  useEffect(() => {
+    if (!diningSession?.id) return;
+
+    const checkOrders = async () => {
+      const { count } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', diningSession.id);
+      
+      setHasActiveOrders(!!count && count > 0);
+    };
+
+    checkOrders();
+
+    // Subscribe to changes
+    const channel = supabase.channel(`orders-${diningSession.id}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'orders',
+        filter: `session_id=eq.${diningSession.id}`
+      }, () => checkOrders())
+      .subscribe();
+
+    return () => { channel.unsubscribe(); };
+  }, [diningSession?.id]);
 
   const isPreviewMode = tableId === 'preview' || tableId === 'default';
 
@@ -1502,6 +1530,39 @@ export function CustomerMenu() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Floating Active Order Tracker */}
+      {hasActiveOrders && lastOrderId && !isReviewingOrder && (
+        <div className="fixed bottom-6 left-0 right-0 px-6 z-40 pointer-events-none">
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="pointer-events-auto"
+          >
+            <button
+              onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${lastOrderId}`)}
+              className="w-full bg-zinc-900 border border-zinc-800 text-white p-4 rounded-3xl flex items-center justify-between shadow-2xl active:scale-[0.98] transition-transform"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center">
+                  <ChefHat size={20} className="text-white" />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 leading-none mb-1">Your Order</p>
+                  <p className="text-sm font-bold text-white">Track Progress Live</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                </span>
+                <ChevronRight size={16} className="text-zinc-500" />
+              </div>
+            </button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

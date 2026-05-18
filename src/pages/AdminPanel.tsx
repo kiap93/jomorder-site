@@ -174,8 +174,7 @@ export function AdminPanel() {
     // Safety timeout for fetching data
     const timeoutTimer = setTimeout(() => {
       if (loading) {
-        setLoading(false);
-        setError("Data sync is taking too long. Please refresh the page.");
+        console.warn("Data sync is taking longer than expected...");
       }
     }, 15000);
 
@@ -682,6 +681,13 @@ export function AdminPanel() {
     <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
       <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Initializing Management Studio...</p>
+      {/* Show retry after 20s if still loading */}
+      <button 
+        onClick={() => fetchData()}
+        className="mt-4 text-[10px] font-black underline uppercase tracking-widest text-zinc-400 hover:text-zinc-600"
+      >
+        Taking a while? Click to retry sync
+      </button>
     </div>
   );
 
