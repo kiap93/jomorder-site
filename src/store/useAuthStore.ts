@@ -13,11 +13,7 @@ interface AuthState {
 
 let initializationPromise: Promise<(() => void)> | null = null;
 
-const getStorageKey = () => {
-  const match = window.location.pathname.match(/\/restaurant\/([^\/]+)/);
-  const restId = match ? match[1] : 'global';
-  return `manual_supabase_session_${restId}`;
-};
+const getStorageKey = () => 'manual_supabase_jwt';
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -81,11 +77,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const checkSession = async () => {
         try {
-          // Manual session recovery for "JWT session" pattern
-          const savedSession = window.sessionStorage.getItem(getStorageKey());
+          console.log("AuthStore: Checking for manual JWT session...");
+          const storageKey = getStorageKey();
+          const savedSession = window.sessionStorage.getItem(storageKey);
+          
           if (savedSession) {
-            const session = JSON.parse(savedSession);
-            await supabase.auth.setSession(session);
+            try {
+              const session = JSON.parse(savedSession);
+              console.log("AuthStore: Found saved session, restoring...");
+              const { data, error: setError } = await supabase.auth.setSession(session);
+              if (setError) {
+                console.warn("AuthStore: Failed to restore session from storage:", setError.message);
+                window.sessionStorage.removeItem(storageKey);
+              } else {
+                console.log("AuthStore: Session restored successfully for user:", data.session?.user?.id);
+              }
+            } catch (pErr) {
+              console.error("AuthStore: Error parsing saved session:", pErr);
+              window.sessionStorage.removeItem(storageKey);
+            }
+          } else {
+            console.log("AuthStore: No saved session found in sessionStorage.");
           }
 
           const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -169,8 +181,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return initializationPromise;
   },
   signOut: async () => {
-    window.sessionStorage.removeItem(getStorageKey());
-    await supabase.auth.signOut();
-    set({ user: null, profile: null });
+    try {
+      console.log("AuthStore: Signing out...");
+      const storageKey = getStorageKey();
+      window.sessionStorage.removeItem(storageKey);
+      
+      // Collect keys first to avoid iteration issues while removing
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < window.sessionStorage.length; i++) {
+        const key = window.sessionStorage.key(i);
+        if (key?.startsWith('manual_supabase_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => window.sessionStorage.removeItem(k));
+
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("AuthStore: Error during signOut:", err);
+    } finally {
+      set({ user: null, profile: null, loading: false });
+      // Reset initialization promise to allow re-init after logout
+      initializationPromise = null;
+    }
   }
 }));

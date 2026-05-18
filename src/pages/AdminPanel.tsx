@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
@@ -70,6 +71,7 @@ const VisibilityManager = ({
 export function AdminPanel() {
   const { restId } = useParams();
   const navigate = useNavigate();
+  const { user, profile, loading: loadingAuth } = useAuthStore();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -102,9 +104,16 @@ export function AdminPanel() {
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
 
   useEffect(() => {
-    if (!restId) return;
+    if (!restId || loadingAuth) return;
+    
+    // Safety check: Don't fetch if no user
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     fetchData();
-  }, [restId]);
+  }, [restId, loadingAuth, !!user]);
 
   useEffect(() => {
     setSaveError(null);
@@ -179,6 +188,9 @@ export function AdminPanel() {
     }, 15000);
 
     try {
+      console.log(`Starting data sync for restaurant ${restId}...`);
+      const startTime = Date.now();
+      
       const [restRes, catsRes, itemsRes, tablesRes, ordersRes] = await Promise.all([
         supabase.from('restaurants').select('*').eq('id', restId).maybeSingle(),
         supabase.from('categories').select('*').eq('restaurant_id', restId).order('sort_order', { ascending: true }),
@@ -215,12 +227,27 @@ export function AdminPanel() {
           .limit(100)
       ]);
 
+      const duration = Date.now() - startTime;
+      console.log(`Data sync completed in ${duration}ms`);
+
       clearTimeout(timeoutTimer);
 
-      if (restRes.error) throw restRes.error;
-      if (catsRes.error) throw catsRes.error;
-      if (tablesRes.error) throw tablesRes.error;
-      if (ordersRes.error) throw ordersRes.error;
+      if (restRes.error) {
+        console.error("Restaurant fetch error:", restRes.error);
+        throw new Error(`Restaurant access failed: ${restRes.error.message}`);
+      }
+      if (catsRes.error) {
+        console.error("Categories fetch error:", catsRes.error);
+        throw new Error(`Categories access failed: ${catsRes.error.message}`);
+      }
+      if (tablesRes.error) {
+        console.error("Tables fetch error:", tablesRes.error);
+        throw new Error(`Tables access failed: ${tablesRes.error.message}`);
+      }
+      if (ordersRes.error) {
+        console.error("Orders fetch error:", ordersRes.error);
+        throw new Error(`Orders access failed: ${ordersRes.error.message}`);
+      }
       
       if (!restRes.data) throw new Error("Restaurant not found. Please check your URL or register a restaurant.");
       

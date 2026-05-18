@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
@@ -9,10 +10,12 @@ import { flattenSelections } from '../lib/configEngine';
 
 export function KitchenDisplay() {
   const { restId } = useParams();
+  const { user, loading: loadingAuth } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
-    if (!restId) return;
+    if (!restId || loadingAuth) return;
+    if (!user) return;
 
     let fetchTimeout: NodeJS.Timeout;
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -17,6 +18,7 @@ import { PaymentWorkspace } from '../components/PaymentWorkspace';
 
 export function PosPayments() {
   const { restId } = useParams();
+  const { user, loading: loadingAuth } = useAuthStore();
   const [tables, setTables] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'outstanding'>('outstanding');
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -24,7 +26,8 @@ export function PosPayments() {
   const [settlingSession, setSettlingSession] = useState<any | null>(null);
 
   useEffect(() => {
-    if (!restId) return;
+    if (!restId || loadingAuth) return;
+    if (!user) return;
 
     // Fetch Restaurant
     supabase.from('restaurants').select('*').eq('id', restId).single().then(({data}) => {

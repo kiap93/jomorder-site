@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock, Banknote } from 'lucide-react';
@@ -10,6 +11,7 @@ import { flattenSelections } from '../lib/configEngine';
 
 export function PosDashboard() {
   const { restId } = useParams();
+  const { user, loading: loadingAuth } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -25,7 +27,8 @@ export function PosDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!restId) return;
+    if (!restId || loadingAuth) return;
+    if (!user) return;
 
     // Fetch Restaurant Details
     supabase

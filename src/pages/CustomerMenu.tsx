@@ -89,12 +89,17 @@ export function CustomerMenu() {
     if (!diningSession?.id) return;
 
     const checkOrders = async () => {
-      const { count } = await supabase
+      const { data, count } = await supabase
         .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', diningSession.id);
+        .select('id', { count: 'exact' })
+        .eq('session_id', diningSession.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
       
       setHasActiveOrders(!!count && count > 0);
+      if (data && data.length > 0) {
+        setLastOrderId(data[0].id);
+      }
     };
 
     checkOrders();
