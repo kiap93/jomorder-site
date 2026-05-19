@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
+import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 import { OAuth2Client } from "google-auth-library";
 import dotenv from "dotenv";
@@ -13,7 +14,9 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "jomorder-secret-key-123";
-const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID;
+
+// Use VITE_ prefix for client-side but on server we check both
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
@@ -23,8 +26,14 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || ""
 );
 
+app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
+
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 // Middleware to verify custom JWT
 const authenticateJWT = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -435,7 +444,12 @@ app.post("/api/google-login", async (req, res) => {
   }
 
   try {
-    const audience = GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const audience = GOOGLE_CLIENT_ID;
+    if (!audience) {
+      console.error("GOOGLE_CLIENT_ID is not configured on the server");
+      return res.status(500).json({ error: "Server misconfiguration: Google Client ID not found" });
+    }
+
     console.log("Verifying token with audience:", audience);
 
     const ticket = await googleClient.verifyIdToken({

@@ -27,6 +27,7 @@ var import_path = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
+var import_cors = __toESM(require("cors"), 1);
 var import_supabase_js = require("@supabase/supabase-js");
 var import_google_auth_library = require("google-auth-library");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -35,14 +36,18 @@ import_dotenv.default.config();
 var app = (0, import_express.default)();
 var PORT = 3e3;
 var JWT_SECRET = process.env.JWT_SECRET || "jomorder-secret-key-123";
-var GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID;
+var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 var googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
 var supabaseAdmin = (0, import_supabase_js.createClient)(
   process.env.VITE_SUPABASE_URL || "",
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || ""
 );
+app.use((0, import_cors.default)());
 app.use(import_express.default.json());
 app.use((0, import_cookie_parser.default)());
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+});
 var authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.split(" ")[1];
@@ -301,7 +306,11 @@ app.post("/api/google-login", async (req, res) => {
     return res.status(400).json({ error: "Missing token" });
   }
   try {
-    const audience = GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const audience = GOOGLE_CLIENT_ID;
+    if (!audience) {
+      console.error("GOOGLE_CLIENT_ID is not configured on the server");
+      return res.status(500).json({ error: "Server misconfiguration: Google Client ID not found" });
+    }
     console.log("Verifying token with audience:", audience);
     const ticket = await googleClient.verifyIdToken({
       idToken,

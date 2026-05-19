@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { Payment, PaymentStatus } from '../types';
+import { getApiUrl } from './api';
 
 export interface PaymentIntentResponse {
   paymentId: string;
@@ -24,7 +25,7 @@ export const paymentEngine = {
     method: string;
     provider: string;
   }): Promise<Payment> {
-    const response = await fetch('/api/public/payments', {
+    const response = await fetch(getApiUrl('/api/public/payments'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params)
@@ -37,7 +38,7 @@ export const paymentEngine = {
    * Initialize a specific provider flow (DuitNow, FPX, etc)
    */
   async initializeProvider(payment: Payment): Promise<PaymentIntentResponse> {
-    const response = await fetch(`/api/public/payments/${payment.id}/initialize`, {
+    const response = await fetch(getApiUrl(`/api/public/payments/${payment.id}/initialize`), {
       method: 'POST'
     });
     if (!response.ok) throw new Error('Initialize provider failed');
@@ -48,7 +49,7 @@ export const paymentEngine = {
    * Poll for payment success or failure
    */
   async checkStatus(paymentId: string): Promise<PaymentStatus> {
-    const response = await fetch(`/api/public/payments/${paymentId}/status`);
+    const response = await fetch(getApiUrl(`/api/public/payments/${paymentId}/status`));
     if (!response.ok) throw new Error('Check status failed');
     const data = await response.json();
     return data.status;
@@ -58,7 +59,7 @@ export const paymentEngine = {
    * Simulate a successful payment (for dev/demo only)
    */
   async simulateSuccess(paymentId: string) {
-    const response = await fetch(`/api/public/payments/${paymentId}/simulate-success`, {
+    const response = await fetch(getApiUrl(`/api/public/payments/${paymentId}/simulate-success`), {
       method: 'POST'
     });
     if (!response.ok) throw new Error('Simulate success failed');

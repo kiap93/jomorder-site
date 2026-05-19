@@ -1,0 +1,12 @@
+name = "jomorder-api"
+main = "worker.ts"
+compatibility_date = "2024-05-01"
+
+[vars]
+# SUPABASE_URL = ""
+# GOOGLE_CLIENT_ID = ""
+# GEMINI_API_KEY = ""
+
+[secrets]
+# SUPABASE_SERVICE_ROLE_KEY
+# JWT_SECRET

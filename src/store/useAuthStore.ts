@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { UserProfile } from '../types';
+import { getApiUrl } from '../lib/api';
 
 interface AuthState {
   user: { id: string; email: string } | null;
@@ -79,7 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     try {
-      const response = await fetch('/api/me', {
+      const response = await fetch(getApiUrl('/api/me'), {
         headers: {
           'Authorization': `Bearer ${savedToken}`
         }
@@ -113,7 +114,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signIn: async (email, password) => {
     set({ loading: true });
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(getApiUrl('/api/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -158,7 +159,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signUp: async (email, password) => {
     set({ loading: true });
     try {
-      const response = await fetch('/api/register', {
+      const response = await fetch(getApiUrl('/api/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -203,7 +204,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signInWithGoogle: async (idToken: string) => {
     set({ loading: true });
     try {
-      const response = await fetch('/api/google-login', {
+      const response = await fetch(getApiUrl('/api/google-login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken })

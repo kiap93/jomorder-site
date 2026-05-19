@@ -1,5 +1,6 @@
 import { guestSupabase as supabase } from './supabase';
 import { LanguageCode, Product, MenuItem } from '../types';
+import { getApiUrl } from './api';
 
 export interface TranslationContext {
   restaurantId: string;
@@ -93,7 +94,7 @@ export async function resolveMenuTranslations(
   if (targetLanguage === 'en') return items;
 
   try {
-    const response = await fetch('/api/public/batch-translate', {
+    const response = await fetch(getApiUrl('/api/public/batch-translate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items, context })
@@ -118,7 +119,7 @@ export async function resolveCategoryTranslations(
   if (targetLanguage === 'en') return categories;
 
   try {
-    const response = await fetch('/api/public/batch-translate', {
+    const response = await fetch(getApiUrl('/api/public/batch-translate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ categories, context })
@@ -137,7 +138,7 @@ export async function resolveCategoryTranslations(
  */
 export async function getKitchenCanonical(menuItemId: string): Promise<string | null> {
   try {
-    const response = await fetch(`/api/public/kitchen-canonical/${menuItemId}`);
+    const response = await fetch(getApiUrl(`/api/public/kitchen-canonical/${menuItemId}`));
     if (!response.ok) return null;
     const data = await response.json();
     return data?.canonical_name || null;
