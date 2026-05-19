@@ -22,14 +22,14 @@ export function PaymentSuccess() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const orderRes = await fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`);
+        const orderRes = await fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`));
         if (!orderRes.ok) throw new Error("Order not found");
         const orderData = await orderRes.json();
 
         if (orderData?.session_id) {
           const [restRes, ordersRes] = await Promise.all([
-            fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
-            fetch(`/api/public/dining-sessions/${orderData.session_id}/orders`).then(r => r.json())
+            fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
+            fetch(getApiUrl(`/api/public/dining-sessions/${orderData.session_id}/orders`)).then(r => r.json())
           ]);
           
           setRestaurant(restRes as any);

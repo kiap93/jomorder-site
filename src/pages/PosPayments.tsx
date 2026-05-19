@@ -40,7 +40,7 @@ export function PosPayments() {
         };
 
         // Fetch Restaurant
-        const restRes = await fetch(`/api/restaurants/${restId}`, fetchOptions);
+        const restRes = await fetch(getApiUrl(`/api/restaurants/${restId}`), fetchOptions);
         if (restRes.ok) {
           const restData = await restRes.json();
           setRestaurant({
@@ -52,8 +52,8 @@ export function PosPayments() {
 
         // Fetch all tables
         const [tablesData, sessionsData] = await Promise.all([
-          fetch(`/api/restaurants/${restId}/tables`, fetchOptions).then(r => r.json()),
-          fetch(`/api/restaurants/${restId}/dining-sessions?status=active`, fetchOptions).then(r => r.json())
+          fetch(getApiUrl(`/api/restaurants/${restId}/tables`), fetchOptions).then(r => r.json()),
+          fetch(getApiUrl(`/api/restaurants/${restId}/dining-sessions?status=active`), fetchOptions).then(r => r.json())
         ]);
         
         if (tablesData && sessionsData && !tablesData.error && !sessionsData.error) {

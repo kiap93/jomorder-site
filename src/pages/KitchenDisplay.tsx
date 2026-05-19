@@ -30,7 +30,7 @@ export function KitchenDisplay() {
       }, 10000);
 
       try {
-        const response = await fetch(`/api/restaurants/${restId}/orders?status=active`, {
+        const response = await fetch(getApiUrl(`/api/restaurants/${restId}/orders?status=active`), {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
@@ -103,7 +103,7 @@ export function KitchenDisplay() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    await fetch(`/api/orders/${orderId}`, {
+    await fetch(getApiUrl(`/api/orders/${orderId}`), {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,

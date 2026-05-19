@@ -34,7 +34,7 @@ export function PosDashboard() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    fetch(`/api/restaurants/${restId}`, {
+    fetch(getApiUrl(`/api/restaurants/${restId}`), {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())
@@ -65,7 +65,7 @@ export function PosDashboard() {
       }, 10000);
 
       try {
-        const response = await fetch(`/api/restaurants/${restId}/orders`, {
+        const response = await fetch(getApiUrl(`/api/restaurants/${restId}/orders`), {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
@@ -147,7 +147,7 @@ export function PosDashboard() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    await fetch(`/api/orders/${orderId}`, {
+    await fetch(getApiUrl(`/api/orders/${orderId}`), {
       method: 'PATCH',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -162,7 +162,7 @@ export function PosDashboard() {
     if (!token) return;
 
     // 1. Mark session as closed
-    await fetch(`/api/dining-sessions/${sessionId}`, {
+    await fetch(getApiUrl(`/api/dining-sessions/${sessionId}`), {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -172,7 +172,7 @@ export function PosDashboard() {
     });
 
     // 2. Clear the table status
-    await fetch(`/api/tables/${tableId}`, {
+    await fetch(getApiUrl(`/api/tables/${tableId}`), {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,

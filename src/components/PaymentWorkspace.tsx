@@ -434,7 +434,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
                             const deviceId = localStorage.getItem('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
                             
-                            await fetch(`/api/cash-transactions`, {
+                            await fetch(getApiUrl(`/api/cash-transactions`), {
                               method: 'POST',
                               headers: {
                                 'Authorization': `Bearer ${token}`,
@@ -631,7 +631,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         const token = useAuthStore.getState().token;
                         if (!token) return;
 
-                        const response = await fetch(`/api/orders/${order.id}/payments`, {
+                        const response = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
                           method: 'POST',
                           headers: {
                             'Authorization': `Bearer ${token}`,

@@ -242,9 +242,9 @@ export function CustomerMenu() {
         console.log("Fetching primary data: restaurant, categories, table...");
         const [restRes, catsRes, tableRes] = await Promise.race([
           Promise.all([
-            fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
-            fetch(`/api/public/restaurants/${restId}/categories`).then(r => r.json()),
-            fetch(`/api/public/tables/${tableId}?restId=${restId}`).then(r => r.json())
+            fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
+            fetch(getApiUrl(`/api/public/restaurants/${restId}/categories`)).then(r => r.json()),
+            fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`)).then(r => r.json())
           ]),
           timeoutPromise
         ]) as any;
@@ -638,7 +638,7 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
     
     mutationQueue.current?.enqueue(async () => {
-      const response = await fetch(`/api/public/sync-basket-item`, {
+      const response = await fetch(getApiUrl(`/api/public/sync-basket-item`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -695,7 +695,7 @@ export function CustomerMenu() {
     const mutationKey = Math.random().toString(36).slice(2, 11);
 
     mutationQueue.current?.enqueue(async () => {
-      const response = await fetch(`/api/public/sync-basket-item`, {
+      const response = await fetch(getApiUrl(`/api/public/sync-basket-item`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -733,7 +733,7 @@ export function CustomerMenu() {
     const tryInsert = async (): Promise<any> => {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
-        const response = await fetch(`/api/public/place-order`, {
+        const response = await fetch(getApiUrl(`/api/public/place-order`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -824,7 +824,7 @@ export function CustomerMenu() {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
 
-        const response = await fetch(`/api/public/place-order`, {
+        const response = await fetch(getApiUrl(`/api/public/place-order`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

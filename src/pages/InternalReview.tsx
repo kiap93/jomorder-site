@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, AlertCircle, Edit3, Search, Filter, Globe, ChevronRight, Activity } from 'lucide-react';
+import { getApiUrl } from '../lib/api';
 
 interface TranslationJob {
   id: string;
@@ -33,7 +34,7 @@ export const InternalReview: React.FC = () => {
   const saveEdit = async (job: TranslationJob) => {
     try {
       const token = localStorage.getItem('staff_token');
-      const response = await fetch(`/api/translation-jobs/${job.id}`, {
+      const response = await fetch(getApiUrl(`/api/translation-jobs/${job.id}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -45,7 +46,7 @@ export const InternalReview: React.FC = () => {
       if (!response.ok) throw new Error('Save edit failed');
       
       // Also sync to tenant_translations if it exists
-      await fetch(`/api/tenant-translations`, {
+      await fetch(getApiUrl(`/api/tenant-translations`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +72,7 @@ export const InternalReview: React.FC = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('staff_token');
-      const response = await fetch(`/api/translation-jobs?filter=${filter}`, {
+      const response = await fetch(getApiUrl(`/api/translation-jobs?filter=${filter}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Fetch jobs failed');
@@ -89,7 +90,7 @@ export const InternalReview: React.FC = () => {
     try {
       const token = localStorage.getItem('staff_token');
       // 1. Update job status
-      const response = await fetch(`/api/translation-jobs/${job.id}`, {
+      const response = await fetch(getApiUrl(`/api/translation-jobs/${job.id}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -102,7 +103,7 @@ export const InternalReview: React.FC = () => {
 
       // 2. If approved, update tenant_translations
       if (nextStatus === 'approved') {
-        await fetch(`/api/tenant-translations`, {
+        await fetch(getApiUrl(`/api/tenant-translations`), {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
