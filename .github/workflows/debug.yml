@@ -1,10 +1,10 @@
-- name: Debug secret
+- name: Debug secret presence
   run: |
     if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-      echo "TOKEN IS EMPTY ❌"
+      echo "❌ SECRET NOT FOUND"
       exit 1
     else
-      echo "TOKEN EXISTS ✅"
+      echo "✅ SECRET EXISTS"
     fi
   env:
     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
