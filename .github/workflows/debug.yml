@@ -1,10 +1,25 @@
-- name: Debug secret presence
-  run: |
-    if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-      echo "❌ SECRET NOT FOUND"
-      exit 1
-    else
-      echo "✅ SECRET EXISTS"
-    fi
-  env:
-    CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+name: Debug Cloudflare Secret
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Debug secret
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "❌ SECRET NOT FOUND"
+            exit 1
+          else
+            echo "✅ SECRET EXISTS"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
