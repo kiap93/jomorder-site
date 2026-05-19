@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import * as jose from 'jose';
@@ -20,11 +21,21 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+app.use('*', logger());
 app.use('*', cors());
 
 app.onError((err, c) => {
   console.error(`${c.req.method} ${c.req.url} failed: ${err.message}`);
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
+});
+
+app.notFound((c) => {
+  console.warn(`[WORKER 404] ${c.req.method} ${c.req.url}`);
+  return c.json({ 
+    error: 'Route not found in Worker', 
+    method: c.req.method,
+    path: c.req.path 
+  }, 404);
 });
 
 // Helper to sign JWT using jose (Edge compatible)
@@ -236,6 +247,81 @@ app.get('/api/public/orders/:id', async (c) => {
     .select('*')
     .eq('id', c.req.param('id'))
     .eq('session_id', sessionId)
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.get('/api/public/dining-sessions/:sessionId/orders', async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('session_id', c.req.param('sessionId'))
+    .neq('status', 'cancelled');
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.post('/api/public/orders/:id/mark-paid', async (c) => {
+  const supabase = getSupabase(c.env);
+  const { sessionToken } = await c.req.json();
+  const { data: session } = await supabase
+    .from('dining_sessions')
+    .select('id')
+    .eq('token', sessionToken)
+    .single();
+  
+  if (!session) return c.json({ error: 'Invalid session token' }, 401);
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ 
+      paid_at: new Date().toISOString(), 
+      status: 'confirmed', 
+      payment_method: 'online' 
+    })
+    .eq('id', c.req.param('id'))
+    .eq('session_id', session.id)
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.post('/api/public/dining-sessions/:id/mark-paid', async (c) => {
+  const supabase = getSupabase(c.env);
+  const { sessionToken } = await c.req.json();
+  const { data: session } = await supabase
+    .from('dining_sessions')
+    .select('id')
+    .eq('id', c.req.param('id'))
+    .eq('token', sessionToken)
+    .single();
+  
+  if (!session) return c.json({ error: 'Invalid session token' }, 401);
+
+  const now = new Date().toISOString();
+  await supabase.from('orders')
+    .update({ 
+      paid_at: now, 
+      status: 'confirmed', 
+      payment_method: 'online' 
+    })
+    .eq('session_id', session.id)
+    .is('paid_at', null)
+    .neq('status', 'cancelled');
+
+  const { data, error } = await supabase.from('dining_sessions')
+    .update({
+      status: 'paid',
+      closed_at: now
+    })
+    .eq('id', session.id)
+    .select()
     .single();
   
   if (error) return c.json({ error: error.message }, 500);
@@ -474,7 +560,7 @@ app.patch("/api/restaurants/:id", authenticate, async (c) => {
 });
 
 // Categories (Auth)
-app.get("/api/restaurants/:restId/categories/auth", authenticate, async (c) => {
+app.get("/api/restaurants/:restId/categories", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('categories')
@@ -499,8 +585,19 @@ app.post("/api/categories", authenticate, async (c) => {
   return c.json(data);
 });
 
+app.delete("/api/categories/:id", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const { error } = await supabase
+    .from('categories')
+    .delete()
+    .eq('id', c.req.param('id'));
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ success: true });
+});
+
 // Menu Items (Auth)
-app.get("/api/restaurants/:restId/menu-items/auth", authenticate, async (c) => {
+app.get("/api/restaurants/:restId/menu-items", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('menu_items')
@@ -530,8 +627,32 @@ app.patch("/api/menu-items/:id", authenticate, async (c) => {
   return c.json(data);
 });
 
+app.post("/api/menu-items", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('menu_items')
+    .insert(body)
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.delete("/api/menu-items/:id", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const { error } = await supabase
+    .from('menu_items')
+    .delete()
+    .eq('id', c.req.param('id'));
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ success: true });
+});
+
 // Tables (Auth)
-app.get("/api/restaurants/:restId/tables/auth", authenticate, async (c) => {
+app.get("/api/restaurants/:restId/tables", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('tables')
@@ -541,6 +662,44 @@ app.get("/api/restaurants/:restId/tables/auth", authenticate, async (c) => {
   
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data || []);
+});
+
+app.post("/api/tables", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('tables')
+    .insert(body)
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.patch("/api/tables/:id", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('tables')
+    .update(body)
+    .eq('id', c.req.param('id'))
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.delete("/api/tables/:id", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const { error } = await supabase
+    .from('tables')
+    .delete()
+    .eq('id', c.req.param('id'));
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ success: true });
 });
 
 // Unified Orders Endpoint (Supports POS and KDS)
@@ -594,6 +753,50 @@ app.get("/api/restaurants/:restId/orders/active", authenticate, async (c) => {
   
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data || []);
+});
+
+// Dining Sessions
+app.get("/api/restaurants/:restId/dining-sessions", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const status = c.req.query('status');
+  let query = supabase
+    .from('dining_sessions')
+    .select('*, orders(id, total_price, status, paid_at, items, session_id)')
+    .eq('restaurant_id', c.req.param('restId'));
+  
+  if (status === 'active') {
+    query = query.neq('status', 'paid').neq('status', 'expired');
+  }
+
+  const { data, error } = await query;
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data || []);
+});
+
+app.get("/api/dining-sessions/:id/orders", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, payments(amount)')
+    .eq('session_id', c.req.param('id'))
+    .neq('status', 'cancelled');
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data || []);
+});
+
+app.patch("/api/dining-sessions/:id", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('dining_sessions')
+    .update(body)
+    .eq('id', c.req.param('id'))
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
 });
 
 // Batch Translate (Public)
@@ -670,6 +873,70 @@ app.post("/api/batch-sync", authenticate, async (c) => {
   }
 });
 
+// Payments (Auth)
+app.get("/api/orders/:orderId/payments", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const sessionId = c.req.query('sessionId');
+  
+  if (sessionId) {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('session_id', sessionId);
+    
+    const orderIds = (orders || []).map(o => o.id);
+    if (orderIds.length === 0) return c.json([]);
+    
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .in('order_id', orderIds)
+      .order('created_at', { ascending: false });
+    
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data || []);
+  } else {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('order_id', c.req.param('orderId'))
+      .order('created_at', { ascending: false });
+    
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data || []);
+  }
+});
+
+app.post("/api/orders/:orderId/payments", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('payments')
+    .insert({
+      ...body,
+      order_id: c.req.param('orderId')
+    })
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+// Cash Transactions
+app.post("/api/cash-transactions", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('cash_transactions')
+    .insert(body)
+    .select()
+    .single();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
 // Settle Session
 app.post("/api/dining-sessions/:id/settle", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
@@ -691,6 +958,132 @@ app.post("/api/dining-sessions/:id/settle", authenticate, async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+// Payments (Public)
+app.post("/api/public/payments", async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { data, error } = await supabase
+    .from('payments')
+    .insert({
+      restaurant_id: body.restaurantId,
+      order_id: body.orderId,
+      amount: body.amount,
+      payment_method: body.method,
+      provider: body.provider,
+      status: 'pending'
+    })
+    .select()
+    .single();
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.post("/api/public/payments/:id/initialize", async (c) => {
+  const supabase = getSupabase(c.env);
+  const id = c.req.param('id');
+  const { data: payment, error: pError } = await supabase.from('payments').select('*').eq('id', id).single();
+  if (pError) return c.json({ error: pError.message }, 500);
+
+  await supabase.from('payment_attempts').insert({
+    payment_id: id,
+    status: 'initiated'
+  });
+
+  switch (payment.payment_method) {
+    case 'duitnow':
+    case 'tng':
+      return c.json({
+        paymentId: payment.id,
+        provider: payment.provider,
+        paymentMethod: payment.payment_method,
+        qrData: `00020101021126600010com.paynet.qr0111MY123456780211MY123456780303001520400005303458540${payment.amount.toFixed(2)}5802MY5907POS_SAAS6008Lumpur6105500006304`
+      });
+    case 'fpx':
+    case 'card':
+      return c.json({
+        paymentId: payment.id,
+        provider: payment.provider,
+        paymentMethod: payment.payment_method,
+        redirectUrl: '/simulated-gateway'
+      });
+    default:
+      return c.json({ error: "Unsupported method" }, 400);
+  }
+});
+
+app.get("/api/public/payments/:id/status", async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('payments')
+    .select('status')
+    .eq('id', c.req.param('id'))
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.post("/api/public/payments/:id/simulate-success", async (c) => {
+  const supabase = getSupabase(c.env);
+  const id = c.req.param('id');
+  const { data: payment, error: fetchError } = await supabase
+    .from('payments')
+    .select('order_id')
+    .eq('id', id)
+    .single();
+  
+  if (fetchError) return c.json({ error: fetchError.message }, 500);
+
+  const paidAt = new Date().toISOString();
+  await supabase.from('payments').update({ 
+    status: 'paid',
+    paid_at: paidAt,
+    external_id: `SIM_${Math.random().toString(36).substring(7).toUpperCase()}`
+  }).eq('id', id);
+
+  await supabase.from('orders').update({ 
+    paid_at: paidAt,
+    status: 'confirmed'
+  }).eq('id', payment.order_id);
+
+  await supabase.from('payment_attempts').insert({
+    payment_id: id,
+    status: 'success',
+    provider_response: { mode: 'simulation', timestamp: paidAt }
+  });
+
+  return c.json({ success: true });
+});
+
+app.get("/api/public/kitchen-canonical/:id", async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('kitchen_canonical_names')
+    .select('canonical_name')
+    .eq('menu_item_id', c.req.param('id'))
+    .maybeSingle();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+app.patch("/api/tenant-translations", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const body = await c.req.json();
+  const { restaurantId, entityId, fieldName, languageCode, translatedText } = body;
+  const { data, error } = await supabase
+    .from('tenant_translations')
+    .update({ translated_text: translatedText })
+    .eq('restaurant_id', restaurantId)
+    .eq('entity_id', entityId)
+    .eq('field_name', fieldName)
+    .eq('language_code', languageCode)
+    .select();
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
 });
 
 export default app;
