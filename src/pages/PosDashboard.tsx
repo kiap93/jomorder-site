@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
@@ -65,16 +66,32 @@ export function PosDashboard() {
       }, 10000);
 
       try {
-        const response = await fetch(getApiUrl(`/api/restaurants/${restId}/orders`), {
+        const url = getApiUrl(`/api/restaurants/${restId}/orders`);
+        console.log("Fetching orders from:", url);
+        const response = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
         if (!response.ok) {
-          const err = await response.json();
-          throw new Error(err.error || "Failed to fetch orders");
+          const bodyText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(bodyText);
+          } catch (e) {
+            console.error("Failed to parse error JSON. Body:", bodyText);
+            throw new Error(`Server returned status ${response.status}: ${bodyText.slice(0, 50)}`);
+          }
+          throw new Error(errorData.error || `Failed to fetch orders (Status ${response.status})`);
         }
 
-        const data = await response.json();
+        const bodyText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(bodyText);
+        } catch (e) {
+          console.error("JSON parse failed. Body snippet:", bodyText.slice(0, 100));
+          throw new Error(`Invalid JSON response: ${bodyText.slice(0, 50)}`);
+        }
 
         clearTimeout(loadingTimer);
 

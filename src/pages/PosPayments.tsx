@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { getApiUrl } from '../lib/api';
 
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';

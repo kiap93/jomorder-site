@@ -30,6 +30,25 @@ app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
 
+// Logger for debugging
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.url}`);
+  next();
+});
+
+// Global Response Wrapper to prevent double send
+app.use((req, res, next) => {
+  const originalJson = res.json;
+  res.json = function(body) {
+    if (res.headersSent) {
+      console.warn(`[RE-SEND PREVENTED] Path: ${req.path}. Attempted to send:`, body);
+      return res;
+    }
+    return originalJson.call(this, body);
+  };
+  next();
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -41,14 +60,17 @@ const authenticateJWT = (req: express.Request, res: express.Response, next: expr
   const token = authHeader?.split(' ')[1];
 
   if (!token) {
+    console.warn(`[AUTH FAIL] No token for ${req.path}`);
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     (req as any).user = decoded;
+    console.log(`[AUTH SUCCESS] User: ${(decoded as any).email}, Path: ${req.path}`);
     next();
   } catch (err) {
+    console.warn(`[AUTH FAIL] Invalid token for ${req.path}:`, (err as any).message);
     return res.status(401).json({ error: "Unauthorized: Invalid token" });
   }
 };
@@ -64,7 +86,7 @@ app.get("/api/public/restaurants/:id", async (req, res) => {
   
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Restaurant not found" });
-  res.json(data);
+  return res.json(data || {});
 });
 
 app.get("/api/public/restaurants/:restId/categories", async (req, res) => {
@@ -106,7 +128,7 @@ app.get("/api/public/tables/:tableId", async (req, res) => {
 
   const { data, error } = await query.maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  return res.json(data || {});
 });
 
 app.post("/api/public/resolve-session", async (req, res) => {
@@ -532,7 +554,7 @@ app.get("/api/translation-jobs", authenticateJWT, async (req, res) => {
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.patch("/api/translation-jobs/:id", authenticateJWT, async (req, res) => {
@@ -563,30 +585,6 @@ app.patch("/api/tenant-translations", authenticateJWT, async (req, res) => {
   res.json(data);
 });
 
-// Restaurants
-app.get("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .select('*')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-app.patch("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .update(req.body)
-    .eq('id', req.params.id)
-    .select()
-    .maybeSingle();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
 // Categories
 app.get("/api/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin
@@ -596,7 +594,7 @@ app.get("/api/restaurants/:restId/categories", authenticateJWT, async (req, res)
     .order('sort_order', { ascending: true });
   
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.post("/api/categories", authenticateJWT, async (req, res) => {
@@ -647,7 +645,7 @@ app.get("/api/restaurants/:restId/menu-items", authenticateJWT, async (req, res)
     .eq('restaurant_id', req.params.restId);
   
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.post("/api/menu-items", authenticateJWT, async (req, res) => {
@@ -692,7 +690,7 @@ app.get("/api/restaurants/:restId/tables", authenticateJWT, async (req, res) => 
     .order('name', { ascending: true });
   
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.post("/api/tables", authenticateJWT, async (req, res) => {
@@ -730,16 +728,22 @@ app.delete("/api/tables/:id", authenticateJWT, async (req, res) => {
 
 // Orders
 app.get("/api/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
   const limit = parseInt(req.query.limit as string) || 100;
+  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
+
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select('*, tables(name), payments(amount)')
-    .eq('restaurant_id', req.params.restId)
+    .eq('restaurant_id', restId)
     .order('created_at', { ascending: false })
     .limit(limit);
   
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  if (error) {
+    console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
+    return res.status(500).json({ error: error.message });
+  }
+  return res.json(data || []);
 });
 
 app.patch("/api/orders/:id", authenticateJWT, async (req, res) => {
@@ -768,7 +772,7 @@ app.get("/api/restaurants/:restId/dining-sessions", authenticateJWT, async (req,
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.get("/api/dining-sessions/:id/orders", authenticateJWT, async (req, res) => {
@@ -779,7 +783,7 @@ app.get("/api/dining-sessions/:id/orders", authenticateJWT, async (req, res) => 
     .neq('status', 'cancelled');
   
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.post("/api/dining-sessions/:id/settle", authenticateJWT, async (req, res) => {
@@ -825,6 +829,30 @@ app.patch("/api/dining-sessions/:id", authenticateJWT, async (req, res) => {
   res.json(data);
 });
 
+// Restaurants (Generic)
+app.get("/api/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('*')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.patch("/api/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .select()
+    .maybeSingle();
+  
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 // Payments
 app.get("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
   const { sessionId } = req.query;
@@ -851,7 +879,7 @@ app.get("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
 
   const { data, error } = await query.order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.post("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
@@ -1130,14 +1158,48 @@ async function start() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+  }
+
+  // Catch-all for API that didn't match any above
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ 
+      error: `API endpoint not found: ${req.originalUrl}`,
+      method: req.method,
+      path: req.path
+    });
+  });
+
+  if (process.env.NODE_ENV === "production") {
+    const distPath = path.join(process.cwd(), "dist");
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[SERVER] Ready at http://0.0.0.0:${PORT}`);
+    console.log(`[SERVER] Env: ${process.env.NODE_ENV || 'development'}`);
+  });
+
+  // Final fallback 404 for anything not caught by Vite or API
+  app.use((req, res) => {
+    console.warn(`[FINAL 404] ${req.method} ${req.url}`);
+    if (req.accepts('html')) {
+       res.status(404).send('<html><body><h1>404 Not Found (My Custom Handler)</h1></body></html>');
+    } else {
+       res.status(404).json({ error: "Route not found", path: req.url });
+    }
   });
 }
+
+// Global Error Handler (must be last)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Global Error Handler:", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({ error: err.message || "Internal Server Error" });
+});
 
 start();

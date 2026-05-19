@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { getApiUrl } from '../lib/api';
 
 import { motion } from 'motion/react';
 import { 

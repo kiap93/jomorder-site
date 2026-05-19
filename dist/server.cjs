@@ -45,6 +45,21 @@ var supabaseAdmin = (0, import_supabase_js.createClient)(
 app.use((0, import_cors.default)());
 app.use(import_express.default.json());
 app.use((0, import_cookie_parser.default)());
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.url}`);
+  next();
+});
+app.use((req, res, next) => {
+  const originalJson = res.json;
+  res.json = function(body) {
+    if (res.headersSent) {
+      console.warn(`[RE-SEND PREVENTED] Path: ${req.path}. Attempted to send:`, body);
+      return res;
+    }
+    return originalJson.call(this, body);
+  };
+  next();
+});
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 });
@@ -52,13 +67,16 @@ var authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.split(" ")[1];
   if (!token) {
+    console.warn(`[AUTH FAIL] No token for ${req.path}`);
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
   try {
     const decoded = import_jsonwebtoken.default.verify(token, JWT_SECRET);
     req.user = decoded;
+    console.log(`[AUTH SUCCESS] User: ${decoded.email}, Path: ${req.path}`);
     next();
   } catch (err) {
+    console.warn(`[AUTH FAIL] Invalid token for ${req.path}:`, err.message);
     return res.status(401).json({ error: "Unauthorized: Invalid token" });
   }
 };
@@ -66,7 +84,7 @@ app.get("/api/public/restaurants/:id", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Restaurant not found" });
-  res.json(data);
+  return res.json(data || {});
 });
 app.get("/api/public/restaurants/:restId/categories", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
@@ -93,7 +111,7 @@ app.get("/api/public/tables/:tableId", async (req, res) => {
   }
   const { data, error } = await query.maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  return res.json(data || {});
 });
 app.post("/api/public/resolve-session", async (req, res) => {
   const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = req.body;
@@ -371,7 +389,7 @@ app.get("/api/translation-jobs", authenticateJWT, async (req, res) => {
   }
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.patch("/api/translation-jobs/:id", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("translation_jobs").update(req.body).eq("id", req.params.id).select().single();
@@ -384,20 +402,10 @@ app.patch("/api/tenant-translations", authenticateJWT, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-app.get("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.patch("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").update(req.body).eq("id", req.params.id).select().maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
 app.get("/api/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.post("/api/categories", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").insert(req.body).select().single();
@@ -431,7 +439,7 @@ app.get("/api/restaurants/:restId/menu-items", authenticateJWT, async (req, res)
       )
     `).eq("restaurant_id", req.params.restId);
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.post("/api/menu-items", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("menu_items").insert(req.body).select().single();
@@ -451,7 +459,7 @@ app.delete("/api/menu-items/:id", authenticateJWT, async (req, res) => {
 app.get("/api/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.post("/api/tables", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
@@ -469,10 +477,15 @@ app.delete("/api/tables/:id", authenticateJWT, async (req, res) => {
   res.json({ success: true });
 });
 app.get("/api/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
-  const { data, error } = await supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", req.params.restId).order("created_at", { ascending: false }).limit(limit);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
+  const { data, error } = await supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", restId).order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
+    return res.status(500).json({ error: error.message });
+  }
+  return res.json(data || []);
 });
 app.patch("/api/orders/:id", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", req.params.id).select().single();
@@ -487,12 +500,12 @@ app.get("/api/restaurants/:restId/dining-sessions", authenticateJWT, async (req,
   }
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.get("/api/dining-sessions/:id/orders", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.post("/api/dining-sessions/:id/settle", authenticateJWT, async (req, res) => {
   const { orderIds, paidAmount } = req.body;
@@ -517,6 +530,16 @@ app.patch("/api/dining-sessions/:id", authenticateJWT, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
+app.get("/api/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.patch("/api/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("restaurants").update(req.body).eq("id", req.params.id).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
 app.get("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
   const { sessionId } = req.query;
   let query;
@@ -530,7 +553,7 @@ app.get("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
   }
   const { data, error } = await query.order("created_at", { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 app.post("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").insert({
@@ -714,13 +737,40 @@ async function start() {
   } else {
     const distPath = import_path.default.join(process.cwd(), "dist");
     app.use(import_express.default.static(distPath));
+  }
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);
+    res.status(404).json({
+      error: `API endpoint not found: ${req.originalUrl}`,
+      method: req.method,
+      path: req.path
+    });
+  });
+  if (process.env.NODE_ENV === "production") {
+    const distPath = import_path.default.join(process.cwd(), "dist");
     app.get("*", (req, res) => {
       res.sendFile(import_path.default.join(distPath, "index.html"));
     });
   }
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[SERVER] Ready at http://0.0.0.0:${PORT}`);
+    console.log(`[SERVER] Env: ${process.env.NODE_ENV || "development"}`);
+  });
+  app.use((req, res) => {
+    console.warn(`[FINAL 404] ${req.method} ${req.url}`);
+    if (req.accepts("html")) {
+      res.status(404).send("<html><body><h1>404 Not Found (My Custom Handler)</h1></body></html>");
+    } else {
+      res.status(404).json({ error: "Route not found", path: req.url });
+    }
   });
 }
+app.use((err, req, res, next) => {
+  console.error("Global Error Handler:", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({ error: err.message || "Internal Server Error" });
+});
 start();
 //# sourceMappingURL=server.cjs.map

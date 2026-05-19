@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus } from '../types';
@@ -30,15 +31,26 @@ export function KitchenDisplay() {
       }, 10000);
 
       try {
-        const response = await fetch(getApiUrl(`/api/restaurants/${restId}/orders?status=active`), {
+        const url = getApiUrl(`/api/restaurants/${restId}/orders?status=active`);
+        console.log("KDS Fetching from:", url);
+        const response = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
+        const bodyText = await response.text();
+        
         if (!response.ok) {
-          throw new Error("Failed to fetch kitchen orders");
+          console.error(`KDS fetch failed (${response.status}). Body:`, bodyText);
+          throw new Error(`Failed to fetch kitchen orders (Status ${response.status})`);
         }
 
-        const data = await response.json();
+        let data;
+        try {
+          data = JSON.parse(bodyText);
+        } catch (e) {
+          console.error("KDS JSON parse failed. Body snippet:", bodyText.slice(0, 100));
+          throw new Error("Invalid response from server");
+        }
         const filteredData = data.filter((o: any) => ['pending', 'confirmed', 'cooking', 'ready'].includes(o.status));
 
         clearTimeout(timeoutTimer);

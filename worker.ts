@@ -22,6 +22,11 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use('*', cors());
 
+app.onError((err, c) => {
+  console.error(`${c.req.method} ${c.req.url} failed: ${err.message}`);
+  return c.json({ error: err.message || 'Internal Server Error' }, 500);
+});
+
 // Helper to sign JWT using jose (Edge compatible)
 async function signJWT(payload: any, secret: string) {
   const secretKey = new TextEncoder().encode(secret);
@@ -115,7 +120,7 @@ app.get('/api/public/restaurants/:restId/categories', async (c) => {
     .order('sort_order', { ascending: true });
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
 app.get('/api/public/restaurants/:restId/menu-items', async (c) => {
@@ -131,7 +136,7 @@ app.get('/api/public/restaurants/:restId/menu-items', async (c) => {
     .eq('is_active', true);
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
 app.get('/api/public/tables/:tableId', async (c) => {
@@ -204,7 +209,7 @@ app.get('/api/public/baskets/:basketId/items', async (c) => {
     .eq('basket_id', c.req.param('basketId'));
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
 app.post('/api/public/sync-basket-item', async (c) => {
@@ -450,6 +455,7 @@ app.get("/api/restaurants/:id", authenticate, async (c) => {
     .maybeSingle();
   
   if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ error: 'Restaurant not found' }, 404);
   return c.json(data);
 });
 
@@ -477,7 +483,7 @@ app.get("/api/restaurants/:restId/categories/auth", authenticate, async (c) => {
     .order('sort_order', { ascending: true });
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
 app.post("/api/categories", authenticate, async (c) => {
@@ -507,7 +513,7 @@ app.get("/api/restaurants/:restId/menu-items/auth", authenticate, async (c) => {
     .eq('restaurant_id', c.req.param('restId'));
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
 app.patch("/api/menu-items/:id", authenticate, async (c) => {
@@ -534,23 +540,35 @@ app.get("/api/restaurants/:restId/tables/auth", authenticate, async (c) => {
     .order('name', { ascending: true });
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
-// Kitchen Display
-app.get("/api/restaurants/:restId/orders/active", authenticate, async (c) => {
+// Unified Orders Endpoint (Supports POS and KDS)
+app.get("/api/restaurants/:restId/orders", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
-  const { data, error } = await supabase
+  const status = c.req.query('status');
+  const limit = parseInt(c.req.query('limit') || '100');
+  
+  let query = supabase
     .from('orders')
-    .select('*, tables(name)')
+    .select('*, tables(name), payments(amount)')
     .eq('restaurant_id', c.req.param('restId'))
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (status === 'active') {
+    query = query.in('status', ['pending', 'confirmed', 'cooking', 'ready', 'served']);
+  } else if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, error } = await query;
   
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  return c.json(data || []);
 });
 
-app.patch("/api/orders/:id/status", authenticate, async (c) => {
+app.patch("/api/orders/:id", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
   const { data, error } = await supabase
@@ -562,6 +580,20 @@ app.patch("/api/orders/:id/status", authenticate, async (c) => {
   
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data);
+});
+
+// Legacy KDS path segment Support (mapping internally)
+app.get("/api/restaurants/:restId/orders/active", authenticate, async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, tables(name)')
+    .eq('restaurant_id', c.req.param('restId'))
+    .in('status', ['pending', 'confirmed', 'cooking', 'ready', 'served'])
+    .order('created_at', { ascending: false });
+  
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data || []);
 });
 
 // Batch Translate (Public)
