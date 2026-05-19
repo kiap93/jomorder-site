@@ -10,6 +10,7 @@ import { PosPayments } from './pages/PosPayments';
 import { KitchenDisplay } from './pages/KitchenDisplay';
 import { AdminPanel } from './pages/AdminPanel';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { OrderTracker } from './pages/OrderTracker';
 import { Checkout } from './pages/Checkout';
 import { PaymentSuccess } from './pages/PaymentSuccess';
@@ -74,6 +75,7 @@ export default function App() {
             
             {/* Auth & Setup */}
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             <Route path="/onboarding" element={<Onboarding />} />
             
             {/* Internal Audit */}

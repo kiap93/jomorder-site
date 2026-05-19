@@ -222,10 +222,13 @@ app.post("/api/login", async (req, res) => {
     return res.json({ token, user: { id: "admin", email, role: "admin" } });
   }
   try {
-    const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
-    if (error) throw error;
-    if (profile) {
-      if (password === "staff123" || envAdminPass && password === envAdminPass) {
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (authData && authData.user) {
+      const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("*").eq("id", authData.user.id).maybeSingle();
+      if (profile) {
         const token = import_jsonwebtoken.default.sign({
           id: profile.id,
           email: profile.email,
@@ -235,8 +238,58 @@ app.post("/api/login", async (req, res) => {
         return res.json({ token, user: profile });
       }
     }
+    const { data: legacyProfile, error: legacyError } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    if (legacyProfile && (password === "staff123" || envAdminPass && password === envAdminPass)) {
+      const token = import_jsonwebtoken.default.sign({
+        id: legacyProfile.id,
+        email: legacyProfile.email,
+        role: legacyProfile.role,
+        restaurantId: legacyProfile.restaurant_id
+      }, JWT_SECRET, { expiresIn: "7d" });
+      return res.json({ token, user: legacyProfile });
+    }
     res.status(401).json({ error: "Invalid credentials" });
   } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/register", async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+  try {
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
+    }
+    if (!authUser.user) {
+      throw new Error("User creation failed: No user returned");
+    }
+    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
+      id: authUser.user.id,
+      email,
+      role: "staff"
+      // Default role for new registrations
+    }).select().single();
+    if (profileError) {
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+      throw profileError;
+    }
+    const token = import_jsonwebtoken.default.sign({
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      restaurantId: profile.restaurant_id
+    }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: profile });
+  } catch (err) {
+    console.error("Registration error:", err);
     res.status(500).json({ error: err.message });
   }
 });

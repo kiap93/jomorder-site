@@ -309,22 +309,28 @@ app.post("/api/login", async (req, res) => {
   const envAdminEmail = process.env.ADMIN_USER_EMAIL;
   const envAdminPass = process.env.ADMIN_USER_PASSWORD;
 
+  // 1. Check for system admin hardcoded credentials
   if (envAdminEmail && email === envAdminEmail && password === envAdminPass) {
     const token = jwt.sign({ id: 'admin', email, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
     return res.json({ token, user: { id: 'admin', email, role: 'admin' } });
   }
 
   try {
-    const { data: profile, error } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('email', email)
-      .maybeSingle();
+    // 2. Try to authenticate with Supabase Auth for email/password users
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    if (error) throw error;
-
-    if (profile) {
-      if (password === 'staff123' || (envAdminPass && password === envAdminPass)) {
+    if (authData && authData.user) {
+      // Authentication successful, now get the profile
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+      
+      if (profile) {
         const token = jwt.sign({ 
           id: profile.id, 
           email: profile.email, 
@@ -336,8 +342,84 @@ app.post("/api/login", async (req, res) => {
       }
     }
 
+    // 3. Fallback for legacy staff accounts or hardcoded "staff123"
+    const { data: legacyProfile, error: legacyError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (legacyProfile && (password === 'staff123' || (envAdminPass && password === envAdminPass))) {
+      const token = jwt.sign({ 
+        id: legacyProfile.id, 
+        email: legacyProfile.email, 
+        role: legacyProfile.role,
+        restaurantId: legacyProfile.restaurant_id 
+      }, JWT_SECRET, { expiresIn: '7d' });
+      
+      return res.json({ token, user: legacyProfile });
+    }
+
     res.status(401).json({ error: "Invalid credentials" });
   } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User Registration - creates Supabase account and local profile
+app.post("/api/register", async (req, res) => {
+  const { email, password } = req.body;
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+
+  try {
+    // 1. Create user in Supabase Auth using Admin API
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
+    }
+
+    if (!authUser.user) {
+      throw new Error("User creation failed: No user returned");
+    }
+
+    // 2. Create the associated profile record 
+    // We use service role to ensure bypass of RLS during initial setup
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .insert({
+        id: authUser.user.id,
+        email: email,
+        role: 'staff', // Default role for new registrations
+      })
+      .select()
+      .single();
+
+    if (profileError) {
+      // Attempt cleanup of the auth user if profile record fails
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+      throw profileError;
+    }
+
+    // 3. Generate our custom JWT for the newly registered user
+    const token = jwt.sign({ 
+      id: profile.id, 
+      email: profile.email, 
+      role: profile.role,
+      restaurantId: profile.restaurant_id 
+    }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({ token, user: profile });
+  } catch (err: any) {
+    console.error("Registration error:", err);
     res.status(500).json({ error: err.message });
   }
 });

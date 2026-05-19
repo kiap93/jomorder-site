@@ -9,6 +9,7 @@ interface AuthState {
   init: () => Promise<(() => void)>;
   refreshSession: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -137,6 +138,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs via worker channel
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+    } catch (err) {
+      set({ loading: false });
+      throw err;
+    }
+  },
+
+  signUp: async (email, password) => {
+    set({ loading: true });
+    try {
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Registration failed");
+      }
+
+      const { token, user: profile } = await response.json();
+      window.localStorage.setItem(getStorageKey(), token);
+
+      set({ 
+        user: { id: profile.id, email: profile.email },
+        profile: {
+          id: profile.id,
+          email: profile.email,
+          role: profile.role,
+          restaurantId: profile.restaurantId || profile.restaurant_id
+        } as UserProfile,
+        token,
+        loading: false 
+      });
+
+      // Notify other tabs
       authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
     } catch (err) {
       set({ loading: false });
