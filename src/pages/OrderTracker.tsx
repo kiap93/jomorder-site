@@ -5,6 +5,7 @@ import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
 import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';
 import { flattenSelections } from '../lib/configEngine';
+import { getApiUrl } from '../lib/api';
 
 export function OrderTracker() {
   const { orderId, restId, tableId, sessionId } = useParams();
@@ -23,7 +24,7 @@ export function OrderTracker() {
         let actualTableId = tableId;
 
         if (!isUuid && tableId) {
-          const tRes = await fetch(`/api/public/tables/${tableId}?restId=${restId}`);
+          const tRes = await fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`));
           if (tRes.ok) {
             const tData = await tRes.json();
             if (tData) actualTableId = tData.id;
@@ -31,7 +32,7 @@ export function OrderTracker() {
         }
 
         // 1. Get the current order to find session_id
-        const orderRes = await fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`);
+        const orderRes = await fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`));
         if (!orderRes.ok) throw new Error("Order not found");
         const mainOrder = await orderRes.json();
 
@@ -45,7 +46,7 @@ export function OrderTracker() {
         const targetSessionId = sessionId || mainOrder.session_id;
         
         if (targetSessionId) {
-          const sRes = await fetch(`/api/public/dining-sessions/${targetSessionId}/orders`);
+          const sRes = await fetch(getApiUrl(`/api/public/dining-sessions/${targetSessionId}/orders`));
           if (sRes.ok) {
             const sessionOrders = await sRes.json();
             if (sessionOrders) allOrders = sessionOrders;

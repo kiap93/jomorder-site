@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../lib/api';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { MutationQueue } from '../lib/mutationQueue';
 import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
@@ -90,7 +91,7 @@ export function CustomerMenu() {
 
     const checkOrders = async () => {
       try {
-        const response = await fetch(`/api/public/orders/check?sessionId=${diningSession.id}`);
+        const response = await fetch(getApiUrl(`/api/public/orders/check?sessionId=${diningSession.id}`));
         if (!response.ok) throw new Error("Failed to check orders");
         const { orders: data, count } = await response.json();
         
@@ -265,7 +266,7 @@ export function CustomerMenu() {
 
           try {
             console.log("Resolving dining session...");
-            const sessionRes = await fetch(`/api/public/resolve-session`, {
+            const sessionRes = await fetch(getApiUrl(`/api/public/resolve-session`), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -299,7 +300,7 @@ export function CustomerMenu() {
         }
 
         console.time("fetchData-items");
-        const itemsRes = await fetch(`/api/public/restaurants/${restId}/menu-items`);
+        const itemsRes = await fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`));
         if (!itemsRes.ok) throw new Error("Failed to fetch menu items");
         const itemsData = await itemsRes.json();
 
@@ -330,13 +331,13 @@ export function CustomerMenu() {
         setMenuItems(processedItems);
 
         if (currentSession?.id) {
-          const bRes = await fetch(`/api/public/baskets?sessionId=${currentSession.id}`);
+          const bRes = await fetch(getApiUrl(`/api/public/baskets?sessionId=${currentSession.id}`));
           if (bRes.ok) {
             const basketData = await bRes.json();
             if (basketData) {
               setBasketId(basketData.id);
               if (basketData.basket_version) setBasketVersion(basketData.basket_version);
-              const biRes = await fetch(`/api/public/baskets/${basketData.id}/items`);
+              const biRes = await fetch(getApiUrl(`/api/public/baskets/${basketData.id}/items`));
               if (biRes.ok) {
                 const items = await biRes.json();
                 if (items) syncLocalCartFromServer(items, processedItems);

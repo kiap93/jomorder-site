@@ -1,5 +1,6 @@
 import { LanguageCode } from "../types";
 import { useAuthStore } from "../store/useAuthStore";
+import { getApiUrl } from "../lib/api";
 
 export async function translateFoodTerm(text: string, targetLang: LanguageCode, restaurantContext?: string) {
   try {
@@ -9,7 +10,7 @@ export async function translateFoodTerm(text: string, targetLang: LanguageCode, 
       return null;
     }
 
-    const response = await fetch("/api/translate", {
+    const response = await fetch(getApiUrl("/api/translate"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

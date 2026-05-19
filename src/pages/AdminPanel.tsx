@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
+import { getApiUrl } from '../lib/api';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
@@ -198,11 +199,11 @@ export function AdminPanel() {
       };
       
       const [restData, catsData, itemsData, tablesData, ordersData] = await Promise.all([
-        fetch(`/api/restaurants/${restId}`, fetchOptions).then(r => r.json()),
-        fetch(`/api/restaurants/${restId}/categories`, fetchOptions).then(r => r.json()),
-        fetch(`/api/restaurants/${restId}/menu-items`, fetchOptions).then(r => r.json()),
-        fetch(`/api/restaurants/${restId}/tables`, fetchOptions).then(r => r.json()),
-        fetch(`/api/restaurants/${restId}/orders?limit=100`, fetchOptions).then(r => r.json())
+        fetch(getApiUrl(`/api/restaurants/${restId}`), fetchOptions).then(r => r.json()),
+        fetch(getApiUrl(`/api/restaurants/${restId}/categories`), fetchOptions).then(r => r.json()),
+        fetch(getApiUrl(`/api/restaurants/${restId}/menu-items`), fetchOptions).then(r => r.json()),
+        fetch(getApiUrl(`/api/restaurants/${restId}/tables`), fetchOptions).then(r => r.json()),
+        fetch(getApiUrl(`/api/restaurants/${restId}/orders?limit=100`), fetchOptions).then(r => r.json())
       ]);
 
       const duration = Date.now() - startTime;
@@ -342,7 +343,7 @@ export function AdminPanel() {
     if (!token) return;
 
     try {
-      const response = await fetch(`/api/restaurants/${restId}`, {
+      const response = await fetch(getApiUrl(`/api/restaurants/${restId}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -376,7 +377,7 @@ export function AdminPanel() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    const response = await fetch(`/api/categories`, {
+    const response = await fetch(getApiUrl(`/api/categories`), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -404,7 +405,7 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/categories/${id}`, {
+      const response = await fetch(getApiUrl(`/api/categories/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -452,7 +453,7 @@ export function AdminPanel() {
 
       // Handle direct category creation
       if (finalCategoryId === 'CREATE_NEW' && editingItem.newCategoryName?.trim()) {
-        const catResponse = await fetch(`/api/categories`, {
+        const catResponse = await fetch(getApiUrl(`/api/categories`), {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -486,7 +487,7 @@ export function AdminPanel() {
       let itemId = editingItem.id;
 
       if (itemId) {
-        const response = await fetch(`/api/menu-items/${itemId}`, {
+        const response = await fetch(getApiUrl(`/api/menu-items/${itemId}`), {
           method: 'PATCH',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -496,7 +497,7 @@ export function AdminPanel() {
         });
         if (!response.ok) throw new Error("Update failed");
       } else {
-        const response = await fetch(`/api/menu-items`, {
+        const response = await fetch(getApiUrl(`/api/menu-items`), {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -611,7 +612,7 @@ export function AdminPanel() {
     
     setLoading(true);
     try {
-      const response = await fetch(`/api/menu-items/${id}`, {
+      const response = await fetch(getApiUrl(`/api/menu-items/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -633,7 +634,7 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/tables`, {
+      const response = await fetch(getApiUrl(`/api/tables`), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -661,7 +662,7 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/tables/${id}`, {
+      const response = await fetch(getApiUrl(`/api/tables/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -682,7 +683,7 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
-      await fetch(`/api/dining-sessions/${session.id}`, {
+      await fetch(getApiUrl(`/api/dining-sessions/${session.id}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -692,7 +693,7 @@ export function AdminPanel() {
       });
 
       // Reset table pointer
-      await fetch(`/api/tables/${session.tableId}`, {
+      await fetch(getApiUrl(`/api/tables/${session.tableId}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -714,7 +715,7 @@ export function AdminPanel() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    const response = await fetch(`/api/tables/${id}`, {
+    const response = await fetch(getApiUrl(`/api/tables/${id}`), {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,

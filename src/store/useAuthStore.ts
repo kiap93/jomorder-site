@@ -204,7 +204,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signInWithGoogle: async (idToken: string) => {
     set({ loading: true });
     try {
-      const response = await fetch(getApiUrl('/api/google-login'), {
+      const apiUrl = getApiUrl('/api/google-login');
+      console.log("Authenticating with Google via API:", apiUrl);
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken })

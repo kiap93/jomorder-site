@@ -4,6 +4,7 @@ import { guestSupabase as supabase } from '../lib/supabase';
 import { paymentEngine, PaymentIntentResponse } from '../lib/paymentEngine';
 import { Restaurant, Order, Payment } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { getApiUrl } from '../lib/api';
 import { 
   ChevronLeft, 
   CreditCard, 
@@ -44,7 +45,7 @@ export function Checkout() {
         let actualTableId = tableId;
 
         if (!isUuid && tableId) {
-          const tRes = await fetch(`/api/public/tables/${tableId}?restId=${restId}`);
+          const tRes = await fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`));
           if (tRes.ok) {
             const tData = await tRes.json();
             if (tData) actualTableId = tData.id;
@@ -52,8 +53,8 @@ export function Checkout() {
         }
 
         const [restRes, orderRes] = await Promise.all([
-          fetch(`/api/public/restaurants/${restId}`).then(r => r.json()),
-          fetch(`/api/public/orders/${orderId}?sessionId=${sessionId}`).then(r => r.json())
+          fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
+          fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`)).then(r => r.json())
         ]);
 
         if (restRes.error) throw new Error(restRes.error);
@@ -65,7 +66,7 @@ export function Checkout() {
         // Fetch session orders if exists
         const currentSessionId = orderData.session_id;
         if (currentSessionId) {
-          const sRes = await fetch(`/api/public/dining-sessions/${currentSessionId}/orders`);
+          const sRes = await fetch(getApiUrl(`/api/public/dining-sessions/${currentSessionId}/orders`));
           if (sRes.ok) {
             const sOrders = await sRes.json();
             if (sOrders && sOrders.length > 0) {
@@ -156,14 +157,14 @@ export function Checkout() {
 
     // If it was a session payment, mark all session orders as paid and close the session
     if (payTarget === 'session' && order?.sessionId) {
-       await fetch(`/api/public/dining-sessions/${order.sessionId}/mark-paid`, {
+       await fetch(getApiUrl(`/api/public/dining-sessions/${order.sessionId}/mark-paid`), {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ sessionToken })
        });
     } else if (payTarget === 'order' && order) {
        // Just update this single order
-       await fetch(`/api/public/orders/${order.id}/mark-paid`, {
+       await fetch(getApiUrl(`/api/public/orders/${order.id}/mark-paid`), {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ sessionToken })

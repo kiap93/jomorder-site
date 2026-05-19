@@ -30,6 +30,7 @@ import {
   Minus,
   Plus
 } from 'lucide-react';
+import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { Order, Restaurant, Payment, PaymentStatus } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
@@ -82,7 +83,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
     setIsLoadingSession(true);
     try {
-      const response = await fetch(`/api/dining-sessions/${sessionId}/orders`, {
+      const response = await fetch(getApiUrl(`/api/dining-sessions/${sessionId}/orders`), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error("Failed to fetch session orders");
@@ -170,7 +171,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           return;
       }
 
-      const response = await fetch(`/api/orders/${orderIds[0]}/payments?sessionId=${sessionId || ''}`, {
+      const response = await fetch(getApiUrl(`/api/orders/${orderIds[0]}/payments?sessionId=${sessionId || ''}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error("Failed to fetch payment history");
@@ -198,7 +199,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     const orderIds = sessionOrders.map(o => o.id);
     if (orderIds.length > 0) {
       // API call to batch update orders and session status
-      await fetch(`/api/dining-sessions/${sessionId}/settle`, {
+      await fetch(getApiUrl(`/api/dining-sessions/${sessionId}/settle`), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -229,7 +230,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     try {
       const totalSplit = splits.reduce((s, x) => s + x.amount, 0);
       for (const split of splits) {
-        await fetch(`/api/orders/${order.id}/payments`, {
+        await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -412,7 +413,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             const remainingAmount = totalAmount - paidAmount;
                             const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
                             
-                            const pRes = await fetch(`/api/orders/${order.id}/payments`, {
+                            const pRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
                               method: 'POST',
                               headers: {
                                 'Authorization': `Bearer ${token}`,
@@ -501,7 +502,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                           const token = useAuthStore.getState().token;
                           if (!token) return;
 
-                          const response = await fetch(`/api/orders/${order.id}/payments`, {
+                          const response = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
                             method: 'POST',
                             headers: {
                               'Authorization': `Bearer ${token}`,
