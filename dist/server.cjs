@@ -295,38 +295,58 @@ app.post("/api/register", async (req, res) => {
 });
 app.post("/api/google-login", async (req, res) => {
   const { idToken } = req.body;
-  if (!idToken) return res.status(400).json({ error: "Missing token" });
+  console.log("Google Login request received. idToken length:", idToken?.length);
+  if (!idToken) {
+    console.log("Missing idToken");
+    return res.status(400).json({ error: "Missing token" });
+  }
   try {
+    const audience = GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    console.log("Verifying token with audience:", audience);
     const ticket = await googleClient.verifyIdToken({
       idToken,
-      audience: GOOGLE_CLIENT_ID
+      audience
     });
     const payload = ticket.getPayload();
-    if (!payload || !payload.email) throw new Error("Invalid Google payload");
+    console.log("Payload received for email:", payload?.email);
+    if (!payload || !payload.email) {
+      console.log("Invalid Google payload or missing email");
+      throw new Error("Invalid Google payload");
+    }
     const email = payload.email;
     let userPayload = null;
     if (process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL) {
+      console.log("Admin email match:", email);
       userPayload = { id: "admin", email, role: "admin" };
     } else {
+      console.log("Checking profiles for email:", email);
       const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase profile error:", error);
+        throw error;
+      }
       if (profile) {
+        console.log("Profile found:", profile.id);
         userPayload = {
           id: profile.id,
           email: profile.email,
           role: profile.role,
           restaurantId: profile.restaurant_id
         };
+      } else {
+        console.log("No profile found for email:", email);
       }
     }
     if (!userPayload) {
+      console.log("Unauthorized: User not found in authorized profiles");
       return res.status(403).json({ error: "User not authorized for staff access" });
     }
+    console.log("Generating JWT for user:", userPayload.id);
     const token = import_jsonwebtoken.default.sign(userPayload, JWT_SECRET, { expiresIn: "7d" });
     res.json({ token, user: userPayload });
   } catch (err) {
-    console.error("Google verify failed:", err);
-    res.status(401).json({ error: "Google authentication failed" });
+    console.error("Google verify failed internally:", err);
+    res.status(401).json({ error: "Google authentication failed: " + err.message });
   }
 });
 app.get("/api/me", authenticateJWT, (req, res) => {

@@ -99,6 +99,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           loading: false 
         });
       } else {
+        const text = await response.text();
+        console.warn("Session refresh failed with status:", response.status, text);
         window.localStorage.removeItem(storageKey);
         set({ user: null, profile: null, token: null, loading: false });
       }
@@ -117,12 +119,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         body: JSON.stringify({ email, password })
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Login failed");
+      const responseText = await response.text();
+      let responseData: any;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = null;
       }
 
-      const { token, user: profile } = await response.json();
+      if (!response.ok) {
+        const errorMsg = responseData?.error || `Server error (${response.status}): ${responseText.slice(0, 100)}`;
+        throw new Error(errorMsg);
+      }
+
+      const { token, user: profile } = responseData;
       window.localStorage.setItem(getStorageKey(), token);
 
       set({ 
@@ -154,12 +164,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         body: JSON.stringify({ email, password })
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Registration failed");
+      const responseText = await response.text();
+      let responseData: any;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = null;
       }
 
-      const { token, user: profile } = await response.json();
+      if (!response.ok) {
+        const errorMsg = responseData?.error || `Server error (${response.status}): ${responseText.slice(0, 100)}`;
+        throw new Error(errorMsg);
+      }
+
+      const { token, user: profile } = responseData;
       window.localStorage.setItem(getStorageKey(), token);
 
       set({ 
@@ -191,12 +209,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         body: JSON.stringify({ idToken })
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Google login failed");
+      const responseText = await response.text();
+      let responseData: any;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = null;
       }
 
-      const { token, user: profile } = await response.json();
+      if (!response.ok) {
+        const errorMsg = responseData?.error || `Server error (${response.status}): ${responseText.slice(0, 100)}`;
+        throw new Error(errorMsg);
+      }
+
+      const { token, user: profile } = responseData;
       window.localStorage.setItem(getStorageKey(), token);
 
       set({ 
