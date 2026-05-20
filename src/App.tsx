@@ -19,6 +19,7 @@ import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
 import { InternalReview } from './pages/InternalReview';
 import { SuperAdmin } from './pages/SuperAdmin';
+import { WorkspaceSelect } from './pages/WorkspaceSelect';
 
 export default function App() {
   const { init, loading, user, profile } = useAuthStore();
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/workspace-select" element={<WorkspaceSelect />} />
             
             {/* Internal Audit */}
             <Route path="/internal/audit-hub" element={<InternalReview />} />
@@ -90,7 +92,7 @@ export default function App() {
               user ? (
                 profile?.restaurantId 
                   ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
-                  : <Navigate to="/onboarding" replace />
+                  : <Navigate to="/workspace-select" replace />
               ) : <Navigate to="/" replace />
             } />
           </Routes>

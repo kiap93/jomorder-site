@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote } from 'lucide-react';
+import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export function Navbar() {
@@ -60,6 +60,13 @@ export function Navbar() {
             className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/admin') ? 'bg-zinc-800 text-zinc-100 border border-zinc-700' : 'text-zinc-600 hover:text-zinc-300'}`}
           >
             <Settings size={20} />
+          </Link>
+          <Link 
+            to="/workspace-select" 
+            title="Switch Workspace"
+            className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/workspace-select') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
+          >
+            <Building2 size={20} />
           </Link>
         </>
       )}

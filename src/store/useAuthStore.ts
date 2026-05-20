@@ -13,6 +13,7 @@ interface AuthState {
   signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
+  switchWorkspace: (restaurantId: string) => Promise<void>;
 }
 
 let initializationPromise: Promise<(() => void)> | null = null;
@@ -267,6 +268,50 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Notify other tabs via worker channel
     authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
     initializationPromise = null;
+  },
+
+  switchWorkspace: async (restaurantId: string) => {
+    const currentToken = get().token;
+    if (!currentToken) throw new Error("No active session found.");
+
+    set({ loading: true });
+    try {
+      const response = await fetch(getApiUrl(`/api/switch-workspace/${restaurantId}`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Workspace switch failed: ${text}`);
+      }
+
+      const { token, user: enrichedUser } = await response.json();
+      window.localStorage.setItem(getStorageKey(), token);
+
+      set({ 
+        user: { id: enrichedUser.id, email: enrichedUser.email },
+        profile: {
+          id: enrichedUser.id,
+          email: enrichedUser.email,
+          role: enrichedUser.role,
+          restaurantId: enrichedUser.restaurantId || enrichedUser.restaurant_id,
+          status: enrichedUser.status,
+          permissions: enrichedUser.permissions
+        } as UserProfile,
+        token,
+        loading: false 
+      });
+
+      // Notify other tabs via worker channel
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+    } catch (err) {
+      set({ loading: false });
+      throw err;
+    }
   }
 }));
 

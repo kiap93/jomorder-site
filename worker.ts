@@ -542,11 +542,53 @@ app.post('/api/google-login', async (c) => {
   if (c.env.ADMIN_USER_EMAIL && email === c.env.ADMIN_USER_EMAIL) {
     userPayload = { id: 'admin', email, role: 'admin' };
   } else {
-    const { data: profile } = await supabase
+    let { data: profile } = await supabase
       .from('profiles')
       .select('*')
       .eq('email', email)
       .maybeSingle();
+
+    if (!profile) {
+      // Auto-register google user
+      let authUserId: string | null = null;
+      try {
+        const { data: usersList } = await supabase.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+
+        if (existingAuthUser) {
+          authUserId = existingAuthUser.id;
+        } else {
+          const dummyPassword = crypto.randomUUID();
+          const { data: newAuth, error: createError } = await supabase.auth.admin.createUser({
+            email,
+            password: dummyPassword,
+            email_confirm: true
+          });
+
+          if (createError) throw createError;
+          if (newAuth?.user) {
+            authUserId = newAuth.user.id;
+          }
+        }
+
+        if (authUserId) {
+          const { data: newProfile, error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authUserId,
+              email: email,
+              role: 'staff',
+            })
+            .select()
+            .single();
+
+          if (profileError) throw profileError;
+          profile = newProfile;
+        }
+      } catch (err: any) {
+        console.error("Auto-registration failed:", err);
+      }
+    }
 
     if (profile) {
       if (profile.status === 'suspended') {
@@ -588,6 +630,281 @@ app.get('/api/me', authenticate, async (c) => {
     });
   }
   return c.json(user);
+});
+
+// --- WORKSPACE & MULTI-TENANCY SAAS ENDPOINTS ---
+
+// 1. Get all organizations and restaurants the user has access to
+app.get('/api/my-workspaces', authenticate, async (c) => {
+  const user = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (user.id === 'admin') {
+    try {
+      const { data: orgs } = await supabase.from('organizations').select('*');
+      const { data: rests } = await supabase.from('restaurants').select('*');
+      return c.json({
+        organizations: orgs || [],
+        restaurants: (rests || []).map((r: any) => ({
+          ...r,
+          role: 'admin',
+          status: 'active',
+          permissions: {
+            can_refund: true,
+            can_edit_menu: true,
+            can_cancel_order: true,
+            can_view_analytics: true,
+            can_manage_staff: true
+          }
+        }))
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  }
+
+  try {
+    const { data: mappedUsers, error: mappedError } = await supabase
+      .from('restaurant_users')
+      .select('restaurant_id, role, status, custom_permissions, restaurants:restaurant_id(*)')
+      .eq('user_id', user.id);
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('restaurant_id, role, status, custom_permissions, restaurants:restaurant_id(*)')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const workspacesMap = new Map();
+
+    if (mappedUsers) {
+      for (const m of mappedUsers) {
+        if (m.restaurants) {
+          workspacesMap.set(m.restaurant_id, {
+            ...m.restaurants,
+            role: m.role,
+            status: m.status,
+            permissions: m.custom_permissions || {}
+          });
+        }
+      }
+    }
+
+    if (profile && profile.restaurant_id && profile.restaurants) {
+      if (!workspacesMap.has(profile.restaurant_id)) {
+        workspacesMap.set(profile.restaurant_id, {
+          ...profile.restaurants,
+          role: profile.role,
+          status: profile.status || 'active',
+          permissions: profile.custom_permissions || {}
+        });
+      }
+    }
+
+    const restaurantsList = Array.from(workspacesMap.values());
+    const orgIds = restaurantsList.map((r: any) => r.organization_id).filter(Boolean);
+    let organizationsList: any[] = [];
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase
+        .from('organizations')
+        .select('*')
+        .in('id', orgIds);
+      if (orgs) {
+        organizationsList = orgs;
+      }
+    }
+
+    return c.json({
+      organizations: organizationsList,
+      restaurants: restaurantsList
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 2. Switch active workspace (issues a new signed JWT with targeted restaurant credentials safely)
+app.post('/api/switch-workspace/:restaurantId', authenticate, async (c) => {
+  const user = c.get('user');
+  const restaurantId = c.req.param('restaurantId');
+  const supabase = getSupabase(c.env);
+
+  if (user.id === 'admin') {
+    try {
+      const { data: r } = await supabase.from('restaurants').select('*').eq('id', restaurantId).maybeSingle();
+      if (!r) return c.json({ error: "Restaurant not found." }, 404);
+      const guestPay = {
+        id: 'admin',
+        email: user.email,
+        role: 'admin',
+        restaurantId: r.id
+      };
+      const token = await signJWT(guestPay, c.env.JWT_SECRET);
+      return c.json({ token, user: guestPay });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  }
+
+  try {
+    let role = '';
+    let status = 'active';
+    let customPerms: any = {};
+
+    const { data: mapping } = await supabase
+      .from('restaurant_users')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('restaurant_id', restaurantId)
+      .maybeSingle();
+
+    if (mapping) {
+      role = mapping.role;
+      status = mapping.status;
+      customPerms = mapping.custom_permissions;
+    } else {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .eq('restaurant_id', restaurantId)
+        .maybeSingle();
+
+      if (profile) {
+        role = profile.role;
+        status = profile.status || 'active';
+        customPerms = profile.custom_permissions;
+      } else {
+        return c.json({ error: "Forbidden: You do not have access to this workspace." }, 403);
+      }
+    }
+
+    if (status === 'suspended') {
+      return c.json({ error: "Your account is suspended in this workspace." }, 403);
+    }
+
+    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
+    const isManager = role === 'manager' || role === 'MANAGER';
+    const isCashier = role === 'cashier' || role === 'CASHIER';
+
+    const permissions = {
+      can_refund: isOwner || isManager,
+      can_edit_menu: isOwner || isManager,
+      can_cancel_order: isOwner || isManager || isCashier,
+      can_view_analytics: isOwner || isManager,
+      can_manage_staff: isOwner,
+      ...(customPerms || {})
+    };
+
+    const enriched = {
+      id: user.id,
+      email: user.email,
+      role: role,
+      restaurantId: restaurantId,
+      status: status,
+      permissions: permissions
+    };
+
+    const token = await signJWT(enriched, c.env.JWT_SECRET);
+    return c.json({ token, user: enriched });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 3. Complete onboarding combo for Multi-Organization / Restaurant
+app.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
+  const user = c.get('user');
+  const { orgName, workspaceName } = await c.req.json();
+  const supabase = getSupabase(c.env);
+
+  if (!workspaceName) {
+    return c.json({ error: "Workspace (Restaurant) name is required." }, 400);
+  }
+
+  try {
+    let orgId = null;
+
+    if (orgName && orgName.trim()) {
+      const { data: org, error: orgErr } = await supabase
+        .from('organizations')
+        .insert({ name: orgName.trim() })
+        .select()
+        .single();
+      
+      if (orgErr) throw orgErr;
+      orgId = org.id;
+
+      await supabase.from('organization_users').insert({
+        organization_id: orgId,
+        user_id: user.id,
+        role: 'owner'
+      });
+    }
+
+    const { data: restaurant, error: restErr } = await supabase
+      .from('restaurants')
+      .insert({
+        name: workspaceName.trim(),
+        currency: 'MYR',
+        service_charge: 6.0,
+        sst: 10.0,
+        organization_id: orgId,
+        owner_id: user.id
+      })
+      .select()
+      .single();
+
+    if (restErr) throw restErr;
+
+    await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        email: user.email,
+        restaurant_id: restaurant.id,
+        role: 'owner',
+        updated_at: new Date().toISOString()
+      });
+
+    try {
+      await supabase.from('restaurant_users').insert({
+        restaurant_id: restaurant.id,
+        user_id: user.id,
+        role: 'owner',
+        status: 'active',
+        custom_permissions: {
+          can_refund: true,
+          can_edit_menu: true,
+          can_cancel_order: true,
+          can_view_analytics: true,
+          can_manage_staff: true
+        }
+      });
+    } catch (mErr) {
+      console.warn("Could not insert to restaurant_users - table may not be migrated yet:", mErr);
+    }
+
+    const enriched = {
+      id: user.id,
+      email: user.email,
+      role: 'owner',
+      restaurantId: restaurant.id,
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+
+    const token = await signJWT(enriched, c.env.JWT_SECRET);
+    return c.json({ token, user: enriched });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // Translation with Gemini
