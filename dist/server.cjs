@@ -387,7 +387,19 @@ app.post("/api/google-login", async (req, res) => {
   }
 });
 app.get("/api/me", authenticateJWT, (req, res) => {
-  res.json(req.user);
+  const user = req.user;
+  if (user && user.id !== "admin") {
+    const settings = getStaffSettings(user.id, user.role);
+    if (settings.status === "suspended") {
+      return res.status(403).json({ error: "Your staff account has been suspended by the administrator." });
+    }
+    return res.json({
+      ...user,
+      status: settings.status,
+      permissions: settings.permissions
+    });
+  }
+  res.json(user);
 });
 app.get("/api/translation-jobs", authenticateJWT, async (req, res) => {
   const { filter } = req.query;
@@ -452,18 +464,49 @@ app.get("/api/restaurants/:restId/menu-items", authenticateJWT, async (req, res)
   res.json(data || []);
 });
 app.post("/api/menu-items", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
   const { data, error } = await supabaseAdmin.from("menu_items").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  if (caller && caller.email) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
+  }
   res.json(data);
 });
 app.patch("/api/menu-items/:id", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
   const { data, error } = await supabaseAdmin.from("menu_items").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  if (caller && caller.email) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
+  }
   res.json(data);
 });
 app.delete("/api/menu-items/:id", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
+  const { data: item } = await supabaseAdmin.from("menu_items").select("name, restaurant_id").eq("id", req.params.id).maybeSingle();
   const { error } = await supabaseAdmin.from("menu_items").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  if (caller && caller.email && item) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
+  }
   res.json({ success: true });
 });
 app.get("/api/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
@@ -498,9 +541,36 @@ app.get("/api/restaurants/:restId/orders", authenticateJWT, async (req, res) => 
   return res.json(data || []);
 });
 app.patch("/api/orders/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  const caller = req.user;
+  const orderId = req.params.id;
+  try {
+    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("restaurant_id, status").eq("id", orderId).maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    const restId = order.restaurant_id || caller?.restaurantId || "default";
+    if (caller && caller.id !== "admin") {
+      const settings = getStaffSettings(caller.id, caller.role);
+      if (req.body.status === "cancelled" && !settings.permissions.can_cancel_order) {
+        return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
+      }
+      if (req.body.status === "confirmed" && caller.role === "runner") {
+        return res.status(403).json({ error: "Forbidden: Runners cannot confirm orders." });
+      }
+    }
+    const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", orderId).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    if (caller && caller.email) {
+      let action = `Updated Order ${orderId}`;
+      if (req.body.status && req.body.status !== order.status) {
+        action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
+      }
+      logToAudit(caller.id || "admin", caller.email, caller.role, action, restId);
+    }
+    res.json(data);
+  } catch (err) {
+    console.error("Error updating order:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 app.get("/api/restaurants/:restId/dining-sessions", authenticateJWT, async (req, res) => {
   const status = req.query.status;
@@ -780,6 +850,239 @@ function getTenantRegistry(tenantId) {
   }
   return registry[tenantId];
 }
+var STAFF_REGISTRY_FILE = import_path.default.join(process.cwd(), "staff_registry.json");
+var AUDIT_LOGS_FILE = import_path.default.join(process.cwd(), "audit_logs.json");
+function readStaffRegistry() {
+  try {
+    if (!import_fs.default.existsSync(STAFF_REGISTRY_FILE)) {
+      import_fs.default.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify({}));
+    }
+    return JSON.parse(import_fs.default.readFileSync(STAFF_REGISTRY_FILE, "utf-8"));
+  } catch (err) {
+    console.error("Failed to read staff_registry.json", err);
+    return {};
+  }
+}
+function writeStaffRegistry(data) {
+  try {
+    import_fs.default.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("Failed to write staff_registry.json", err);
+  }
+}
+function getStaffSettings(userId, role) {
+  const registry = readStaffRegistry();
+  if (!registry[userId]) {
+    const isOwner = role === "owner" || role === "admin" || role === "OWNER";
+    const isManager = role === "manager" || role === "MANAGER";
+    const isCashier = role === "cashier" || role === "CASHIER";
+    registry[userId] = {
+      status: "active",
+      permissions: {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      }
+    };
+    writeStaffRegistry(registry);
+  }
+  return registry[userId];
+}
+function readAuditLogs() {
+  try {
+    if (!import_fs.default.existsSync(AUDIT_LOGS_FILE)) {
+      import_fs.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify([]));
+    }
+    return JSON.parse(import_fs.default.readFileSync(AUDIT_LOGS_FILE, "utf-8"));
+  } catch (err) {
+    console.error("Failed to read audit_logs.json", err);
+    return [];
+  }
+}
+function writeAuditLogs(logs) {
+  try {
+    import_fs.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(logs, null, 2));
+  } catch (err) {
+    console.error("Failed to write audit_logs.json", err);
+  }
+}
+function logToAudit(userId, userEmail, role, action, restaurantId) {
+  const logs = readAuditLogs();
+  const log = {
+    id: "audit-" + Math.random().toString(36).substr(2, 9),
+    user_id: userId,
+    user_email: userEmail,
+    role,
+    action,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    restaurant_id: restaurantId
+  };
+  logs.unshift(log);
+  if (logs.length > 2e3) {
+    logs.length = 2e3;
+  }
+  writeAuditLogs(logs);
+}
+app.get("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
+  const caller = req.user;
+  if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+    return res.status(403).json({ error: "Forbidden: You do not have access to this restaurant's staff list." });
+  }
+  try {
+    const { data: profiles, error } = await supabaseAdmin.from("profiles").select("*").eq("restaurant_id", restId);
+    if (error) throw error;
+    const enrichedStaff = (profiles || []).map((p) => {
+      const settings = getStaffSettings(p.id, p.role);
+      return {
+        id: p.id,
+        email: p.email,
+        role: p.role,
+        restaurant_id: p.restaurant_id,
+        status: settings.status,
+        permissions: settings.permissions
+      };
+    });
+    res.json(enrichedStaff);
+  } catch (err) {
+    console.error("Error fetching staff:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
+  const { email, password, role, permissions } = req.body;
+  const caller = req.user;
+  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER" && caller.role !== "manager" && caller.role !== "MANAGER") {
+    return res.status(403).json({ error: "Forbidden: Only owners and managers can add staff accounts." });
+  }
+  if (!email || !password || !role) {
+    return res.status(400).json({ error: "Email, password, and role are required." });
+  }
+  try {
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
+    }
+    if (!authUser.user) {
+      return res.status(500).json({ error: "Failed to create authentication user." });
+    }
+    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
+      id: authUser.user.id,
+      email,
+      role,
+      restaurant_id: restId
+    }).select().single();
+    if (profileError) {
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+      throw profileError;
+    }
+    const registry = readStaffRegistry();
+    const defaultPerms = getStaffSettings(authUser.user.id, role).permissions;
+    registry[authUser.user.id] = {
+      status: "active",
+      permissions: permissions || defaultPerms
+    };
+    writeStaffRegistry(registry);
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+    res.status(201).json({
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      restaurant_id: profile.restaurant_id,
+      status: "active",
+      permissions: registry[authUser.user.id].permissions
+    });
+  } catch (err) {
+    console.error("Error creating staff:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+  const { restId, staffId } = req.params;
+  const { role, status, permissions } = req.body;
+  const caller = req.user;
+  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER" && caller.role !== "manager" && caller.role !== "MANAGER") {
+    return res.status(403).json({ error: "Forbidden: Unauthorized to edit staff details." });
+  }
+  try {
+    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).eq("restaurant_id", restId).maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!profile) return res.status(404).json({ error: "Staff member not found in this organization." });
+    let updatedProfile = profile;
+    if (role && role !== profile.role) {
+      const { data, error: updateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", staffId).select().single();
+      if (updateError) throw updateError;
+      updatedProfile = data;
+    }
+    const registry = readStaffRegistry();
+    if (!registry[staffId]) {
+      registry[staffId] = {
+        status: status || "active",
+        permissions: permissions || getStaffSettings(staffId, role || profile.role).permissions
+      };
+    } else {
+      if (status) registry[staffId].status = status;
+      if (permissions) registry[staffId].permissions = permissions;
+    }
+    writeStaffRegistry(registry);
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
+    res.json({
+      id: updatedProfile.id,
+      email: updatedProfile.email,
+      role: updatedProfile.role,
+      restaurant_id: updatedProfile.restaurant_id,
+      status: registry[staffId].status,
+      permissions: registry[staffId].permissions
+    });
+  } catch (err) {
+    console.error("Error updating staff:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+  const { restId, staffId } = req.params;
+  const caller = req.user;
+  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER") {
+    return res.status(403).json({ error: "Forbidden: Only owners/system admins can delete staff accounts." });
+  }
+  try {
+    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).eq("restaurant_id", restId).maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!profile) return res.status(404).json({ error: "Staff user not found." });
+    if (caller.id === staffId) {
+      return res.status(400).json({ error: "You cannot delete your own account!" });
+    }
+    await supabaseAdmin.auth.admin.deleteUser(staffId);
+    await supabaseAdmin.from("profiles").delete().eq("id", staffId);
+    const registry = readStaffRegistry();
+    if (registry[staffId]) {
+      delete registry[staffId];
+      writeStaffRegistry(registry);
+    }
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted staff account: ${profile.email}`, restId);
+    res.json({ success: true, message: "Staff member deleted successfully." });
+  } catch (err) {
+    console.error("Error deleting staff:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/restaurants/:restId/audit-logs", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
+  const caller = req.user;
+  if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+    return res.status(403).json({ error: "Forbidden: Unauthorized access to system audit logs." });
+  }
+  const logs = readAuditLogs();
+  const restLogs = logs.filter((l) => l.restaurant_id === restId);
+  res.json(restLogs);
+});
 var INVESTIGATING_ORDERS = /* @__PURE__ */ new Set();
 var requireSuperAdmin = (req, res, next) => {
   const user = req.user;

@@ -290,6 +290,8 @@ export interface CashTransaction {
 export interface UserProfile {
   id: string;
   email: string;
-  role: 'admin' | 'staff' | 'kitchen';
+  role: 'admin' | 'staff' | 'kitchen' | 'owner' | 'manager' | 'cashier' | 'waiter' | 'runner' | 'OWNER' | 'MANAGER' | 'CASHIER' | 'KITCHEN' | 'WAITER' | 'RUNNER';
   restaurantId: string;
+  status?: 'active' | 'suspended';
+  permissions?: Record<string, boolean>;
 }

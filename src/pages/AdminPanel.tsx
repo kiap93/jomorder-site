@@ -6,7 +6,7 @@ import { getApiUrl } from '../lib/api';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
-import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
@@ -78,7 +78,7 @@ export function AdminPanel() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +90,161 @@ export function AdminPanel() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+
+  // Staff and Audits states
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isStaffLoading, setIsStaffLoading] = useState(false);
+  const [isAddingStaff, setIsAddingStaff] = useState(false);
+  const [newStaffEmail, setNewStaffEmail] = useState('');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState<'owner' | 'manager' | 'cashier' | 'kitchen' | 'waiter' | 'runner'>('waiter');
+  const [newStaffPermissions, setNewStaffPermissions] = useState<Record<string, boolean>>({
+    can_refund: false,
+    can_edit_menu: false,
+    can_cancel_order: false,
+    can_view_analytics: false,
+    can_manage_staff: false
+  });
+  const [editingStaff, setEditingStaff] = useState<any | null>(null);
+
+  const fetchStaffData = async () => {
+    if (!restId) return;
+    setIsStaffLoading(true);
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    try {
+      const [staffRes, logsRes] = await Promise.all([
+        fetch(getApiUrl(`/api/restaurants/${restId}/staff`), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()),
+        fetch(getApiUrl(`/api/restaurants/${restId}/audit-logs`), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json())
+      ]);
+
+      if (staffRes && !staffRes.error) setStaffList(staffRes);
+      if (logsRes && !logsRes.error) setAuditLogs(logsRes);
+    } catch (err) {
+      console.error("Failed to load staff list or audit logs:", err);
+    } finally {
+      setIsStaffLoading(false);
+    }
+  };
+
+  const handleRoleChangeForNewStaff = (role: string) => {
+    setNewStaffRole(role as any);
+    const isOwner = role === 'owner';
+    const isManager = role === 'manager';
+    const isCashier = role === 'cashier';
+    setNewStaffPermissions({
+      can_refund: isOwner || isManager,
+      can_edit_menu: isOwner || isManager,
+      can_cancel_order: isOwner || isManager || isCashier,
+      can_view_analytics: isOwner || isManager,
+      can_manage_staff: isOwner
+    });
+  };
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStaffEmail || !newStaffPassword || !newStaffRole || !restId) return;
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    try {
+      const response = await fetch(getApiUrl(`/api/restaurants/${restId}/staff`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: newStaffEmail,
+          password: newStaffPassword,
+          role: newStaffRole,
+          permissions: newStaffPermissions
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error || "Failed to create staff account");
+        return;
+      }
+
+      setIsAddingStaff(false);
+      setNewStaffEmail('');
+      setNewStaffPassword('');
+      fetchStaffData();
+    } catch (err) {
+      console.error("Create staff account failed:", err);
+    }
+  };
+
+  const handleSaveStaffEdit = async () => {
+    if (!editingStaff || !restId) return;
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    try {
+      const response = await fetch(getApiUrl(`/api/restaurants/${restId}/staff/${editingStaff.id}`), {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          role: editingStaff.role,
+          status: editingStaff.status,
+          permissions: editingStaff.permissions
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error || "Failed to update staff account");
+        return;
+      }
+
+      setEditingStaff(null);
+      fetchStaffData();
+    } catch (err) {
+      console.error("Save staff editing failed:", err);
+    }
+  };
+
+  const handleDeleteStaff = async (staffId: string) => {
+    if (!confirm("Are you sure you want to delete this staff member? This will completely wipe their auth account and profile data.")) return;
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    try {
+      const response = await fetch(getApiUrl(`/api/restaurants/${restId}/staff/${staffId}`), {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error || "Failed to delete staff account.");
+        return;
+      }
+
+      fetchStaffData();
+    } catch (err) {
+      console.error("Delete staff failed:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'staff' && restId) {
+      fetchStaffData();
+    }
+  }, [activeTab, restId]);
 
   // Analytics states
   const [analyticsData, setAnalyticsData] = useState({
@@ -774,6 +929,7 @@ export function AdminPanel() {
           { id: 'orders', icon: ClipboardList, label: 'Order History' },
           { id: 'analytics', icon: BarChart2, label: 'Analytics' },
           { id: 'localization', icon: Globe, label: 'Translations' },
+          { id: 'staff', icon: Users, label: 'Staff & Audits' },
           { id: 'settings', icon: Save, label: 'Settings' }
         ].map(tab => (
           <button
@@ -1328,6 +1484,333 @@ export function AdminPanel() {
             menuItems={menuItems} 
             categories={categories} 
           />
+        </div>
+      )}
+
+      {activeTab === 'staff' && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Left side: Staff List */}
+            <div className="md:col-span-2 bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-black text-gray-900">Staff Directory</h2>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">Multi-User RBAC Profiles</p>
+                </div>
+                <button
+                  onClick={fetchStaffData}
+                  className="p-3 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded-2xl transition"
+                  title="Refresh List"
+                >
+                  <RefreshCw size={16} className={isStaffLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+
+              {isStaffLoading && staffList.length === 0 ? (
+                <div className="flex h-48 items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                </div>
+              ) : staffList.length === 0 ? (
+                <div className="flex h-48 flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-3xl p-6 text-center text-gray-400">
+                  <Users size={40} className="mb-2 text-gray-200" />
+                  <p className="font-bold text-gray-700">No Staff Profiles Registered</p>
+                  <p className="text-xs mt-1">Create unique logins for your waiters, cashiers, and kitchen team.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {staffList.map((st: any) => (
+                    <div 
+                      key={st.id} 
+                      className={`p-6 rounded-2xl border transition-all ${
+                        st.status === 'suspended' ? 'bg-red-50/40 border-red-100' : 'bg-gray-50/50 border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-gray-900">{st.email}</span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              st.status === 'suspended' ? 'bg-red-200 text-red-800' : 'bg-green-100 text-green-800'
+                            }`}>
+                              {st.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs bg-gray-900 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider">
+                              {st.role}
+                            </span>
+                            <span className="text-xs text-gray-400 font-medium font-mono">
+                              ID: {st.id.slice(0, 8)}...
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingStaff(st)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStaff(st.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Display active permissions chips */}
+                      {st.permissions && (
+                        <div className="mt-4 pt-4 border-t border-gray-200/50 flex flex-wrap gap-1.5">
+                          {Object.entries(st.permissions).map(([perm, val]) => (
+                            <span 
+                              key={perm}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                val ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-gray-100 text-gray-400'
+                              }`}
+                            >
+                              {perm.replace('can_', '')}: {val ? 'YES' : 'NO'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Right side: Add/Edit Account view */}
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6 self-start">
+              {editingStaff ? (
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-black text-gray-900">Edit Settings</h3>
+                      <button 
+                        onClick={() => setEditingStaff(null)}
+                        className="text-gray-400 hover:text-black"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                    <p className="text-xs text-brand-dark/60 font-medium font-mono truncate mt-1">{editingStaff.email}</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Staff Role</label>
+                      <select
+                        value={editingStaff.role}
+                        onChange={e => {
+                          const updatedRole = e.target.value;
+                          const isO = updatedRole === 'owner';
+                          const isM = updatedRole === 'manager';
+                          const isC = updatedRole === 'cashier';
+                          setEditingStaff({
+                            ...editingStaff,
+                            role: updatedRole,
+                            permissions: {
+                              can_refund: isO || isM,
+                              can_edit_menu: isO || isM,
+                              can_cancel_order: isO || isM || isC,
+                              can_view_analytics: isO || isM,
+                              can_manage_staff: isO
+                            }
+                          });
+                        }}
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-sm focus:bg-white focus:border-brand"
+                      >
+                        {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">Account Status</label>
+                      <select
+                        value={editingStaff.status}
+                        onChange={e => setEditingStaff({ ...editingStaff, status: e.target.value as any })}
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-sm focus:bg-white focus:border-brand"
+                      >
+                        <option value="active">Active (Access Allowed)</option>
+                        <option value="suspended">Suspended (Access Revoked)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">Custom Overrules</label>
+                      <div className="space-y-2.5 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        {Object.entries(editingStaff.permissions || {}).map(([perm, val]) => (
+                          <label key={perm} className="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!val}
+                              onChange={e => {
+                                setEditingStaff({
+                                  ...editingStaff,
+                                  permissions: {
+                                    ...(editingStaff.permissions || {}),
+                                    [perm]: e.target.checked
+                                  }
+                                });
+                              }}
+                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4.5 w-4.5"
+                            />
+                            <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex gap-3">
+                      <button
+                        onClick={() => setEditingStaff(null)}
+                        className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs hover:bg-gray-200 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveStaffEdit}
+                        className="flex-1 px-4 py-3 bg-gray-900 text-white font-bold rounded-xl text-xs hover:bg-black transition shadow-lg"
+                      >
+                        Save Settings
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleCreateStaff} className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-black text-gray-900">Register Staff</h3>
+                    <p className="text-xs text-gray-400 mt-1">Provision a new user account below</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="name@restaurant.com"
+                      value={newStaffEmail}
+                      onChange={e => setNewStaffEmail(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 font-bold text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Temporal Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Minimum 6 characters"
+                      value={newStaffPassword}
+                      onChange={e => setNewStaffPassword(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 font-bold text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Staff Role</label>
+                    <select
+                      value={newStaffRole}
+                      onChange={e => handleRoleChangeForNewStaff(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-xs focus:bg-white focus:border-brand"
+                    >
+                      {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1 text-xs">System Permissions</label>
+                    <div className="space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      {Object.entries(newStaffPermissions).map(([perm, val]) => (
+                        <label key={perm} className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={val}
+                            onChange={e => {
+                              setNewStaffPermissions({
+                                ...newStaffPermissions,
+                                [perm]: e.target.checked
+                              });
+                            }}
+                            className="rounded border-gray-350 text-orange-600 focus:ring-orange-500 h-4 w-4"
+                          />
+                          <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition"
+                  >
+                    <Plus size={16} />
+                    Deploy Staff Account
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Section: Audit Trail Hub */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+            <div>
+              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                <Shield className="text-orange-600" size={24} />
+                Organization Audit Trail
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">Immutable session history and security logging records</p>
+            </div>
+
+            {auditLogs.length === 0 ? (
+              <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-3xl p-6 text-center text-gray-400">
+                <Shield size={32} className="mb-2 text-gray-200" />
+                <p className="text-xs font-bold">No Audit Log Data Registered</p>
+              </div>
+            ) : (
+              <div className="border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                      <th className="p-4 pl-6">Timestamp</th>
+                      <th className="p-4">Staff Member</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4 pr-6">Action / Secure Log Payload</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.map((log: any) => (
+                      <tr key={log.id} className="border-b border-gray-150/50 hover:bg-gray-50/50 text-xs">
+                        <td className="p-4 pl-6 text-gray-400 font-mono">
+                          {new Date(log.timestamp).toLocaleString()}
+                        </td>
+                        <td className="p-4 font-bold text-gray-800">
+                          {log.user_email}
+                          <div className="text-[10px] text-gray-400 font-mono">ID: {log.user_id.slice(0, 8)}...</div>
+                        </td>
+                        <td className="p-4">
+                          <span className="text-[10px] bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-black uppercase tracking-wider">
+                            {log.role}
+                          </span>
+                        </td>
+                        <td className="p-4 pr-6 font-bold text-gray-700">
+                          {log.action}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

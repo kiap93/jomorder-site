@@ -107,6 +107,66 @@ app.get('/api/health', (c) => {
 // Use Supabase Admin (service role)
 const getSupabase = (env: Bindings) => createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Helper for finding/restoring staff settings
+async function getStaffSettingsFromDb(supabase: any, userId: string, role: string) {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('status, custom_permissions, role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (profile) {
+    const isOwner = profile.role === 'owner' || profile.role === 'admin' || profile.role === 'OWNER';
+    const isManager = profile.role === 'manager' || profile.role === 'MANAGER';
+    const isCashier = profile.role === 'cashier' || profile.role === 'CASHIER';
+
+    const defaultPerms = {
+      can_refund: isOwner || isManager,
+      can_edit_menu: isOwner || isManager,
+      can_cancel_order: isOwner || isManager || isCashier,
+      can_view_analytics: isOwner || isManager,
+      can_manage_staff: isOwner
+    };
+
+    return {
+      status: profile.status || 'active',
+      permissions: {
+        ...defaultPerms,
+        ...(profile.custom_permissions || {})
+      }
+    };
+  }
+
+  const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
+  const isManager = role === 'manager' || role === 'MANAGER';
+  const isCashier = role === 'cashier' || role === 'CASHIER';
+  return {
+    status: 'active',
+    permissions: {
+      can_refund: isOwner || isManager,
+      can_edit_menu: isOwner || isManager,
+      can_cancel_order: isOwner || isManager || isCashier,
+      can_view_analytics: isOwner || isManager,
+      can_manage_staff: isOwner
+    }
+  };
+}
+
+async function logToAuditDb(supabase: any, userId: string, userEmail: string, role: string, action: string, restaurantId: string) {
+  try {
+    await supabase.from('audit_logs').insert({
+      restaurant_id: restaurantId,
+      user_id: userId === 'admin' ? null : userId,
+      user_email: userEmail,
+      user_role: role,
+      action: action,
+      metadata: {}
+    });
+  } catch (err) {
+    console.error("Failed to write to audit_logs table", err);
+  }
+}
+
 // --- PUBLIC ENDPOINTS ---
 
 app.get('/api/public/restaurants/:id', async (c) => {
@@ -364,14 +424,22 @@ app.post('/api/login', async (c) => {
         .maybeSingle();
       
       if (profile) {
-        const token = await signJWT({ 
+        if (profile.status === 'suspended') {
+          return c.json({ error: 'Your staff account has been suspended by the administrator.' }, 403);
+        }
+        
+        const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role);
+        const enrichedUser = {
           id: profile.id, 
           email: profile.email, 
           role: profile.role,
-          restaurantId: profile.restaurant_id 
-        }, c.env.JWT_SECRET);
-        
-        return c.json({ token, user: profile });
+          restaurantId: profile.restaurant_id,
+          status: settings.status,
+          permissions: settings.permissions
+        };
+
+        const token = await signJWT(enrichedUser, c.env.JWT_SECRET);
+        return c.json({ token, user: enrichedUser });
       }
     }
 
@@ -451,11 +519,18 @@ app.post('/api/google-login', async (c) => {
       .maybeSingle();
 
     if (profile) {
+      if (profile.status === 'suspended') {
+        return c.json({ error: 'Your staff account has been suspended by the administrator.' }, 403);
+      }
+      
+      const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role);
       userPayload = {
         id: profile.id,
         email: profile.email,
         role: profile.role,
-        restaurantId: profile.restaurant_id
+        restaurantId: profile.restaurant_id,
+        status: settings.status,
+        permissions: settings.permissions
       };
     }
   }
@@ -468,8 +543,20 @@ app.post('/api/google-login', async (c) => {
   return c.json({ token, user: userPayload });
 });
 
-app.get('/api/me', authenticate, (c) => {
+app.get('/api/me', authenticate, async (c) => {
   const user = c.get('user');
+  if (user && user.id !== 'admin') {
+    const supabase = getSupabase(c.env);
+    const settings = await getStaffSettingsFromDb(supabase, user.id, user.role);
+    if (settings.status === 'suspended') {
+      return c.json({ error: "Your staff account has been suspended by the administrator." }, 403);
+    }
+    return c.json({
+      ...user,
+      status: settings.status,
+      permissions: settings.permissions
+    });
+  }
   return c.json(user);
 });
 
@@ -579,6 +666,225 @@ app.patch("/api/restaurants/:id", authenticate, async (c) => {
   return c.json(data);
 });
 
+// Staff Management
+app.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
+  const restId = c.req.param('restId');
+  const caller = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (caller.role !== 'admin' && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+    return c.json({ error: "Forbidden: You do not have access to this restaurant's staff list." }, 403);
+  }
+
+  try {
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('restaurant_id', restId);
+
+    if (error) throw error;
+
+    const enrichedStaff = [];
+    for (const p of (profiles || [])) {
+      const settings = await getStaffSettingsFromDb(supabase, p.id, p.role);
+      enrichedStaff.push({
+        id: p.id,
+        email: p.email,
+        role: p.role,
+        restaurant_id: p.restaurant_id,
+        status: settings.status,
+        permissions: settings.permissions
+      });
+    }
+
+    return c.json(enrichedStaff);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
+  const restId = c.req.param('restId');
+  const body = await c.req.json();
+  const { email, password, role, permissions } = body;
+  const caller = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
+    return c.json({ error: "Forbidden: Only owners and managers can add staff accounts." }, 403);
+  }
+
+  if (!email || !password || !role) {
+    return c.json({ error: "Email, password, and role are required." }, 400);
+  }
+
+  try {
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+
+    if (authError) {
+      return c.json({ error: authError.message }, 400);
+    }
+
+    if (!authUser.user) {
+      return c.json({ error: "Failed to create authentication user." }, 500);
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .insert({
+        id: authUser.user.id,
+        email,
+        role,
+        restaurant_id: restId,
+        custom_permissions: permissions || {},
+        status: 'active'
+      })
+      .select()
+      .single();
+
+    if (profileError) {
+      await supabase.auth.admin.deleteUser(authUser.user.id);
+      throw profileError;
+    }
+
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+
+    const finalSettings = await getStaffSettingsFromDb(supabase, profile.id, role);
+
+    return c.json({
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      restaurant_id: profile.restaurant_id,
+      status: 'active',
+      permissions: finalSettings.permissions
+    }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) => {
+  const restId = c.req.param('restId');
+  const staffId = c.req.param('staffId');
+  const body = await c.req.json();
+  const { role, status, permissions } = body;
+  const caller = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
+    return c.json({ error: "Forbidden: Unauthorized to edit staff details." }, 403);
+  }
+
+  try {
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', staffId)
+      .eq('restaurant_id', restId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!profile) return c.json({ error: "Staff member not found in this organization." }, 404);
+
+    const updates: any = {};
+    if (role) updates.role = role;
+    if (status) updates.status = status;
+    if (permissions) updates.custom_permissions = permissions;
+
+    const { data: updatedProfile, error: updateError } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', staffId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || profile.status})`, restId);
+
+    const finalSettings = await getStaffSettingsFromDb(supabase, staffId, updatedProfile.role);
+
+    return c.json({
+      id: updatedProfile.id,
+      email: updatedProfile.email,
+      role: updatedProfile.role,
+      restaurant_id: updatedProfile.restaurant_id,
+      status: finalSettings.status,
+      permissions: finalSettings.permissions
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) => {
+  const restId = c.req.param('restId');
+  const staffId = c.req.param('staffId');
+  const caller = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER') {
+    return c.json({ error: "Forbidden: Only owners/system admins can delete staff accounts." }, 403);
+  }
+
+  try {
+    const { data: profile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', staffId)
+      .eq('restaurant_id', restId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!profile) return c.json({ error: "Staff user not found." }, 404);
+
+    if (caller.id === staffId) {
+      return c.json({ error: "You cannot delete your own account!" }, 400);
+    }
+
+    await supabase.auth.admin.deleteUser(staffId);
+
+    await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', staffId);
+
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Deleted staff account: ${profile.email}`, restId);
+
+    return c.json({ success: true, message: "Staff member deleted successfully." });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.get("/api/restaurants/:restId/audit-logs", authenticate, async (c) => {
+  const restId = c.req.param('restId');
+  const caller = c.get('user');
+  const supabase = getSupabase(c.env);
+
+  if (caller.role !== 'admin' && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+    return c.json({ error: "Forbidden: Unauthorized access to system audit logs." }, 403);
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('restaurant_id', restId)
+      .order('timestamp', { ascending: false });
+
+    if (error) throw error;
+    return c.json(data || []);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Categories (Auth)
 app.get("/api/restaurants/:restId/categories", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
@@ -636,6 +942,15 @@ app.get("/api/restaurants/:restId/menu-items", authenticate, async (c) => {
 app.patch("/api/menu-items/:id", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
+  const caller = c.get('user');
+
+  if (caller && caller.id !== 'admin') {
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
+    }
+  }
+
   const { data, error } = await supabase
     .from('menu_items')
     .update(body)
@@ -644,12 +959,26 @@ app.patch("/api/menu-items/:id", authenticate, async (c) => {
     .single();
   
   if (error) return c.json({ error: error.message }, 500);
+
+  if (caller && caller.email) {
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Updated menu item: ${data?.name || c.req.param('id')}`, data?.restaurant_id || caller.restaurantId);
+  }
+
   return c.json(data);
 });
 
 app.post("/api/menu-items", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
+  const caller = c.get('user');
+
+  if (caller && caller.id !== 'admin') {
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
+    }
+  }
+
   const { data, error } = await supabase
     .from('menu_items')
     .insert(body)
@@ -657,17 +986,38 @@ app.post("/api/menu-items", authenticate, async (c) => {
     .single();
   
   if (error) return c.json({ error: error.message }, 500);
+
+  if (caller && caller.email) {
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Added menu item: ${data?.name || 'Dish'}`, data?.restaurant_id || caller.restaurantId);
+  }
+
   return c.json(data);
 });
 
 app.delete("/api/menu-items/:id", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
+  const caller = c.get('user');
+
+  if (caller && caller.id !== 'admin') {
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
+    }
+  }
+
+  const { data: item } = await supabase.from('menu_items').select('name, restaurant_id').eq('id', c.req.param('id')).maybeSingle();
+
   const { error } = await supabase
     .from('menu_items')
     .delete()
     .eq('id', c.req.param('id'));
   
   if (error) return c.json({ error: error.message }, 500);
+
+  if (caller && caller.email && item) {
+    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
+  }
+
   return c.json({ success: true });
 });
 
@@ -750,15 +1100,55 @@ app.get("/api/restaurants/:restId/orders", authenticate, async (c) => {
 app.patch("/api/orders/:id", authenticate, async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
-  const { data, error } = await supabase
-    .from('orders')
-    .update(body)
-    .eq('id', c.req.param('id'))
-    .select()
-    .single();
-  
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  const caller = c.get('user');
+  const orderId = c.req.param('id');
+
+  try {
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('restaurant_id, status')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderErr) throw orderErr;
+    if (!order) return c.json({ error: "Order not found." }, 404);
+
+    const restId = order.restaurant_id || caller?.restaurantId || "default";
+
+    if (caller && caller.id !== 'admin') {
+      const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+      
+      if (body.status === 'cancelled' && !settings.permissions.can_cancel_order) {
+        return c.json({ error: "Forbidden: You do not have permission to cancel orders." }, 403);
+      }
+
+      if (body.status === 'confirmed' && caller.role === 'runner') {
+        return c.json({ error: "Forbidden: Runners cannot confirm orders." }, 403);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update(body)
+      .eq('id', orderId)
+      .select()
+      .single();
+    
+    if (error) return c.json({ error: error.message }, 500);
+
+    if (caller && caller.email) {
+      let action = `Updated Order ${orderId}`;
+      if (body.status && body.status !== order.status) {
+        action = `Changed Order ${orderId} status from [${order.status}] to [${body.status}]`;
+      }
+      await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, action, restId);
+    }
+
+    return c.json(data);
+  } catch (err: any) {
+    console.error("Error updating order in worker:", err);
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // Legacy KDS path segment Support (mapping internally)
