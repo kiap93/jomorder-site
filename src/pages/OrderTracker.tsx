@@ -63,6 +63,7 @@ export function OrderTracker() {
         paymentMethod: o.payment_method || 'counter',
         items: o.items,
         paid_at: o.paid_at,
+        session_id: o.session_id,
         session_status: (o as any).dining_sessions?.status,
         createdAt: { toDate: () => new Date(o.created_at) }
       })) as any);
@@ -130,7 +131,14 @@ export function OrderTracker() {
           </div>
           <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {(unpaidTotal || 0).toFixed(2)}</h2>
           <button 
-            onClick={() => navigate(`/restaurant/${restId}/table/${tableId}/order/${currentOrder.id}/checkout`)}
+            onClick={() => {
+              const activeSessionId = (currentOrder as any)?.session_id || sessionId;
+              if (activeSessionId) {
+                navigate(`/restaurant/${restId}/table/${tableId}/session/${activeSessionId}/order/${currentOrder.id}/checkout`);
+              } else {
+                navigate(`/restaurant/${restId}/table/${tableId}/order/${currentOrder.id}/checkout`);
+              }
+            }}
             className="w-full h-14 bg-white text-orange-600 rounded-2xl text-sm font-black uppercase tracking-wider hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
           >
             Pay Now (Online)

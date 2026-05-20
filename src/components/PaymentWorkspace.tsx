@@ -403,7 +403,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         sst: sstAmount,
                         currency: restaurant.currency
                       }}
-                      onCancel={() => {}}
+                      onCancel={() => setSelectedMethod('card')}
                         onComplete={async (data) => {
                           const token = useAuthStore.getState().token;
                           if (!token) return;

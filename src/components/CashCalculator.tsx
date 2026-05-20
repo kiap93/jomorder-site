@@ -48,6 +48,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
   const [cashReceived, setCashReceived] = useState<string>('');
   const [status, setStatus] = useState<CashCalculatorStatus>('calculating');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   
   // Malaysian rounding logic (to nearest 0.05) if using cash
   const roundToFiveSen = (amount: number) => {
@@ -430,16 +431,15 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                       <Printer size={12} /> Log
                     </button>
                     <button 
-                      onClick={() => onComplete({ 
-                        cashReceived: cash, 
-                        changeGiven: change, 
-                        rounding: roundingAdjustment,
-                        isPartial,
-                        remainingBalance: remaining
-                      })}
-                      className="flex-[1.5] h-10 bg-white text-black rounded font-black text-[9px] uppercase tracking-[0.2em] transition-all shadow-xl"
+                      onClick={() => {
+                        if (isFinishing) return;
+                        setIsFinishing(true);
+                        onCancel();
+                      }}
+                      disabled={isFinishing}
+                      className="flex-[1.5] h-10 bg-white text-black rounded font-black text-[9px] uppercase tracking-[0.2em] transition-all shadow-xl disabled:opacity-50"
                     >
-                      Finish
+                      {isFinishing ? 'Closing...' : 'Finish'}
                     </button>
                   </div>
                 </motion.div>

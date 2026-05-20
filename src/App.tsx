@@ -18,6 +18,7 @@ import { PaymentSuccess } from './pages/PaymentSuccess';
 import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
 import { InternalReview } from './pages/InternalReview';
+import { SuperAdmin } from './pages/SuperAdmin';
 
 export default function App() {
   const { init, loading, user, profile } = useAuthStore();
@@ -80,6 +81,9 @@ export default function App() {
             
             {/* Internal Audit */}
             <Route path="/internal/audit-hub" element={<InternalReview />} />
+            
+            {/* Super Admin Panel */}
+            <Route path="/superadmin/dashboard" element={<SuperAdmin />} />
             
             {/* Catch-all - Dynamic redirect based on auth */}
             <Route path="*" element={

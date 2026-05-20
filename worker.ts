@@ -187,10 +187,13 @@ app.post('/api/public/resolve-session', async (c) => {
 app.get('/api/public/orders/check', async (c) => {
   const supabase = getSupabase(c.env);
   const sessionId = c.req.query('sessionId');
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+  const cleanSessionId = isUuid ? String(sessionId) : '00000000-0000-0000-0000-000000000000';
+
   const { data, error, count } = await supabase
     .from('orders')
     .select('id', { count: 'exact' })
-    .eq('session_id', sessionId)
+    .eq('session_id', cleanSessionId)
     .order('created_at', { ascending: false })
     .limit(1);
 
@@ -201,10 +204,13 @@ app.get('/api/public/orders/check', async (c) => {
 app.get('/api/public/baskets', async (c) => {
   const supabase = getSupabase(c.env);
   const sessionId = c.req.query('sessionId');
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+  const cleanSessionId = isUuid ? String(sessionId) : '00000000-0000-0000-0000-000000000000';
+
   const { data, error } = await supabase
     .from('baskets')
     .select('id, basket_version')
-    .eq('session_id', sessionId)
+    .eq('session_id', cleanSessionId)
     .eq('status', 'active')
     .maybeSingle();
   
@@ -242,12 +248,18 @@ app.post('/api/public/place-order', async (c) => {
 app.get('/api/public/orders/:id', async (c) => {
   const supabase = getSupabase(c.env);
   const sessionId = c.req.query('sessionId');
-  const { data, error } = await supabase
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+
+  let query = supabase
     .from('orders')
     .select('*')
-    .eq('id', c.req.param('id'))
-    .eq('session_id', sessionId)
-    .single();
+    .eq('id', c.req.param('id'));
+
+  if (isUuid) {
+    query = query.eq('session_id', sessionId);
+  }
+
+  const { data, error } = await query.single();
   
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data);
@@ -470,10 +482,17 @@ app.post('/api/translate', authenticate, async (c) => {
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: c.env.GEMINI_API_KEY! });
+    const ai = new GoogleGenAI({ 
+      apiKey: c.env.GEMINI_API_KEY!,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
     
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3.5-flash",
       contents: `
       You are a professional culinary translator.
       Translate the following food term or description from English to ${targetLang}.
@@ -488,7 +507,8 @@ app.post('/api/translate', authenticate, async (c) => {
     const translatedText = response.text.trim();
     return c.json({ translatedText });
   } catch (error: any) {
-    return c.json({ error: 'Translation failed' }, 500);
+    console.error("Worker translation error:", error);
+    return c.json({ error: `Translation failed: ${error?.message || error}` }, 500);
   }
 });
 
@@ -879,6 +899,9 @@ app.get("/api/orders/:orderId/payments", authenticate, async (c) => {
   const sessionId = c.req.query('sessionId');
   
   if (sessionId) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+    if (!isUuid) return c.json([]);
+
     const { data: orders } = await supabase
       .from('orders')
       .select('id')
