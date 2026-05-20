@@ -109,47 +109,77 @@ const getSupabase = (env: Bindings) => createClient(env.SUPABASE_URL, env.SUPABA
 
 // Helper for finding/restoring staff settings
 async function getStaffSettingsFromDb(supabase: any, userId: string, role: string) {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('status, custom_permissions, role')
-    .eq('id', userId)
-    .maybeSingle();
+  try {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('status, custom_permissions, role')
+      .eq('id', userId)
+      .maybeSingle();
 
-  if (profile) {
-    const isOwner = profile.role === 'owner' || profile.role === 'admin' || profile.role === 'OWNER';
-    const isManager = profile.role === 'manager' || profile.role === 'MANAGER';
-    const isCashier = profile.role === 'cashier' || profile.role === 'CASHIER';
+    if (!error && profile) {
+      const isOwner = profile.role === 'owner' || profile.role === 'admin' || profile.role === 'OWNER';
+      const isManager = profile.role === 'manager' || profile.role === 'MANAGER';
+      const isCashier = profile.role === 'cashier' || profile.role === 'CASHIER';
 
-    const defaultPerms = {
-      can_refund: isOwner || isManager,
-      can_edit_menu: isOwner || isManager,
-      can_cancel_order: isOwner || isManager || isCashier,
-      can_view_analytics: isOwner || isManager,
-      can_manage_staff: isOwner
-    };
+      const defaultPerms = {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      };
+
+      return {
+        status: profile.status || 'active',
+        permissions: {
+          ...defaultPerms,
+          ...(profile.custom_permissions || {})
+        }
+      };
+    }
+  } catch (err) {
+    console.warn("Failed to query customized columns (status, custom_permissions) - database likely unmigrated:", err);
+  }
+
+  // Fallback to query with safe columns only
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const selectedRole = profile?.role || role;
+    const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
+    const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
+    const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
 
     return {
-      status: profile.status || 'active',
+      status: 'active',
       permissions: {
-        ...defaultPerms,
-        ...(profile.custom_permissions || {})
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      }
+    };
+  } catch (err) {
+    console.error("Critical fallback in getStaffSettingsFromDb, hardcoding defaults:", err);
+    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
+    const isManager = role === 'manager' || role === 'MANAGER';
+    const isCashier = role === 'cashier' || role === 'CASHIER';
+    return {
+      status: 'active',
+      permissions: {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
       }
     };
   }
-
-  const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
-  const isManager = role === 'manager' || role === 'MANAGER';
-  const isCashier = role === 'cashier' || role === 'CASHIER';
-  return {
-    status: 'active',
-    permissions: {
-      can_refund: isOwner || isManager,
-      can_edit_menu: isOwner || isManager,
-      can_cancel_order: isOwner || isManager || isCashier,
-      can_view_analytics: isOwner || isManager,
-      can_manage_staff: isOwner
-    }
-  };
 }
 
 async function logToAuditDb(supabase: any, userId: string, userEmail: string, role: string, action: string, restaurantId: string) {
@@ -733,18 +763,43 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
       return c.json({ error: "Failed to create authentication user." }, 500);
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .insert({
-        id: authUser.user.id,
-        email,
-        role,
-        restaurant_id: restId,
-        custom_permissions: permissions || {},
-        status: 'active'
-      })
-      .select()
-      .single();
+    let profile: any = null;
+    let profileError: any = null;
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+          id: authUser.user.id,
+          email,
+          role,
+          restaurant_id: restId,
+          custom_permissions: permissions || {},
+          status: 'active'
+        })
+        .select()
+        .single();
+
+      if (error && (error.message.includes('custom_permissions') || error.message.includes('status') || error.message.includes('column') || error.message.includes('schema'))) {
+        throw error;
+      }
+      profile = data;
+      profileError = error;
+    } catch (fallbackErr) {
+      console.warn("Falling back to standard profiles schema insert:", fallbackErr);
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+          id: authUser.user.id,
+          email,
+          role,
+          restaurant_id: restId
+        })
+        .select()
+        .single();
+      profile = data;
+      profileError = error;
+    }
 
     if (profileError) {
       await supabase.auth.admin.deleteUser(authUser.user.id);
@@ -793,15 +848,38 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) => {
 
     const updates: any = {};
     if (role) updates.role = role;
-    if (status) updates.status = status;
-    if (permissions) updates.custom_permissions = permissions;
 
-    const { data: updatedProfile, error: updateError } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', staffId)
-      .select()
-      .single();
+    let updatedProfile: any = null;
+    let updateError: any = null;
+
+    try {
+      const updatesWithCustom = { ...updates };
+      if (status) updatesWithCustom.status = status;
+      if (permissions) updatesWithCustom.custom_permissions = permissions;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updatesWithCustom)
+        .eq('id', staffId)
+        .select()
+        .single();
+
+      if (error && (error.message.includes('custom_permissions') || error.message.includes('status') || error.message.includes('column') || error.message.includes('schema'))) {
+        throw error;
+      }
+      updatedProfile = data;
+      updateError = error;
+    } catch (fallbackErr) {
+      console.warn("Falling back to basic update of profiles:", fallbackErr);
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', staffId)
+        .select()
+        .single();
+      updatedProfile = data;
+      updateError = error;
+    }
 
     if (updateError) throw updateError;
 
