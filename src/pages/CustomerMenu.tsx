@@ -322,11 +322,11 @@ export function CustomerMenu() {
         console.timeEnd("fetchData-items");
 
         setRestaurant(prev => {
-          const nr = { id: restRes.data.id, name: restRes.data.name, currency: restRes.data.currency, serviceCharge: parseFloat(restRes.data.service_charge), sst: parseFloat(restRes.data.sst) };
+          const nr = { id: restRes.id, name: restRes.name, currency: restRes.currency, serviceCharge: parseFloat(restRes.service_charge), sst: parseFloat(restRes.sst) };
           return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
         });
         
-        if (catsRes.data) setCategories(catsRes.data.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
+        if (Array.isArray(catsRes)) setCategories(catsRes.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
         setOriginalMenuItems(processedItems);
         setMenuItems(processedItems);
 
