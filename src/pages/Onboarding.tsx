@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { getApiUrl } from '../lib/api';
 import { useAuthStore } from '../store/useAuthStore';
 import { Store, ArrowRight, Loader2 } from 'lucide-react';
 
 export function Onboarding() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const { user } = useAuthStore();
+  const { user, token, switchWorkspace } = useAuthStore();
   const navigate = useNavigate();
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -16,36 +16,41 @@ export function Onboarding() {
 
     setLoading(true);
     try {
-      // 1. Create Restaurant
-      const { data: rest, error: restError } = await supabase
-        .from('restaurants')
-        .insert({
-          name: name.trim(),
-          currency: 'MYR',
-          service_charge: 6,
-          sst: 10,
-          owner_id: user.id
+      const res = await fetch(getApiUrl('/api/onboarding/create-org-workspace'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          workspaceName: name.trim()
         })
-        .select()
-        .single();
+      });
 
-      if (restError) throw restError;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to create workspace.');
+      }
 
-      // 2. Sync User Profile (using upsert to ensure it exists)
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          email: user.email,
-          restaurant_id: rest.id,
-          role: 'admin',
-          updated_at: new Date().toISOString()
-        });
-
-      if (profileError) throw profileError;
-
-      // 3. Navigate to Dashboard
-      navigate(`/restaurant/${rest.id}/orders`);
+      const outcome = await res.json();
+      const restId = outcome.user?.restaurantId || outcome.user?.restaurant_id;
+      const role = outcome.user?.role || 'owner';
+      
+      if (restId) {
+        await switchWorkspace(restId);
+        
+        // Dynamic routing based on RBAC role
+        const lowerRole = role.toLowerCase();
+        if (lowerRole === 'kitchen' || lowerRole === 'runner') {
+          navigate(`/restaurant/${restId}/kitchen`);
+        } else if (lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin') {
+          navigate(`/restaurant/${restId}/admin`);
+        } else {
+          navigate(`/restaurant/${restId}/orders`);
+        }
+      } else {
+        throw new Error("No restaurant ID returned from server.");
+      }
     } catch (err: any) {
       console.error("Onboarding failed:", err);
       alert(err.message || "Failed to create restaurant.");

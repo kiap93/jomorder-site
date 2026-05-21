@@ -14,20 +14,9 @@ export function Login() {
 
   useEffect(() => {
     if (!loading && user) {
-      if (profile?.restaurantId) {
-        const role = profile.role ? String(profile.role).toLowerCase() : '';
-        if (role === 'kitchen' || role === 'runner') {
-          navigate(`/restaurant/${profile.restaurantId}/kitchen`);
-        } else if (role === 'owner' || role === 'manager' || role === 'admin') {
-          navigate(`/restaurant/${profile.restaurantId}/admin`);
-        } else {
-          navigate(`/restaurant/${profile.restaurantId}/orders`);
-        }
-      } else {
-        navigate('/onboarding');
-      }
+      navigate('/workspace-select?fromLogin=true');
     }
-  }, [user, profile, loading, navigate]);
+  }, [user, loading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

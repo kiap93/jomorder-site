@@ -274,7 +274,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentToken = get().token;
     if (!currentToken) throw new Error("No active session found.");
 
-    set({ loading: true });
     try {
       const response = await fetch(getApiUrl(`/api/switch-workspace/${restaurantId}`), {
         method: 'POST',
@@ -309,7 +308,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Notify other tabs via worker channel
       authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
     } catch (err) {
-      set({ loading: false });
       throw err;
     }
   }

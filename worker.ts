@@ -104,6 +104,25 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.get('/api/debug-restaurants', async (c) => {
+  const supabase = getSupabase(c.env);
+  try {
+    // Attempt to do a select on restaurants to find all keys
+    const { data, error } = await supabase.from('restaurants').select('*').limit(1);
+    if (error) {
+      return c.json({ error: error.message, details: error }, 500);
+    }
+    const sampleRow = data && data[0] ? data[0] : null;
+    return c.json({
+      message: "Success",
+      columns: sampleRow ? Object.keys(sampleRow) : [],
+      sampleRow
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Use Supabase Admin (service role)
 const getSupabase = (env: Bindings) => createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -703,12 +722,28 @@ app.get('/api/my-workspaces', authenticate, async (c) => {
 
     const restaurantsList = Array.from(workspacesMap.values());
     const orgIds = restaurantsList.map((r: any) => r.organization_id).filter(Boolean);
+    
+    // Also fetch of organizations the user belongs to directly from organization_users
+    let userDirectOrgIds: any[] = [];
+    try {
+      const { data: directMemberships } = await supabase
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', user.id);
+      if (directMemberships) {
+        userDirectOrgIds = directMemberships.map((m: any) => m.organization_id);
+      }
+    } catch (mErr) {
+      console.warn("Could not query organization_users table (may not exist or permission issues):", mErr);
+    }
+
+    const allOrgIds = Array.from(new Set([...orgIds, ...userDirectOrgIds]));
     let organizationsList: any[] = [];
-    if (orgIds.length > 0) {
+    if (allOrgIds.length > 0) {
       const { data: orgs } = await supabase
         .from('organizations')
         .select('*')
-        .in('id', orgIds);
+        .in('id', allOrgIds);
       if (orgs) {
         organizationsList = orgs;
       }
@@ -812,10 +847,70 @@ app.post('/api/switch-workspace/:restaurantId', authenticate, async (c) => {
   }
 });
 
+// Update Organization Name & Company Register Number with safe dynamic column fallback
+app.patch('/api/organizations/:id', authenticate, async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const { name, company_register_number } = await c.req.json();
+  const supabase = getSupabase(c.env);
+
+  try {
+    if (user.id !== 'admin') {
+      const { data: member, error: memberErr } = await supabase
+        .from('organization_users')
+        .select('*')
+        .eq('organization_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!member || (member.role !== 'owner' && member.role !== 'manager')) {
+        return c.json({ error: "Forbidden: You do not have owner/manager access to this organization." }, 403);
+      }
+    }
+
+    const updatePayload: any = { name };
+    if (company_register_number !== undefined) {
+      updatePayload.company_register_number = company_register_number;
+    }
+
+    const { data: updatedOrg, error: updateErr } = await supabase
+      .from('organizations')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+
+    if (updateErr) {
+      // Dynamic fallback if column doesn't exist
+      if (updateErr.code === '42703' || (updateErr.message && updateErr.message.includes('column') && updateErr.message.includes('does not exist'))) {
+        console.warn(`company_register_number column doesn't exist yet, updating name only.`);
+        const { data: updatedOrg2, error: updateErr2 } = await supabase
+          .from('organizations')
+          .update({ name })
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+
+        if (updateErr2) throw updateErr2;
+        return c.json({ 
+          ...updatedOrg2, 
+          company_register_number, // local value passed back
+          warn: "Column company_register_number missing. Please execute: ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS company_register_number TEXT;"
+        });
+      }
+      return c.json({ error: updateErr.message }, 500);
+    }
+
+    return c.json(updatedOrg);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // 3. Complete onboarding combo for Multi-Organization / Restaurant
 app.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
   const user = c.get('user');
-  const { orgName, workspaceName } = await c.req.json();
+  const { orgName, workspaceName, orgId: reqOrgId } = await c.req.json();
   const supabase = getSupabase(c.env);
 
   if (!workspaceName) {
@@ -823,9 +918,9 @@ app.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
   }
 
   try {
-    let orgId = null;
+    let orgId = reqOrgId || null;
 
-    if (orgName && orgName.trim()) {
+    if (!orgId && orgName && orgName.trim()) {
       const { data: org, error: orgErr } = await supabase
         .from('organizations')
         .insert({ name: orgName.trim() })
@@ -842,18 +937,47 @@ app.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
       });
     }
 
-    const { data: restaurant, error: restErr } = await supabase
+    let insertData: any = {
+      name: workspaceName.trim(),
+      currency: 'MYR',
+      service_charge: 6.0,
+      sst: 10.0,
+      owner_id: user.id
+    };
+
+    if (orgId) {
+      insertData.organization_id = orgId;
+    }
+
+    let restaurant;
+    let restErr;
+
+    const attempt1 = await supabase
       .from('restaurants')
-      .insert({
-        name: workspaceName.trim(),
-        currency: 'MYR',
-        service_charge: 6.0,
-        sst: 10.0,
-        organization_id: orgId,
-        owner_id: user.id
-      })
+      .insert(insertData)
       .select()
       .single();
+
+    if (attempt1.error) {
+      if (insertData.organization_id) {
+        delete insertData.organization_id;
+        const attempt2 = await supabase
+          .from('restaurants')
+          .insert(insertData)
+          .select()
+          .single();
+        
+        if (attempt2.error) {
+          restErr = attempt2.error;
+        } else {
+          restaurant = attempt2.data;
+        }
+      } else {
+        restErr = attempt1.error;
+      }
+    } else {
+      restaurant = attempt1.data;
+    }
 
     if (restErr) throw restErr;
 

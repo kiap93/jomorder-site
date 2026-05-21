@@ -15,13 +15,9 @@ export function Register() {
 
   useEffect(() => {
     if (!loading && user) {
-      if (profile?.restaurantId) {
-        navigate(`/restaurant/${profile.restaurantId}/orders`);
-      } else {
-        navigate('/onboarding');
-      }
+      navigate('/workspace-select?fromLogin=true');
     }
-  }, [user, profile, loading, navigate]);
+  }, [user, loading, navigate]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
