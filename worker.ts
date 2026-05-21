@@ -127,7 +127,44 @@ app.get('/api/debug-restaurants', async (c) => {
 const getSupabase = (env: Bindings) => createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Helper for finding/restoring staff settings
-async function getStaffSettingsFromDb(supabase: any, userId: string, role: string) {
+async function getStaffSettingsFromDb(supabase: any, userId: string, role: string, restaurantId?: string) {
+  try {
+    // 1. If restaurantId is provided, look in restaurant_users first
+    if (restaurantId) {
+      const { data: ruMapping, error: ruError } = await supabase
+        .from('restaurant_users')
+        .select('role, status, custom_permissions')
+        .eq('user_id', userId)
+        .eq('restaurant_id', restaurantId)
+        .maybeSingle();
+
+      if (!ruError && ruMapping) {
+        const selectedRole = ruMapping.role || role;
+        const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
+        const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
+        const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
+
+        const defaultPerms = {
+          can_refund: isOwner || isManager,
+          can_edit_menu: isOwner || isManager,
+          can_cancel_order: isOwner || isManager || isCashier,
+          can_view_analytics: isOwner || isManager,
+          can_manage_staff: isOwner
+        };
+
+        return {
+          status: ruMapping.status || 'active',
+          permissions: {
+            ...defaultPerms,
+            ...(ruMapping.custom_permissions || {})
+          }
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to query restaurant_users in getStaffSettingsFromDb:", err);
+  }
+
   try {
     const { data: profile, error } = await supabase
       .from('profiles')
@@ -136,9 +173,10 @@ async function getStaffSettingsFromDb(supabase: any, userId: string, role: strin
       .maybeSingle();
 
     if (!error && profile) {
-      const isOwner = profile.role === 'owner' || profile.role === 'admin' || profile.role === 'OWNER';
-      const isManager = profile.role === 'manager' || profile.role === 'MANAGER';
-      const isCashier = profile.role === 'cashier' || profile.role === 'CASHIER';
+      const selectedRole = profile.role || role;
+      const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
+      const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
+      const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
 
       const defaultPerms = {
         can_refund: isOwner || isManager,
@@ -477,7 +515,7 @@ app.post('/api/login', async (c) => {
           return c.json({ error: 'Your staff account has been suspended by the administrator.' }, 403);
         }
         
-        const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role);
+        const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role, profile.restaurant_id);
         const enrichedUser = {
           id: profile.id, 
           email: profile.email, 
@@ -614,7 +652,7 @@ app.post('/api/google-login', async (c) => {
         return c.json({ error: 'Your staff account has been suspended by the administrator.' }, 403);
       }
       
-      const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role);
+      const settings = await getStaffSettingsFromDb(supabase, profile.id, profile.role, profile.restaurant_id);
       userPayload = {
         id: profile.id,
         email: profile.email,
@@ -638,7 +676,7 @@ app.get('/api/me', authenticate, async (c) => {
   const user = c.get('user');
   if (user && user.id !== 'admin') {
     const supabase = getSupabase(c.env);
-    const settings = await getStaffSettingsFromDb(supabase, user.id, user.role);
+    const settings = await getStaffSettingsFromDb(supabase, user.id, user.role, user.restaurantId);
     if (settings.status === 'suspended') {
       return c.json({ error: "Your staff account has been suspended by the administrator." }, 403);
     }
@@ -1157,7 +1195,7 @@ app.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
 
     const enrichedStaff = [];
     for (const p of (profiles || [])) {
-      const settings = await getStaffSettingsFromDb(supabase, p.id, p.role);
+      const settings = await getStaffSettingsFromDb(supabase, p.id, p.role, restId);
       enrichedStaff.push({
         id: p.id,
         email: p.email,
@@ -1249,7 +1287,7 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
 
     await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
 
-    const finalSettings = await getStaffSettingsFromDb(supabase, profile.id, role);
+    const finalSettings = await getStaffSettingsFromDb(supabase, profile.id, role, restId);
 
     return c.json({
       id: profile.id,
@@ -1326,7 +1364,7 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) => {
 
     await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || profile.status})`, restId);
 
-    const finalSettings = await getStaffSettingsFromDb(supabase, staffId, updatedProfile.role);
+    const finalSettings = await getStaffSettingsFromDb(supabase, staffId, updatedProfile.role, restId);
 
     return c.json({
       id: updatedProfile.id,
@@ -1464,7 +1502,7 @@ app.patch("/api/menu-items/:id", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.id !== 'admin') {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
@@ -1492,7 +1530,7 @@ app.post("/api/menu-items", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.id !== 'admin') {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
@@ -1518,7 +1556,7 @@ app.delete("/api/menu-items/:id", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.id !== 'admin') {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
@@ -1635,7 +1673,7 @@ app.patch("/api/orders/:id", authenticate, async (c) => {
     const restId = order.restaurant_id || caller?.restaurantId || "default";
 
     if (caller && caller.id !== 'admin') {
-      const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role);
+      const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
       
       if (body.status === 'cancelled' && !settings.permissions.can_cancel_order) {
         return c.json({ error: "Forbidden: You do not have permission to cancel orders." }, 403);
