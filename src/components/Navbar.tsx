@@ -15,6 +15,7 @@ export function Navbar() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [restaurants, setRestaurants] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Extract restId from path: /restaurant/:restId/...
   const pathParts = location.pathname.split('/');
@@ -29,10 +30,17 @@ export function Navbar() {
   const activeOrg = organizations.find(o => o.id === activeOrgId);
 
   // If Max Outlet Ceiling = 1, then the user should not see the switch workspace navbar capabilities.
-  const isWorkspaceSwitcherVisible = !activeOrg || (activeOrg.max_outlets !== 1);
+  // Default to hide (false) during loading so there is no 1-second visual flash.
+  const isWorkspaceSwitcherVisible = !isLoading && (
+    profile?.role?.toLowerCase() === 'admin' || 
+    (activeOrg ? activeOrg.max_outlets !== 1 : true)
+  );
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
     const fetchOrgs = async () => {
       try {
         const res = await fetch(getApiUrl('/api/my-workspaces'), {
@@ -47,6 +55,8 @@ export function Navbar() {
         }
       } catch (err) {
         console.error("Failed to load organizations in Navbar:", err);
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchOrgs();
