@@ -377,8 +377,8 @@ export function AdminPanel() {
           id: restData.id,
           name: restData.name,
           currency: restData.currency,
-          serviceCharge: parseFloat(restData.service_charge || 0),
-          sst: parseFloat(restData.sst || 0)
+          serviceCharge: parseFloat(restData.service_charge || 0) / 100,
+          sst: parseFloat(restData.sst || 0) / 100
         });
       }
 
@@ -506,8 +506,8 @@ export function AdminPanel() {
         },
         body: JSON.stringify({
           name: restaurant.name,
-          service_charge: restaurant.serviceCharge,
-          sst: restaurant.sst,
+          service_charge: restaurant.serviceCharge * 100,
+          sst: restaurant.sst * 100,
           currency: restaurant.currency
         })
       });

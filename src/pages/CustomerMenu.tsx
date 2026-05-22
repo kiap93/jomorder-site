@@ -322,7 +322,13 @@ export function CustomerMenu() {
         console.timeEnd("fetchData-items");
 
         setRestaurant(prev => {
-          const nr = { id: restRes.id, name: restRes.name, currency: restRes.currency, serviceCharge: parseFloat(restRes.service_charge), sst: parseFloat(restRes.sst) };
+          const nr = { 
+            id: restRes.id, 
+            name: restRes.name, 
+            currency: restRes.currency, 
+            serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
+            sst: parseFloat(restRes.sst || 0) / 100 
+          };
           return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
         });
         

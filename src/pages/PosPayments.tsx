@@ -46,8 +46,8 @@ export function PosPayments() {
           const restData = await restRes.json();
           setRestaurant({
             ...restData,
-            serviceCharge: parseFloat(restData.service_charge || 0),
-            sst: parseFloat(restData.sst || 0)
+            serviceCharge: parseFloat(restData.service_charge || 0) / 100,
+            sst: parseFloat(restData.sst || 0) / 100
           } as any);
         }
 
