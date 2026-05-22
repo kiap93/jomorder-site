@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X } from 'lucide-react';
+import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X, Globe } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
+import { useLanguageStore } from '../store/useLanguageStore';
 import { useState, useEffect } from 'react';
 import { getApiUrl } from '../lib/api';
 
@@ -8,6 +9,7 @@ export function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, profile, token, signOut } = useAuthStore();
+  const { language, setLanguage, t } = useLanguageStore();
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -124,15 +126,43 @@ export function Navbar() {
                   className="fixed inset-0 z-40 bg-transparent" 
                   onClick={() => setIsDropdownOpen(false)} 
                 />
-                <div className="absolute bottom-14 right-0 md:right-auto md:left-12 md:bottom-0 w-60 bg-zinc-950 border border-zinc-850 rounded-2xl shadow-2xl py-2.5 px-2 z-50 text-left animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="absolute bottom-14 right-0 md:right-auto md:left-12 md:bottom-0 w-64 bg-zinc-950 border border-zinc-850 rounded-2xl shadow-2xl py-2.5 px-2 z-50 text-left animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  
+                  {/* Language Switch Section */}
+                  <div className="px-3 py-2 border-b border-zinc-900 mb-2 flex flex-col gap-1.5">
+                    <p className="text-[9px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
+                      <Globe size={11} className="text-zinc-400" /> Language / 语言 / Bahasa
+                    </p>
+                    <div className="grid grid-cols-3 gap-0.5 bg-zinc-900 p-0.5 rounded-lg border border-zinc-850">
+                      <button
+                        onClick={() => setLanguage('en')}
+                        className={`py-1 text-[10px] font-bold rounded-md transition-all ${language === 'en' ? 'bg-orange-500 text-white font-extrabold shadow' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      >
+                        English
+                      </button>
+                      <button
+                        onClick={() => setLanguage('zh')}
+                        className={`py-1 text-[10px] font-bold rounded-md transition-all ${language === 'zh' ? 'bg-orange-500 text-white font-extrabold shadow' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      >
+                        中文
+                      </button>
+                      <button
+                        onClick={() => setLanguage('ms')}
+                        className={`py-1 text-[10px] font-bold rounded-md transition-all ${language === 'ms' ? 'bg-orange-500 text-white font-extrabold shadow' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      >
+                        Melayu
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="px-3 py-2 mb-1.5 border-b border-zinc-900">
-                    <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Signed In As</p>
+                    <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">{t('navbar.signedInAs')}</p>
                     <p className="text-xs font-bold text-zinc-300 truncate mt-0.5">{user.email || 'Admin User'}</p>
                   </div>
 
                   {organizations.length > 1 && (
                     <div className="px-3 pb-2.5 mb-2 border-b border-zinc-900">
-                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">Switch Brand</p>
+                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">{t('navbar.switchBrand')}</p>
                       <div className="space-y-1 max-h-36 overflow-y-auto pr-1 select-none">
                         {organizations.map((org) => (
                           <button
@@ -156,7 +186,7 @@ export function Navbar() {
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 transition-all text-left"
                     >
                       <User size={14} className="text-zinc-500" />
-                      View Profile Settings
+                      {t('navbar.viewProfile')}
                     </button>
 
                     <button
@@ -167,7 +197,7 @@ export function Navbar() {
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 transition-all text-left"
                     >
                       <Building2 size={14} className="text-zinc-500" />
-                      Manage Outlets
+                      {t('navbar.manageOutlets')}
                     </button>
 
                     <button
@@ -175,7 +205,7 @@ export function Navbar() {
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all text-left"
                     >
                       <LogOut size={14} />
-                      Sign Out
+                      {t('navbar.signOut')}
                     </button>
                   </div>
                 </div>
@@ -202,21 +232,21 @@ export function Navbar() {
               <div className="w-12 h-12 bg-orange-500/10 text-orange-500 rounded-2xl flex items-center justify-center mb-3">
                 <User size={24} />
               </div>
-              <h3 className="text-xl font-black text-zinc-100 tracking-tight">Active Identity Profile</h3>
+              <h3 className="text-xl font-black text-zinc-100 tracking-tight">{t('navbar.activeIdentity')}</h3>
               <p className="text-xs text-zinc-500 font-semibold mt-0.5 animate-pulse">Your enterprise operational indicators</p>
             </div>
 
             <div className="space-y-4 bg-zinc-900/60 p-6 rounded-2xl border border-zinc-850/60 mb-6">
               <div>
-                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">Account Email</span>
+                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">{t('navbar.accountEmail')}</span>
                 <span className="text-sm font-bold text-zinc-200">{user?.email || 'N/A'}</span>
               </div>
               <div>
-                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">User Identity Reference (UID)</span>
+                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">{t('navbar.userId')}</span>
                 <span className="text-xs font-mono text-zinc-300 block break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-850 mt-1 select-all">{user?.id || 'N/A'}</span>
               </div>
               <div>
-                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">Active Tenant Authorization token</span>
+                <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">{t('navbar.tenantToken')}</span>
                 <span className="text-[10px] font-mono text-zinc-400 block break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-850 mt-1 select-all select-none truncate max-w-xs">
                   {token ? `${token.slice(0, 35)}...` : 'None'}
                 </span>
@@ -227,7 +257,7 @@ export function Navbar() {
               onClick={() => setIsProfileModalOpen(false)}
               className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-orange-950/20 active:scale-95 duration-100"
             >
-              Dismiss Settings
+              {t('navbar.dismiss')}
             </button>
           </div>
         </div>

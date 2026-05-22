@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
+import { useLanguageStore } from '../store/useLanguageStore';
 import { getApiUrl } from '../lib/api';
 import { 
   Building2, 
@@ -86,6 +87,7 @@ interface Workspace {
 export function WorkspaceSelect() {
   const navigate = useNavigate();
   const { user, profile, token, signOut, switchWorkspace } = useAuthStore();
+  const { language, setLanguage, t } = useLanguageStore();
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -390,10 +392,44 @@ export function WorkspaceSelect() {
             </div>
           ) : (
             <div>
-              <h1 className="text-4xl font-black text-gray-900 tracking-tight">Portal Gateway</h1>
-              <p className="text-gray-500 font-semibold text-sm">Isolate organization streams securely</p>
+              <h1 className="text-4xl font-black text-gray-900 tracking-tight">{t('workspace.title')}</h1>
+              <p className="text-gray-500 font-semibold text-sm">{t('workspace.subtitle')}</p>
             </div>
           )}
+
+          {/* Language Switch Row */}
+          <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-gray-100 shadow-sm self-end sm:self-auto shrink-0 select-none">
+            <button
+              onClick={() => setLanguage('en')}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
+                language === 'en'
+                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
+                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              EN
+            </button>
+            <button
+              onClick={() => setLanguage('zh')}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
+                language === 'zh'
+                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
+                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              中文
+            </button>
+            <button
+              onClick={() => setLanguage('ms')}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
+                language === 'ms'
+                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
+                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Melayu
+            </button>
+          </div>
         </div>
 
         {/* Global Error Banner */}
@@ -524,12 +560,12 @@ export function WorkspaceSelect() {
                   ) : (
                     <div className="space-y-6">
                       
-                      {/* 1. Current Active Workspace Outlet */}
+                       {/* 1. Current Active Workspace Outlet */}
                       {activeWorkspace && (
                         <div className="space-y-2.5">
                           <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-orange-600 ml-1">
                             <Check size={11} className="stroke-[3]" />
-                            <span>Current Active Workspace / Outlet</span>
+                            <span>{t('workspace.connected')}</span>
                           </div>
                           
                           {(() => {
@@ -556,12 +592,12 @@ export function WorkspaceSelect() {
                                         Active
                                       </span>
                                       {isSuspended && (
-                                        <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
-                                          <AlertTriangle size={8} /> Suspended
+                                        <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1 font-extrabold">
+                                          <AlertTriangle size={8} /> {t('workspace.suspended')}
                                         </span>
                                       )}
                                     </div>
-                                    <p className="text-xs text-gray-400 font-semibold mt-1">Currently connected session stream</p>
+                                    <p className="text-xs text-gray-400 font-semibold mt-1">{t('workspace.connected')}</p>
                                   </div>
                                 </div>
 
@@ -586,7 +622,7 @@ export function WorkspaceSelect() {
                             <span className="h-px bg-gray-100 flex-1"></span>
                             <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 flex items-center gap-1 shrink-0">
                               <Building2 size={11} />
-                              Other Available Outlets & Branches ({sortedOtherWorkspaces.length})
+                              {t('workspace.title')} ({sortedOtherWorkspaces.length})
                             </span>
                             <span className="h-px bg-gray-100 flex-1"></span>
                           </div>

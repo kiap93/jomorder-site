@@ -40,6 +40,10 @@ interface Tenant {
   features: TenantFeature;
   billingHistory: BillingItem[];
   usage: TenantUsage;
+  multi_outlet_enabled?: boolean;
+  max_outlets?: number;
+  franchise_mode?: boolean;
+  branchCount?: number;
 }
 
 interface ActiveOrder {
@@ -843,7 +847,18 @@ export function SuperAdmin() {
                 <label className="text-[10px] font-black tracking-wider text-zinc-500 uppercase block mb-1.5">SaaS Subscription Plan</label>
                 <select
                   value={selectedTenant.subscriptionPlan}
-                  onChange={e => updateTenantConfig(selectedTenant.id, { subscriptionPlan: e.target.value as any })}
+                  onChange={e => {
+                    const plan = e.target.value as 'free' | 'pro' | 'enterprise';
+                    const planLimits = plan === 'enterprise'
+                      ? { max_outlets: 99, multi_outlet_enabled: true, franchise_mode: true }
+                      : plan === 'pro'
+                        ? { max_outlets: 5, multi_outlet_enabled: true, franchise_mode: false }
+                        : { max_outlets: 1, multi_outlet_enabled: false, franchise_mode: false };
+                    updateTenantConfig(selectedTenant.id, { 
+                      subscriptionPlan: plan, 
+                      ...planLimits 
+                    });
+                  }}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs font-bold text-zinc-300"
                 >
                   <option value="free">Standard (Free SLA)</option>
@@ -863,6 +878,53 @@ export function SuperAdmin() {
                   <option value="active">Active System Node</option>
                   <option value="suspended">Suspended SLA Restriction</option>
                 </select>
+              </div>
+
+              {/* Capability Constraints */}
+              <div className="pt-4 border-t border-zinc-800 space-y-3">
+                <span className="text-[10px] font-black tracking-wider text-zinc-500 uppercase block">Organization Level Capabilities (Limits)</span>
+                
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-1">Max Outlet Ceiling</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={selectedTenant.max_outlets !== undefined ? selectedTenant.max_outlets : 1}
+                      onChange={e => updateTenantConfig(selectedTenant.id, { max_outlets: parseInt(e.target.value) || 1 })}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs font-bold text-zinc-300 focus:outline-none focus:border-zinc-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-1">Active Branches Link</label>
+                    <div className="bg-zinc-950 border border-zinc-850 rounded-lg p-2 text-xs font-bold text-zinc-500">
+                      {selectedTenant.branchCount !== undefined ? selectedTenant.branchCount : 0} Outlets
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={selectedTenant.multi_outlet_enabled || false}
+                      onChange={e => updateTenantConfig(selectedTenant.id, { multi_outlet_enabled: e.target.checked })}
+                      className="rounded border-zinc-800 bg-zinc-950 text-orange-500 focus:ring-0 focus:ring-offset-0"
+                    />
+                    <span className="text-[11px] font-bold text-zinc-300">Multi Outlet Provisioning</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={selectedTenant.franchise_mode || false}
+                      onChange={e => updateTenantConfig(selectedTenant.id, { franchise_mode: e.target.checked })}
+                      className="rounded border-zinc-800 bg-zinc-950 text-orange-500 focus:ring-0 focus:ring-offset-0"
+                    />
+                    <span className="text-[11px] font-bold text-zinc-300">Franchise HQ Mode</span>
+                  </label>
+                </div>
               </div>
 
               {/* Toggle Feature Flags */}
