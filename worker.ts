@@ -798,8 +798,18 @@ app.get('/api/my-workspaces', authenticate, async (c) => {
       }
     }
 
+    const enrichedOrgs = await Promise.all(organizationsList.map(async (org: any) => {
+      const settings = await getOrganizationSettings(supabase, org.id);
+      return {
+        ...org,
+        max_outlets: settings.max_outlets,
+        multi_outlet_enabled: settings.multi_outlet_enabled,
+        subscription_plan: settings.subscription_plan
+      };
+    }));
+
     return c.json({
-      organizations: organizationsList,
+      organizations: enrichedOrgs,
       restaurants: restaurantsList
     });
   } catch (err: any) {

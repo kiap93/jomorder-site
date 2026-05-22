@@ -14,6 +14,7 @@ export function Navbar() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [organizations, setOrganizations] = useState<any[]>([]);
+  const [restaurants, setRestaurants] = useState<any[]>([]);
   
   // Extract restId from path: /restaurant/:restId/...
   const pathParts = location.pathname.split('/');
@@ -21,6 +22,14 @@ export function Navbar() {
   const urlRestId = restIndex !== -1 ? pathParts[restIndex + 1] : null;
   
   const restId = urlRestId || profile?.restaurantId;
+
+  // Find organization of the active restaurant to check max_outlets ceiling
+  const activeRestaurant = restaurants.find(r => r.id === restId);
+  const activeOrgId = activeRestaurant?.organization_id;
+  const activeOrg = organizations.find(o => o.id === activeOrgId);
+
+  // If Max Outlet Ceiling = 1, then the user should not see the switch workspace navbar capabilities.
+  const isWorkspaceSwitcherVisible = !activeOrg || (activeOrg.max_outlets !== 1);
 
   useEffect(() => {
     if (!token) return;
@@ -34,6 +43,7 @@ export function Navbar() {
         if (res.ok) {
           const data = await res.json();
           setOrganizations(data.organizations || []);
+          setRestaurants(data.restaurants || []);
         }
       } catch (err) {
         console.error("Failed to load organizations in Navbar:", err);
@@ -96,13 +106,15 @@ export function Navbar() {
             >
               <Settings size={20} />
             </Link>
-            <Link 
-              to="/workspace-select" 
-              title="Switch Workspace"
-              className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/workspace-select') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
-            >
-              <Building2 size={20} />
-            </Link>
+            {isWorkspaceSwitcherVisible && (
+              <Link 
+                to="/workspace-select" 
+                title="Switch Workspace"
+                className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/workspace-select') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
+              >
+                <Building2 size={20} />
+              </Link>
+            )}
           </>
         )}
         
@@ -189,16 +201,18 @@ export function Navbar() {
                       {t('navbar.viewProfile')}
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setIsDropdownOpen(false);
-                        navigate('/workspace-select');
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 transition-all text-left"
-                    >
-                      <Building2 size={14} className="text-zinc-500" />
-                      {t('navbar.manageOutlets')}
-                    </button>
+                    {isWorkspaceSwitcherVisible && (
+                      <button
+                        onClick={() => {
+                          setIsDropdownOpen(false);
+                          navigate('/workspace-select');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 transition-all text-left"
+                      >
+                        <Building2 size={14} className="text-zinc-500" />
+                        {t('navbar.manageOutlets')}
+                      </button>
+                    )}
 
                     <button
                       onClick={handleSignOut}
