@@ -1304,7 +1304,7 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: authUser.user.id,
           email,
           role,
@@ -1324,7 +1324,7 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
       console.warn("Falling back to standard profiles schema insert:", fallbackErr);
       const { data, error } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: authUser.user.id,
           email,
           role,

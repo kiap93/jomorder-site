@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { Navbar } from './components/Navbar';
 
@@ -20,6 +20,35 @@ import { Landing } from './pages/Landing';
 import { InternalReview } from './pages/InternalReview';
 import { SuperAdmin } from './pages/SuperAdmin';
 import { WorkspaceSelect } from './pages/WorkspaceSelect';
+
+function ContextTracker() {
+  const location = useLocation();
+  const { user, profile } = useAuthStore();
+
+  useEffect(() => {
+    if (user?.id && profile?.restaurantId) {
+      const path = location.pathname;
+      const isAuthOrOnboarding = 
+        path.includes('/login') || 
+        path.includes('/register') || 
+        path.includes('/onboarding') || 
+        path.includes('/workspace-select') || 
+        path === '/' || 
+        path.includes('/table/') || 
+        path.includes('/order/');
+        
+      if (!isAuthOrOnboarding) {
+        localStorage.setItem(`user_last_module_${user.id}`, path);
+        localStorage.setItem(`user_last_branch_${user.id}`, profile.restaurantId);
+        if (profile.organizationId) {
+          localStorage.setItem(`user_last_workspace_${user.id}`, profile.organizationId);
+        }
+      }
+    }
+  }, [location.pathname, user?.id, profile?.restaurantId, profile?.organizationId]);
+
+  return null;
+}
 
 export default function App() {
   const { init, loading, user, profile } = useAuthStore();
@@ -52,6 +81,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <ContextTracker />
       <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 md:pl-20 font-sans">
         <Navbar />
         <main className="container mx-auto px-4 py-8">

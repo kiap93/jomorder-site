@@ -908,16 +908,43 @@ app.post('/api/switch-workspace/:restaurantId', authenticateJWT, async (req, res
       return res.status(403).json({ error: "Your account is suspended in this workspace." });
     }
 
-    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
-    const isManager = role === 'manager' || role === 'MANAGER';
-    const isCashier = role === 'cashier' || role === 'CASHIER';
+    let organizationId: string | null = null;
+    const fallbackRest = db.restaurants.find((r: any) => r.id === restaurantId);
+    if (fallbackRest) {
+      organizationId = fallbackRest.organization_id || null;
+    }
+
+    if (!organizationId) {
+      try {
+        const { data: dbRest } = await supabaseAdmin
+          .from('restaurants')
+          .select('organization_id')
+          .eq('id', restaurantId)
+          .maybeSingle();
+        if (dbRest) {
+          organizationId = dbRest.organization_id || null;
+        }
+      } catch (err) {
+        console.warn("Could not load organization_id from supabaseAdmin in switch-workspace:", err);
+      }
+    }
+
+    const lowerRole = role ? role.toLowerCase() : '';
+    const isOwnerOrAdmin = lowerRole === 'owner' || lowerRole === 'admin' || lowerRole === 'superadmin';
+    const isManager = lowerRole === 'manager';
+    const isCashier = lowerRole === 'cashier';
+    const isKitchen = lowerRole === 'kitchen';
+    const isRunner = lowerRole === 'runner';
 
     const permissions = {
-      can_refund: isOwner || isManager,
-      can_edit_menu: isOwner || isManager,
-      can_cancel_order: isOwner || isManager || isCashier,
-      can_view_analytics: isOwner || isManager,
-      can_manage_staff: isOwner,
+      can_refund: isOwnerOrAdmin || isManager,
+      can_edit_menu: isOwnerOrAdmin || isManager,
+      can_cancel_order: isOwnerOrAdmin || isManager || isCashier,
+      can_view_analytics: isOwnerOrAdmin || isManager,
+      can_manage_staff: isOwnerOrAdmin,
+      can_access_pos: isOwnerOrAdmin || isManager || isCashier,
+      can_access_kds: isOwnerOrAdmin || isManager || isKitchen || isCashier,
+      can_view_reports: isOwnerOrAdmin || isManager,
       ...(customPerms || {})
     };
 
@@ -926,6 +953,7 @@ app.post('/api/switch-workspace/:restaurantId', authenticateJWT, async (req, res
       email: user.email,
       role: role,
       restaurantId: restaurantId,
+      organizationId: organizationId,
       status: status,
       permissions: permissions
     };
@@ -2326,7 +2354,7 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({
+      .upsert({
         id: authUser.user.id,
         email,
         role,
@@ -2647,7 +2675,7 @@ app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (re
     }
 
     const enrichedTenants = await Promise.all((restaurants || []).map(async (r) => {
-      const reg = getTenantRegistry(r.id);
+      const reg = await getOrganizationSettings(supabaseAdmin, r.organization_id || r.id);
       
       let numOrders = 0;
       let activeSessions = 0;
@@ -2680,6 +2708,9 @@ app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (re
         status: reg.status,
         features: reg.features,
         billingHistory: reg.billing_history,
+        max_outlets: reg.max_outlets,
+        multi_outlet_enabled: reg.multi_outlet_enabled,
+        franchise_mode: reg.franchise_mode,
         usage: {
           numOrders,
           activeSessions,
@@ -2738,7 +2769,7 @@ app.post("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (r
 
 app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
-  const { name, currency, serviceCharge, sst, subscriptionPlan, status, features } = req.body;
+  const { name, currency, serviceCharge, sst, subscriptionPlan, status, features, max_outlets, multi_outlet_enabled, franchise_mode } = req.body;
 
   try {
     const { data: restaurant, error } = await supabaseAdmin
@@ -2755,40 +2786,78 @@ app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async
 
     if (error) throw error;
 
-    const registry = readRegistry();
-    if (!registry[id]) {
-      registry[id] = {
-        subscription_plan: 'free',
-        status: 'active',
-        features: {
-          duitnow_payment: true,
-          partial_payment: false,
-          kitchen_display: true,
-          multi_language_menu: true,
-          socket_realtime: true
-        },
-        billing_history: [],
-        api_calls_count: 50
-      };
+    const orgId = restaurant?.organization_id || id;
+    const currentSettings = await getOrganizationSettings(supabaseAdmin, orgId);
+
+    // Auto-recompute default plan parameters if plan level shifts unless override is present
+    let finalLimits = {
+      multi_outlet_enabled: multi_outlet_enabled !== undefined ? multi_outlet_enabled : currentSettings.multi_outlet_enabled,
+      max_outlets: max_outlets !== undefined ? max_outlets : currentSettings.max_outlets,
+      franchise_mode: franchise_mode !== undefined ? franchise_mode : currentSettings.franchise_mode
+    };
+
+    if (subscriptionPlan !== undefined && subscriptionPlan !== currentSettings.subscription_plan) {
+      if (subscriptionPlan === 'enterprise') {
+        finalLimits = { multi_outlet_enabled: true, max_outlets: 99, franchise_mode: true };
+      } else if (subscriptionPlan === 'pro') {
+        finalLimits = { multi_outlet_enabled: true, max_outlets: 5, franchise_mode: false };
+      } else {
+        finalLimits = { multi_outlet_enabled: false, max_outlets: 1, franchise_mode: false };
+      }
     }
 
-    if (subscriptionPlan !== undefined) registry[id].subscription_plan = subscriptionPlan;
-    if (status !== undefined) registry[id].status = status;
-    if (features !== undefined) registry[id].features = features;
+    const savedCapabilities = await saveOrganizationSettings(supabaseAdmin, orgId, {
+      subscription_plan: subscriptionPlan !== undefined ? subscriptionPlan : currentSettings.subscription_plan,
+      status: status !== undefined ? status : currentSettings.status,
+      multi_outlet_enabled: finalLimits.multi_outlet_enabled,
+      max_outlets: finalLimits.max_outlets,
+      franchise_mode: finalLimits.franchise_mode,
+      features: features !== undefined ? features : currentSettings.features
+    });
 
-    // Simulate billing line if plan upgraded
-    if (subscriptionPlan && subscriptionPlan !== registry[id].subscription_plan) {
-      registry[id].billing_history.push({
-        date: new Date().toISOString().split('T')[0],
-        description: `Upgraded/Changed subscription plan to ${subscriptionPlan}`,
-        amount: subscriptionPlan === 'enterprise' ? 499.00 : subscriptionPlan === 'pro' ? 199.00 : 0.00,
-        status: 'paid'
-      });
+    const registry = readRegistry();
+    const updateRegistry = (key: string) => {
+      if (!registry[key]) {
+        registry[key] = {
+          subscription_plan: 'free',
+          status: 'active',
+          features: {
+            duitnow_payment: true,
+            partial_payment: false,
+            kitchen_display: true,
+            multi_language_menu: true,
+            socket_realtime: true
+          },
+          billing_history: [],
+          api_calls_count: 50
+        };
+      }
+
+      if (subscriptionPlan !== undefined) registry[key].subscription_plan = subscriptionPlan;
+      if (status !== undefined) registry[key].status = status;
+      if (features !== undefined) registry[key].features = features;
+      if (finalLimits.max_outlets !== undefined) registry[key].max_outlets = finalLimits.max_outlets;
+      if (finalLimits.multi_outlet_enabled !== undefined) registry[key].multi_outlet_enabled = finalLimits.multi_outlet_enabled;
+      if (finalLimits.franchise_mode !== undefined) registry[key].franchise_mode = finalLimits.franchise_mode;
+
+      if (subscriptionPlan && subscriptionPlan !== registry[key].subscription_plan) {
+        registry[key].billing_history.push({
+          date: new Date().toISOString().split('T')[0],
+          description: `Upgraded/Changed subscription plan to ${subscriptionPlan}`,
+          amount: subscriptionPlan === 'enterprise' ? 499.00 : subscriptionPlan === 'pro' ? 199.00 : 0.00,
+          status: 'paid'
+        });
+      }
+    };
+
+    updateRegistry(id);
+    if (orgId && orgId !== id) {
+      updateRegistry(orgId);
     }
 
     writeRegistry(registry);
 
-    res.json({ restaurant, registry: registry[id] });
+    res.json({ restaurant, registry: registry[id], capabilities: savedCapabilities });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

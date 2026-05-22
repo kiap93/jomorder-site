@@ -95,7 +95,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             id: profile.id,
             email: profile.email,
             role: profile.role,
-            restaurantId: profile.restaurantId || profile.restaurant_id
+            restaurantId: profile.restaurantId || profile.restaurant_id,
+            organizationId: profile.organizationId || profile.organization_id || null,
+            status: profile.status,
+            permissions: profile.permissions
           } as UserProfile,
           token: savedToken,
           loading: false 
@@ -143,7 +146,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           id: profile.id,
           email: profile.email,
           role: profile.role,
-          restaurantId: profile.restaurantId || profile.restaurant_id
+          restaurantId: profile.restaurantId || profile.restaurant_id,
+          organizationId: profile.organizationId || profile.organization_id || null,
+          status: profile.status,
+          permissions: profile.permissions
         } as UserProfile,
         token,
         loading: false 
@@ -188,7 +194,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           id: profile.id,
           email: profile.email,
           role: profile.role,
-          restaurantId: profile.restaurantId || profile.restaurant_id
+          restaurantId: profile.restaurantId || profile.restaurant_id,
+          organizationId: profile.organizationId || profile.organization_id || null,
+          status: profile.status,
+          permissions: profile.permissions
         } as UserProfile,
         token,
         loading: false 
@@ -235,7 +244,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           id: profile.id,
           email: profile.email,
           role: profile.role,
-          restaurantId: profile.restaurantId || profile.restaurant_id
+          restaurantId: profile.restaurantId || profile.restaurant_id,
+          organizationId: profile.organizationId || profile.organization_id || null,
+          status: profile.status,
+          permissions: profile.permissions
         } as UserProfile,
         token,
         loading: false 
@@ -298,6 +310,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           email: enrichedUser.email,
           role: enrichedUser.role,
           restaurantId: enrichedUser.restaurantId || enrichedUser.restaurant_id,
+          organizationId: enrichedUser.organizationId || enrichedUser.organization_id || null,
           status: enrichedUser.status,
           permissions: enrichedUser.permissions
         } as UserProfile,

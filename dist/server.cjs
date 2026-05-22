@@ -663,15 +663,36 @@ app.post("/api/switch-workspace/:restaurantId", authenticateJWT, async (req, res
     if (status === "suspended") {
       return res.status(403).json({ error: "Your account is suspended in this workspace." });
     }
-    const isOwner = role === "owner" || role === "admin" || role === "OWNER";
-    const isManager = role === "manager" || role === "MANAGER";
-    const isCashier = role === "cashier" || role === "CASHIER";
+    let organizationId = null;
+    const fallbackRest = db.restaurants.find((r) => r.id === restaurantId);
+    if (fallbackRest) {
+      organizationId = fallbackRest.organization_id || null;
+    }
+    if (!organizationId) {
+      try {
+        const { data: dbRest } = await supabaseAdmin.from("restaurants").select("organization_id").eq("id", restaurantId).maybeSingle();
+        if (dbRest) {
+          organizationId = dbRest.organization_id || null;
+        }
+      } catch (err) {
+        console.warn("Could not load organization_id from supabaseAdmin in switch-workspace:", err);
+      }
+    }
+    const lowerRole = role ? role.toLowerCase() : "";
+    const isOwnerOrAdmin = lowerRole === "owner" || lowerRole === "admin" || lowerRole === "superadmin";
+    const isManager = lowerRole === "manager";
+    const isCashier = lowerRole === "cashier";
+    const isKitchen = lowerRole === "kitchen";
+    const isRunner = lowerRole === "runner";
     const permissions = {
-      can_refund: isOwner || isManager,
-      can_edit_menu: isOwner || isManager,
-      can_cancel_order: isOwner || isManager || isCashier,
-      can_view_analytics: isOwner || isManager,
-      can_manage_staff: isOwner,
+      can_refund: isOwnerOrAdmin || isManager,
+      can_edit_menu: isOwnerOrAdmin || isManager,
+      can_cancel_order: isOwnerOrAdmin || isManager || isCashier,
+      can_view_analytics: isOwnerOrAdmin || isManager,
+      can_manage_staff: isOwnerOrAdmin,
+      can_access_pos: isOwnerOrAdmin || isManager || isCashier,
+      can_access_kds: isOwnerOrAdmin || isManager || isKitchen || isCashier,
+      can_view_reports: isOwnerOrAdmin || isManager,
       ...customPerms || {}
     };
     const enriched = {
@@ -679,6 +700,7 @@ app.post("/api/switch-workspace/:restaurantId", authenticateJWT, async (req, res
       email: user.email,
       role,
       restaurantId,
+      organizationId,
       status,
       permissions
     };
@@ -1423,6 +1445,36 @@ async function getOrganizationSettings(supabase, orgId) {
     franchise_mode: reg.franchise_mode !== void 0 ? reg.franchise_mode : false
   };
 }
+async function saveOrganizationSettings(supabase, orgId, payload) {
+  const current = await getOrganizationSettings(supabase, orgId);
+  const updated = {
+    ...current,
+    ...payload,
+    features: {
+      ...current.features,
+      ...payload.features || {}
+    }
+  };
+  try {
+    const { error } = await supabase.from("organization_settings").upsert({
+      organization_id: orgId,
+      subscription_plan: updated.subscription_plan,
+      status: updated.status,
+      multi_outlet_enabled: updated.multi_outlet_enabled,
+      max_outlets: updated.max_outlets,
+      franchise_mode: updated.franchise_mode,
+      features: updated.features,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }, { onConflict: "organization_id" });
+    if (error) throw error;
+  } catch (err) {
+    console.warn("[Capability Engine] Failed to save to organization_settings table, saving to json registry:", err.message);
+  }
+  const registry = readRegistry();
+  registry[orgId] = updated;
+  writeRegistry(registry);
+  return updated;
+}
 function getTenantRegistry(tenantId) {
   const registry = readRegistry();
   if (!registry[tenantId]) {
@@ -1568,7 +1620,7 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
     if (!authUser.user) {
       return res.status(500).json({ error: "Failed to create authentication user." });
     }
-    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
+    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").upsert({
       id: authUser.user.id,
       email,
       role,
@@ -1818,7 +1870,7 @@ app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (re
       return res.json(mockTenants);
     }
     const enrichedTenants = await Promise.all((restaurants || []).map(async (r) => {
-      const reg = getTenantRegistry(r.id);
+      const reg = await getOrganizationSettings(supabaseAdmin, r.organization_id || r.id);
       let numOrders = 0;
       let activeSessions = 0;
       try {
@@ -1842,6 +1894,9 @@ app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (re
         status: reg.status,
         features: reg.features,
         billingHistory: reg.billing_history,
+        max_outlets: reg.max_outlets,
+        multi_outlet_enabled: reg.multi_outlet_enabled,
+        franchise_mode: reg.franchise_mode,
         usage: {
           numOrders,
           activeSessions,
@@ -1889,7 +1944,7 @@ app.post("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (r
 });
 app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
-  const { name, currency, serviceCharge, sst, subscriptionPlan, status, features } = req.body;
+  const { name, currency, serviceCharge, sst, subscriptionPlan, status, features, max_outlets, multi_outlet_enabled, franchise_mode } = req.body;
   try {
     const { data: restaurant, error } = await supabaseAdmin.from("restaurants").update({
       name,
@@ -1898,35 +1953,68 @@ app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async
       sst
     }).eq("id", id).select().maybeSingle();
     if (error) throw error;
-    const registry = readRegistry();
-    if (!registry[id]) {
-      registry[id] = {
-        subscription_plan: "free",
-        status: "active",
-        features: {
-          duitnow_payment: true,
-          partial_payment: false,
-          kitchen_display: true,
-          multi_language_menu: true,
-          socket_realtime: true
-        },
-        billing_history: [],
-        api_calls_count: 50
-      };
+    const orgId = restaurant?.organization_id || id;
+    const currentSettings = await getOrganizationSettings(supabaseAdmin, orgId);
+    let finalLimits = {
+      multi_outlet_enabled: multi_outlet_enabled !== void 0 ? multi_outlet_enabled : currentSettings.multi_outlet_enabled,
+      max_outlets: max_outlets !== void 0 ? max_outlets : currentSettings.max_outlets,
+      franchise_mode: franchise_mode !== void 0 ? franchise_mode : currentSettings.franchise_mode
+    };
+    if (subscriptionPlan !== void 0 && subscriptionPlan !== currentSettings.subscription_plan) {
+      if (subscriptionPlan === "enterprise") {
+        finalLimits = { multi_outlet_enabled: true, max_outlets: 99, franchise_mode: true };
+      } else if (subscriptionPlan === "pro") {
+        finalLimits = { multi_outlet_enabled: true, max_outlets: 5, franchise_mode: false };
+      } else {
+        finalLimits = { multi_outlet_enabled: false, max_outlets: 1, franchise_mode: false };
+      }
     }
-    if (subscriptionPlan !== void 0) registry[id].subscription_plan = subscriptionPlan;
-    if (status !== void 0) registry[id].status = status;
-    if (features !== void 0) registry[id].features = features;
-    if (subscriptionPlan && subscriptionPlan !== registry[id].subscription_plan) {
-      registry[id].billing_history.push({
-        date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
-        description: `Upgraded/Changed subscription plan to ${subscriptionPlan}`,
-        amount: subscriptionPlan === "enterprise" ? 499 : subscriptionPlan === "pro" ? 199 : 0,
-        status: "paid"
-      });
+    const savedCapabilities = await saveOrganizationSettings(supabaseAdmin, orgId, {
+      subscription_plan: subscriptionPlan !== void 0 ? subscriptionPlan : currentSettings.subscription_plan,
+      status: status !== void 0 ? status : currentSettings.status,
+      multi_outlet_enabled: finalLimits.multi_outlet_enabled,
+      max_outlets: finalLimits.max_outlets,
+      franchise_mode: finalLimits.franchise_mode,
+      features: features !== void 0 ? features : currentSettings.features
+    });
+    const registry = readRegistry();
+    const updateRegistry = (key) => {
+      if (!registry[key]) {
+        registry[key] = {
+          subscription_plan: "free",
+          status: "active",
+          features: {
+            duitnow_payment: true,
+            partial_payment: false,
+            kitchen_display: true,
+            multi_language_menu: true,
+            socket_realtime: true
+          },
+          billing_history: [],
+          api_calls_count: 50
+        };
+      }
+      if (subscriptionPlan !== void 0) registry[key].subscription_plan = subscriptionPlan;
+      if (status !== void 0) registry[key].status = status;
+      if (features !== void 0) registry[key].features = features;
+      if (finalLimits.max_outlets !== void 0) registry[key].max_outlets = finalLimits.max_outlets;
+      if (finalLimits.multi_outlet_enabled !== void 0) registry[key].multi_outlet_enabled = finalLimits.multi_outlet_enabled;
+      if (finalLimits.franchise_mode !== void 0) registry[key].franchise_mode = finalLimits.franchise_mode;
+      if (subscriptionPlan && subscriptionPlan !== registry[key].subscription_plan) {
+        registry[key].billing_history.push({
+          date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+          description: `Upgraded/Changed subscription plan to ${subscriptionPlan}`,
+          amount: subscriptionPlan === "enterprise" ? 499 : subscriptionPlan === "pro" ? 199 : 0,
+          status: "paid"
+        });
+      }
+    };
+    updateRegistry(id);
+    if (orgId && orgId !== id) {
+      updateRegistry(orgId);
     }
     writeRegistry(registry);
-    res.json({ restaurant, registry: registry[id] });
+    res.json({ restaurant, registry: registry[id], capabilities: savedCapabilities });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -8,7 +8,7 @@ import { getApiUrl } from '../lib/api';
 export function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, profile, token, signOut } = useAuthStore();
+  const { user, profile, token, signOut, switchWorkspace } = useAuthStore();
   const { language, setLanguage, t } = useLanguageStore();
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -17,20 +17,20 @@ export function Navbar() {
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Extract restId from path: /restaurant/:restId/...
   const pathParts = location.pathname.split('/');
   const restIndex = pathParts.indexOf('restaurant');
   const urlRestId = restIndex !== -1 ? pathParts[restIndex + 1] : null;
   
   const restId = urlRestId || profile?.restaurantId;
 
-  // Find organization of the active restaurant to check max_outlets ceiling
-  const activeRestaurant = restaurants.find(r => r.id === restId);
+  const activeRestaurant = restaurants.find(r => r.id?.toString() === restId?.toString());
   const activeOrgId = activeRestaurant?.organization_id;
   const activeOrg = organizations.find(o => o.id === activeOrgId);
 
-  // If Max Outlet Ceiling = 1, then the user should not see the switch workspace navbar capabilities.
-  // Default to hide (false) during loading so there is no 1-second visual flash.
+  const activeOrgBranches = restaurants.filter(
+    r => r.organization_id && r.organization_id === activeOrgId
+  );
+
   const isWorkspaceSwitcherVisible = !isLoading && (
     profile?.role?.toLowerCase() === 'admin' || 
     (activeOrg ? activeOrg.max_outlets !== 1 : true)
@@ -62,16 +62,31 @@ export function Navbar() {
     fetchOrgs();
   }, [token]);
 
-  // Don't show Navbar on landing page (Conditional returns must be placed below all hook calls)
   if (location.pathname === '/') return null;
 
-  // Don't show Navbar for customers on mobile (they have their own navigation in CustomerMenu)
   const isCustomerPath = location.pathname.includes('/table/') || location.pathname.includes('/order/');
   if (isCustomerPath && !user) return null;
 
   const handleSelectOrg = (orgId: string) => {
     setIsDropdownOpen(false);
     navigate(`/workspace-select?orgId=${orgId}`);
+  };
+
+  const handleSelectBranch = async (branchId: string, role: string) => {
+    setIsDropdownOpen(false);
+    try {
+      await switchWorkspace(branchId);
+      const lowerRole = role ? role.toLowerCase() : '';
+      if (lowerRole === 'kitchen' || lowerRole === 'runner') {
+        navigate(`/restaurant/${branchId}/kitchen`);
+      } else if (lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin') {
+        navigate(`/restaurant/${branchId}/admin`);
+      } else {
+        navigate(`/restaurant/${branchId}/orders`);
+      }
+    } catch (err) {
+      console.error("Failed to switch branch inside navbar dropdown:", err);
+    }
   };
 
   const handleSignOut = async () => {
@@ -150,7 +165,7 @@ export function Navbar() {
                 />
                 <div className="absolute bottom-14 right-0 md:right-auto md:left-12 md:bottom-0 w-64 bg-zinc-950 border border-zinc-850 rounded-2xl shadow-2xl py-2.5 px-2 z-50 text-left animate-in fade-in slide-in-from-bottom-2 duration-150">
                   
-                  {/* Language Switch Section */}
+                  {/* Language Selector */}
                   <div className="px-3 py-2 border-b border-zinc-900 mb-2 flex flex-col gap-1.5">
                     <p className="text-[9px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
                       <Globe size={11} className="text-zinc-400" /> Language / 语言 / Bahasa
@@ -182,6 +197,7 @@ export function Navbar() {
                     <p className="text-xs font-bold text-zinc-300 truncate mt-0.5">{user.email || 'Admin User'}</p>
                   </div>
 
+                  {/* Switch Brand */}
                   {organizations.length > 1 && (
                     <div className="px-3 pb-2.5 mb-2 border-b border-zinc-900">
                       <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">{t('navbar.switchBrand')}</p>
@@ -195,6 +211,33 @@ export function Navbar() {
                             <span className="truncate pr-2">{org.name}</span>
                           </button>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Switch Branch Outlet within organization */}
+                  {activeOrgBranches.length > 1 && (
+                    <div className="px-3 pb-2.5 mb-2 border-b border-zinc-900">
+                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">Switch Branch Outlet</p>
+                      <div className="space-y-1 max-h-36 overflow-y-auto pr-1 select-none">
+                        {activeOrgBranches.map((branch) => {
+                          const isCurrent = branch.id === restId;
+                          return (
+                            <button
+                              key={branch.id}
+                              disabled={isCurrent}
+                              onClick={() => handleSelectBranch(branch.id, branch.role)}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all flex items-center justify-between ${
+                                isCurrent 
+                                  ? 'text-orange-500 bg-orange-500/5' 
+                                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-orange-500'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{branch.name}</span>
+                              {isCurrent && <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-orange-500/10 font-bold">Active</span>}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -271,7 +314,7 @@ export function Navbar() {
               </div>
               <div>
                 <span className="text-[10px] font-black uppercase text-zinc-500 block mb-0.5">{t('navbar.tenantToken')}</span>
-                <span className="text-[10px] font-mono text-zinc-400 block break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-850 mt-1 select-all select-none truncate max-w-xs">
+                <span className="text-[10px] font-mono text-zinc-400 block break-all bg-zinc-900 p-2.5 rounded-lg border border-zinc-850 mt-1 select-all select-none truncate max-w-xs text-ellipsis overflow-hidden">
                   {token ? `${token.slice(0, 35)}...` : 'None'}
                 </span>
               </div>

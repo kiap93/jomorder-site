@@ -12,13 +12,13 @@ import {
   LogOut, 
   AlertTriangle,
   ShieldAlert,
-  ArrowLeft,
   X,
-  User,
-  ChevronDown,
-  Edit3,
+  Clock,
   Check,
-  Clock
+  Globe,
+  PlusCircle,
+  Hash,
+  Sparkles
 } from 'lucide-react';
 
 const getEntryTimestamps = (userId: string): Record<string, number> => {
@@ -51,12 +51,12 @@ const formatLastEntryTime = (lastEntryAtString?: string | null, fallbackTimestam
   const diffHr = Math.floor(diffMin / 60);
   const diffDays = Math.floor(diffHr / 24);
 
-  if (diffMs < 0) return 'Just now'; // handle slight clock skew
+  if (diffMs < 0) return 'Just now';
   if (diffSec < 15) return 'Just now';
   if (diffSec < 60) return `${diffSec}s ago`;
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDays < 7) return `${diffDays}d  ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
 
   return dateObj.toLocaleDateString(undefined, { 
     month: 'short', 
@@ -100,10 +100,16 @@ export function WorkspaceSelect() {
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [newOrgName, setNewOrgName] = useState('');
 
-  // Dropdown & Modal UI States
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  // Auto-restore session overlay states
+  const [isFromLogin, setIsFromLogin] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(false);
+  const [countdown, setCountdown] = useState(3);
+  const [lastBranchId, setLastBranchId] = useState<string | null>(null);
+  const [lastBranchName, setLastBranchName] = useState<string>('');
+  const [lastModulePath, setLastModulePath] = useState<string | null>(null);
 
   // Edit Organization States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editOrgName, setEditOrgName] = useState('');
   const [editCompanyRegisterNumber, setEditCompanyRegisterNumber] = useState('');
   const [updatingOrg, setUpdatingOrg] = useState(false);
@@ -131,11 +137,10 @@ export function WorkspaceSelect() {
       setOrganizations(orgs);
       setWorkspaces(rests);
 
-      // Save or update active selectedOrgId
-      const params = new URLSearchParams(window.location.search);
-      const queryOrgId = params.get('orgId');
-      
       if (orgs.length > 0) {
+        const params = new URLSearchParams(window.location.search);
+        const queryOrgId = params.get('orgId');
+        
         setSelectedOrgId(prev => {
           if (queryOrgId && orgs.some((o: any) => o.id === queryOrgId)) {
             return queryOrgId;
@@ -143,15 +148,31 @@ export function WorkspaceSelect() {
           if (prev && orgs.some((o: any) => o.id === prev)) {
             return prev;
           }
-          return orgs[0].id; // Fallback to first
+          return orgs[0].id;
         });
       } else {
         setSelectedOrgId(null);
       }
 
-      if (autoRedirectEnabled) {
-        // Evaluate landing auto-redirect if exactly 1 organization and 1 branch
-        if (orgs.length === 1) {
+      // Restore session or auto enter checks
+      if (user?.id) {
+        const storedBranchId = localStorage.getItem(`user_last_branch_${user.id}`);
+        const storedModulePath = localStorage.getItem(`user_last_module_${user.id}`);
+        
+        if (storedBranchId && rests.some(w => w.id === storedBranchId)) {
+          const matchedBranch = rests.find(w => w.id === storedBranchId);
+          setLastBranchId(storedBranchId);
+          setLastBranchName(matchedBranch?.name || 'Previous Branch');
+          setLastModulePath(storedModulePath || '');
+          
+          const params = new URLSearchParams(window.location.search);
+          const forceSelector = params.get('select') === 'true';
+          if (!forceSelector && !params.get('orgId') && autoRedirectEnabled) {
+            setRestoringSession(true);
+            return; // let countdown handle it
+          }
+        } else if (autoRedirectEnabled && orgs.length === 1) {
+          // If strictly 1 organization and 1 branch, enter automatically
           const singleOrg = orgs[0];
           const outlets = rests.filter((w: any) => w.organization_id === singleOrg.id);
           if (outlets.length === 1) {
@@ -171,21 +192,39 @@ export function WorkspaceSelect() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const fromLogin = params.get('fromLogin') === 'true';
+    setIsFromLogin(fromLogin);
     const queryOrgId = params.get('orgId');
     if (queryOrgId) {
       setSelectedOrgId(queryOrgId);
     }
+    // Only autoRedirect automatically if coming from real login page workflow
     fetchWorkspaces(fromLogin);
   }, [token, window.location.search]);
 
+  // Session recovery countdown ticking
   useEffect(() => {
-    const activeId = profile?.restaurantId;
-    if (user?.id && activeId) {
-      recordEntry(user.id, activeId);
-    }
-  }, [user?.id, profile?.restaurantId]);
+    if (!restoringSession || !lastBranchId) return;
 
-  const handleSelectWorkspace = async (workspaceId: string, role: string) => {
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setRestoringSession(false);
+          // Trigger entry
+          const matched = workspaces.find(w => w.id === lastBranchId);
+          if (matched) {
+            handleSelectWorkspace(lastBranchId, matched.role, lastModulePath || '');
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 600);
+
+    return () => clearInterval(timer);
+  }, [restoringSession, lastBranchId, workspaces]);
+
+  const handleSelectWorkspace = async (workspaceId: string, role: string, directPath?: string, forceDefaultLanding = !isFromLogin) => {
     setError(null);
     setSubmitting(true);
     try {
@@ -194,7 +233,13 @@ export function WorkspaceSelect() {
         recordEntry(user.id, workspaceId);
       }
       
-      // Dynamic routing based on RBAC role
+      const targetPath = !forceDefaultLanding && (directPath || (lastModulePath && lastModulePath.startsWith(`/restaurant/${workspaceId}`) ? lastModulePath : ''));
+      if (targetPath) {
+        navigate(targetPath);
+        return;
+      }
+
+      // Default landing experiences
       const lowerRole = role ? role.toLowerCase() : '';
       if (lowerRole === 'kitchen' || lowerRole === 'runner') {
         navigate(`/restaurant/${workspaceId}/kitchen`);
@@ -252,7 +297,6 @@ export function WorkspaceSelect() {
       setNewWorkspaceName('');
       setNewOrgName('');
       
-      // Refresh list
       await fetchWorkspaces(false);
       
       const restId = outcome.user?.restaurantId || outcome.user?.restaurant_id;
@@ -307,7 +351,6 @@ export function WorkspaceSelect() {
 
       const updated = await res.json();
       
-      // Update local state
       setOrganizations(prev => 
         prev.map(o => o.id === currentOrg.id 
           ? { 
@@ -332,7 +375,6 @@ export function WorkspaceSelect() {
     navigate('/login');
   };
 
-  // Process visual bounds
   const hasZeroOrgs = organizations.length === 0;
   const currentOrg = selectedOrgId ? organizations.find(o => o.id === selectedOrgId) : null;
   const filteredOutlets = selectedOrgId 
@@ -341,70 +383,109 @@ export function WorkspaceSelect() {
 
   const activeWorkspaceId = profile?.restaurantId;
 
-  // Find the currently active workspace if it exists in the filtered outlets
   const activeWorkspace = activeWorkspaceId 
     ? filteredOutlets.find(w => w.id === activeWorkspaceId) 
     : null;
 
-  // Filter other workspaces
   const otherWorkspaces = activeWorkspaceId 
     ? filteredOutlets.filter(w => w.id !== activeWorkspaceId) 
     : filteredOutlets;
 
-  // Retrieve user timestamps and sort the other workspaces with fallback to client-side
   const entryTimestamps = user?.id ? getEntryTimestamps(user.id) : {};
   const sortedOtherWorkspaces = [...otherWorkspaces].sort((a, b) => {
     const timeA = a.last_entry_at ? new Date(a.last_entry_at).getTime() : (entryTimestamps[a.id] || 0);
     const timeB = b.last_entry_at ? new Date(b.last_entry_at).getTime() : (entryTimestamps[b.id] || 0);
-    return timeB - timeA; // most recent entry on top
+    return timeB - timeA;
   });
 
+  // RESTORING AUTOMATIC COUNTDOWN HUD OVERLAY (Highly polished square terminals/Toast styling)
+  if (restoringSession && lastBranchId) {
+    return (
+      <div className="fixed inset-0 z-50 bg-zinc-950 flex flex-col items-center justify-center p-6">
+        <div className="max-w-md w-full text-center space-y-8 select-none">
+          <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+            {/* Pulsing ring */}
+            <div className="absolute inset-0 rounded-full border-4 border-zinc-800 animate-pulse"></div>
+            {/* Spinning glowing sector */}
+            <div className="absolute inset-0 rounded-full border-4 border-t-orange-500 border-r-orange-500/30 border-b-transparent border-l-transparent animate-spin duration-1000"></div>
+            
+            <span className="text-2xl font-black text-white font-mono">{countdown}s</span>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-center gap-2 text-orange-500">
+              <Sparkles size={16} className="animate-bounce" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Post-Login Resolution Engine</span>
+            </div>
+            <h2 className="text-2xl font-black text-zinc-100 tracking-tight">Restoring Last Active Context</h2>
+            <p className="text-zinc-400 text-sm max-w-xs mx-auto font-semibold">
+              Reconnecting to <span className="text-zinc-200 font-extrabold">{lastBranchName}</span>...
+            </p>
+          </div>
+
+          <div className="pt-6 flex flex-col gap-2.5 max-w-xs mx-auto">
+            <button
+              onClick={() => setRestoringSession(false)}
+              className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 rounded-2xl text-xs font-black uppercase tracking-wider transition-all active:scale-95"
+            >
+              Change Workspace
+            </button>
+            <button
+              onClick={handleLogout}
+              className="w-full py-3 text-zinc-600 hover:text-zinc-400 text-[11px] font-extrabold transition-all"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6">
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center py-12 px-4 sm:px-6">
       <div className="max-w-3xl w-full">
         
         {/* Header toolbar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-5 px-3">
           
-          {/* Organization Title View + Edit button */}
           {currentOrg ? (
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-orange-500/10 text-orange-600 rounded-[1.25rem] border border-orange-500/10 flex items-center justify-center shadow-sm shrink-0">
+              <div className="w-14 h-14 bg-orange-500/10 text-orange-500 rounded-[1.25rem] border border-orange-500/20 flex items-center justify-center shrink-0">
                 <Building2 size={26} />
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none">{currentOrg.name}</h1>
+                  <h1 className="text-2xl font-black text-zinc-100 tracking-tight leading-none">{currentOrg.name}</h1>
                   <button
                     onClick={handleOpenEditModal}
-                    className="p-1.5 px-3 rounded-xl bg-white hover:bg-orange-50 text-gray-500 hover:text-orange-600 border border-gray-100 hover:border-orange-500/20 shadow-sm transition-all flex items-center gap-1 text-[10px] font-black uppercase tracking-wider active:scale-95 duration-150"
+                    className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-orange-500 border border-zinc-800 hover:border-orange-500/20 shadow-sm transition-all flex items-center gap-1 text-[10px] font-black uppercase tracking-wider active:scale-95 duration-150"
                   >
-                    <Edit3 size={11} />
-                    Edit Name / SSC
+                    Manage corporate details
                   </button>
                 </div>
                 {currentOrg.company_register_number ? (
-                  <p className="text-xs text-gray-400 font-bold mt-1.5 tracking-wider uppercase">SSM No: {currentOrg.company_register_number}</p>
+                  <p className="text-xs text-zinc-500 font-bold mt-1.5 tracking-wider uppercase">SSM No: {currentOrg.company_register_number}</p>
                 ) : (
-                  <p className="text-xs text-gray-400 font-medium mt-1.5 italic">Provide registration number via Edit</p>
+                  <p className="text-xs text-zinc-600 font-medium mt-1.5 italic">Provide registration number via settings</p>
                 )}
               </div>
             </div>
           ) : (
             <div>
-              <h1 className="text-4xl font-black text-gray-900 tracking-tight">{t('workspace.title')}</h1>
-              <p className="text-gray-500 font-semibold text-sm">{t('workspace.subtitle')}</p>
+              <h1 className="text-3xl font-black text-zinc-100 tracking-tight">{t('workspace.title')}</h1>
+              <p className="text-zinc-400 font-semibold text-sm">{t('workspace.subtitle')}</p>
             </div>
           )}
 
           {/* Language Switch Row */}
-          <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-gray-100 shadow-sm self-end sm:self-auto shrink-0 select-none">
+          <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded-2xl border border-zinc-800 self-end sm:self-auto shrink-0 select-none">
             <button
               onClick={() => setLanguage('en')}
               className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
                 language === 'en'
-                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
-                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+                  ? 'bg-orange-600 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               EN
@@ -413,8 +494,8 @@ export function WorkspaceSelect() {
               onClick={() => setLanguage('zh')}
               className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
                 language === 'zh'
-                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
-                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+                  ? 'bg-orange-600 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               中文
@@ -423,8 +504,8 @@ export function WorkspaceSelect() {
               onClick={() => setLanguage('ms')}
               className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-155 active:scale-95 ${
                 language === 'ms'
-                  ? 'bg-orange-600 text-white shadow-md shadow-orange-100'
-                  : 'text-gray-450 hover:text-gray-600 hover:bg-gray-50'
+                  ? 'bg-orange-600 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               Melayu
@@ -434,7 +515,7 @@ export function WorkspaceSelect() {
 
         {/* Global Error Banner */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-100 text-red-600 p-4 rounded-3xl flex items-center gap-3 font-semibold text-sm">
+          <div className="mb-6 bg-red-950/40 border border-red-900/50 text-red-400 p-4 rounded-3xl flex items-center gap-3 font-semibold text-sm">
             <ShieldAlert className="shrink-0 text-red-500" />
             <span>{error}</span>
           </div>
@@ -442,55 +523,55 @@ export function WorkspaceSelect() {
 
         {/* Core content block */}
         {loading ? (
-          <div className="bg-white px-20 py-24 rounded-[3rem] shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-            <Loader2 className="animate-spin text-orange-500 mb-4" size={40} />
-            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Syncing active tenant structure...</p>
+          <div className="bg-zinc-900 px-20 py-24 rounded-[3rem] border border-zinc-800 flex flex-col items-center justify-center">
+            <Loader2 className="animate-spin text-orange-500 mb-4" size={36} />
+            <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Resolving identity context...</p>
           </div>
         ) : (
           <div className="space-y-6">
             
-            {/* STATE 1: NO ORGANIZATIONS AVAILABLE */}
+            {/* Case A: NO ORGANIZATIONS AVAILABLE */}
             {hasZeroOrgs && (
-              <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm space-y-6">
-                <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center">
-                  <Building2 className="text-orange-600" size={30} />
+              <div className="bg-zinc-900 p-10 rounded-[3rem] border border-zinc-800 shadow-sm space-y-6">
+                <div className="w-16 h-16 bg-orange-500/10 text-orange-500 rounded-2xl flex items-center justify-center border border-orange-500/20">
+                  <Building2 size={30} />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-black text-gray-900 tracking-tight">Create your Brand & Outlet</h2>
-                  <p className="text-sm text-gray-500 font-medium mt-1">
-                    You are not linked to any brand organizations yet. Let's create your first corporate retail organization and initial branch outlet.
+                  <h2 className="text-2xl font-black text-zinc-100 tracking-tight">Create your Brand & Outlet</h2>
+                  <p className="text-sm text-zinc-400 font-semibold mt-1">
+                    You are not linked to any brand organizations yet. Establish your first corporate brand organization and initial branch outlet.
                   </p>
                 </div>
 
                 <form onSubmit={handleCreateWorkspace} className="space-y-4 pt-2">
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 ml-1">Brand / Organization Name</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Brand / Organization Name</label>
                     <input
                       required
                       type="text"
                       value={newOrgName}
                       onChange={(e) => setNewOrgName(e.target.value)}
                       placeholder="e.g. McDonald's Malaysia"
-                      className="w-full px-5 py-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:bg-white focus:border-orange-500 outline-none transition-all font-semibold text-sm"
+                      className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border-2 border-zinc-800 text-zinc-100 focus:border-orange-500 outline-none transition-all font-semibold text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 ml-1">First Outlet / Branch Name</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">First Outlet / Branch Name</label>
                     <input
                       required
                       type="text"
                       value={newWorkspaceName}
                       onChange={(e) => setNewWorkspaceName(e.target.value)}
                       placeholder="e.g. KLCC Branch"
-                      className="w-full px-5 py-3.5 rounded-2xl bg-gray-50 border-2 border-transparent focus:bg-white focus:border-orange-500 outline-none transition-all font-semibold text-sm"
+                      className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border-2 border-zinc-800 text-zinc-100 focus:border-orange-500 outline-none transition-all font-semibold text-sm"
                     />
                   </div>
 
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-100 disabled:opacity-50"
+                    className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 pr-4"
                   >
                     {submitting ? <Loader2 className="animate-spin" size={16} /> : 'Create and Launch Workspace'}
                   </button>
@@ -498,16 +579,16 @@ export function WorkspaceSelect() {
               </div>
             )}
 
-            {/* STATE 2: ACTIVE ORGANIZATION (List all related outlets under it) */}
+            {/* Case C: ACTIVE CHOSEN ORGANIZATIONS */}
             {selectedOrgId && currentOrg && (
-              <div className="space-y-6">
+              <div className="space-y-6 animate-in fade-in duration-300">
                 
-                {/* Brand Selector Tabs */}
+                {/* Brand Selection Tabs */}
                 {organizations.length > 1 && (
-                  <div className="bg-white p-6 rounded-[2rem] border border-gray-100/80 shadow-sm space-y-3">
+                  <div className="bg-zinc-900 p-6 rounded-[2rem] border border-zinc-800/80 space-y-3">
                     <div className="flex items-center gap-2">
                       <Building2 size={16} className="text-orange-500" />
-                      <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">
+                      <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500">
                         Select Corporate Brand / Organization
                       </h2>
                     </div>
@@ -525,8 +606,8 @@ export function WorkspaceSelect() {
                             }}
                             className={`px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all border duration-150 active:scale-95 flex items-center gap-2 ${
                               isSelected
-                                ? 'bg-orange-600 border-orange-600 text-white shadow-md shadow-orange-100'
-                                : 'bg-gray-50 border-gray-100 text-gray-600 hover:text-orange-600 hover:border-orange-200'
+                                ? 'bg-orange-600 border-orange-600 text-white shadow-md shadow-orange-500/10'
+                                : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-orange-500 hover:border-orange-500/25'
                             }`}
                           >
                             <Building2 size={13} />
@@ -538,34 +619,34 @@ export function WorkspaceSelect() {
                   </div>
                 )}
                 
-                {/* Branches Container */}
-                <div className="bg-white rounded-[3rem] border border-gray-100/80 shadow-sm p-8 sm:p-10 space-y-6">
+                {/* Branches List Container */}
+                <div className="bg-zinc-900 rounded-[3rem] border border-zinc-800 p-8 sm:p-10 space-y-6">
                   <div>
-                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400 ml-1">
-                      Registered Branches
+                    <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500 ml-1">
+                      Branch Outlets
                     </h2>
-                    <p className="text-gray-500 text-xs mt-0.5 font-medium">Select a branch workspace below to enter operational views.</p>
+                    <p className="text-zinc-500 text-xs mt-0.5 font-semibold">Select a workspace branch below to log on to POS servers.</p>
                   </div>
 
                   {filteredOutlets.length === 0 ? (
-                    <div className="p-10 bg-gray-50 rounded-[2.25rem] border border-dashed border-gray-200 text-center space-y-4">
-                      <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mx-auto text-gray-400 shadow-sm">
+                    <div className="p-10 bg-zinc-950 rounded-[2.25rem] border border-dashed border-zinc-800 text-center space-y-4">
+                      <div className="w-12 h-12 bg-zinc-900 rounded-xl flex items-center justify-center mx-auto text-zinc-600 shadow-sm border border-zinc-800">
                         <Store size={20} />
                       </div>
                       <div>
-                        <h4 className="font-bold text-gray-800 text-sm">No Branches Found</h4>
-                        <p className="text-xs text-gray-400 font-medium max-w-sm mx-auto mt-1">There are no registered branches under "{currentOrg.name}". Use the tool below to generate your first branch.</p>
+                        <h4 className="font-bold text-zinc-300 text-sm">No Branches Found</h4>
+                        <p className="text-xs text-zinc-500 font-semibold max-w-sm mx-auto mt-1">There are no branches mapped under "{currentOrg.name}". Expand limits below to add an outlet.</p>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-6">
                       
-                       {/* 1. Current Active Workspace Outlet */}
+                      {/* 1. Connected Active Branch Highlight */}
                       {activeWorkspace && (
                         <div className="space-y-2.5">
-                          <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-orange-600 ml-1">
+                          <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1">
                             <Check size={11} className="stroke-[3]" />
-                            <span>{t('workspace.connected')}</span>
+                            <span>CONNECTED ACTIVE BRANCH</span>
                           </div>
                           
                           {(() => {
@@ -575,39 +656,39 @@ export function WorkspaceSelect() {
                             return (
                               <div
                                 onClick={() => !isSuspended && !submitting && handleSelectWorkspace(activeWorkspace.id, activeWorkspace.role)}
-                                className={`group p-6 rounded-[1.75rem] border-2 transition-all duration-200 cursor-pointer flex items-center justify-between ${
+                                className={`group p-6 rounded-[1.75rem] border transition-all duration-200 cursor-pointer flex items-center justify-between ${
                                   isSuspended 
-                                    ? 'opacity-60 cursor-not-allowed border-red-100 bg-red-50/20' 
-                                    : 'bg-orange-50/20 border-orange-500/40 hover:border-orange-500 shadow-sm shadow-orange-100/50 hover:shadow-md'
+                                    ? 'opacity-60 cursor-not-allowed border-red-950 bg-red-950/10' 
+                                    : 'bg-orange-500/5 border-orange-500/30 hover:border-orange-500 shadow-sm hover:shadow-orange-500/5'
                                 }`}
                               >
                                 <div className="flex items-center gap-4">
-                                  <div className="w-12 h-12 bg-orange-500 text-white border border-orange-500/10 rounded-xl flex items-center justify-center transition-colors shadow-[0_2px_8px_rgba(249,115,22,0.15)] shrink-0">
+                                  <div className="w-12 h-12 bg-orange-600/10 text-orange-500 border border-orange-500/25 rounded-xl flex items-center justify-center transition-colors shrink-0">
                                     <Store size={20} />
                                   </div>
                                   <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <h3 className="font-extrabold text-gray-900 group-hover:text-orange-600 transition-colors text-sm sm:text-base">{activeWorkspace.name}</h3>
-                                      <span className="bg-orange-100 text-orange-700 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-orange-200/50">
-                                        Active
+                                      <h3 className="font-extrabold text-zinc-200 group-hover:text-orange-500 transition-colors text-sm sm:text-base">{activeWorkspace.name}</h3>
+                                      <span className="bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border border-orange-500/10">
+                                        ACTIVE
                                       </span>
                                       {isSuspended && (
-                                        <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1 font-extrabold">
-                                          <AlertTriangle size={8} /> {t('workspace.suspended')}
+                                        <span className="bg-red-950/60 text-red-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-red-900/40">
+                                          SUSPENDED
                                         </span>
                                       )}
                                     </div>
-                                    <p className="text-xs text-gray-400 font-semibold mt-1">{t('workspace.connected')}</p>
+                                    <p className="text-xs text-zinc-500 font-semibold mt-1">Currently assigned endpoint</p>
                                   </div>
                                 </div>
 
                                 <div className="flex items-center gap-4">
                                   <div className="text-right hidden sm:block">
-                                    <span className="inline-block bg-orange-600/10 border border-orange-500/20 text-orange-700 text-[9px] font-black uppercase px-3 py-1 rounded-lg">
+                                    <span className="inline-block bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[9px] font-black uppercase px-3 py-1 rounded-lg">
                                       {activeWorkspace.role?.toUpperCase()}
                                     </span>
                                   </div>
-                                  <ArrowRight size={16} className="text-orange-500 group-hover:text-orange-600 transition-colors group-hover:translate-x-1 duration-200" />
+                                  <ArrowRight size={16} className="text-orange-400 group-hover:translate-x-1 duration-200" />
                                 </div>
                               </div>
                             );
@@ -615,16 +696,16 @@ export function WorkspaceSelect() {
                         </div>
                       )}
 
-                      {/* Divider / Header for other workspaces if any exist */}
+                      {/* 2. Sorted Other Branches list */}
                       {sortedOtherWorkspaces.length > 0 && (
                         <div className="space-y-3 pt-2">
                           <div className="flex items-center gap-2.5">
-                            <span className="h-px bg-gray-100 flex-1"></span>
-                            <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 flex items-center gap-1 shrink-0">
+                            <span className="h-px bg-zinc-800 flex-1"></span>
+                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-600 flex items-center gap-1 shrink-0">
                               <Building2 size={11} />
-                              {t('workspace.title')} ({sortedOtherWorkspaces.length})
+                              Available Branches ({sortedOtherWorkspaces.length})
                             </span>
-                            <span className="h-px bg-gray-100 flex-1"></span>
+                            <span className="h-px bg-zinc-800 flex-1"></span>
                           </div>
 
                           <div className="space-y-3">
@@ -639,39 +720,39 @@ export function WorkspaceSelect() {
                                   onClick={() => !isSuspended && !submitting && handleSelectWorkspace(workspace.id, workspace.role)}
                                   className={`group p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex items-center justify-between ${
                                     isSuspended 
-                                      ? 'opacity-60 cursor-not-allowed border-gray-100 bg-gray-50' 
-                                      : 'bg-white border-gray-100 hover:border-orange-200 hover:shadow-md hover:bg-orange-50/[0.1]'
+                                      ? 'opacity-60 cursor-not-allowed border-zinc-900 bg-zinc-950' 
+                                      : 'bg-zinc-950/70 border-zinc-850 hover:border-orange-500/30 hover:bg-zinc-900'
                                   }`}
                                 >
                                   <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-gray-50 text-gray-400 group-hover:bg-orange-50 group-hover:text-orange-600 border border-gray-100/50 rounded-xl flex items-center justify-center transition-colors shadow-inner shrink-0">
+                                    <div className="w-12 h-12 bg-zinc-900 text-zinc-500 group-hover:bg-orange-500/5 group-hover:text-orange-500 border border-zinc-800 rounded-xl flex items-center justify-center transition-colors shrink-0">
                                       <Store size={20} />
                                     </div>
                                     <div>
                                       <div className="flex flex-wrap items-center gap-2">
-                                        <h3 className="font-bold text-gray-800 group-hover:text-orange-600 transition-colors text-sm sm:text-base">{workspace.name}</h3>
+                                        <h3 className="font-bold text-zinc-300 group-hover:text-orange-500 transition-colors text-sm sm:text-base">{workspace.name}</h3>
                                         {isSuspended && (
-                                          <span className="bg-red-50 text-red-600 text-[8px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
-                                            <AlertTriangle size={8} /> Suspended
+                                          <span className="bg-red-950/50 text-red-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-red-900/30">
+                                            Suspended
                                           </span>
                                         )}
                                         {formattedTime && (
-                                          <span className="bg-orange-50 text-orange-600 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-100/35">
+                                          <span className="bg-zinc-900 text-zinc-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-zinc-800">
                                             <Clock size={9} /> {formattedTime}
                                           </span>
                                         )}
                                       </div>
-                                      <p className="text-xs text-gray-400 font-semibold mt-1">Full isolation workspace secure token</p>
+                                      <p className="text-xs text-zinc-500 font-semibold mt-1">Multi-Tenant Scoped Partition</p>
                                     </div>
                                   </div>
 
                                   <div className="flex items-center gap-4">
                                     <div className="text-right hidden sm:block">
-                                      <span className="inline-block bg-gray-100/80 border text-gray-600 text-[9px] font-black uppercase px-3 py-1 rounded-lg">
+                                      <span className="inline-block bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] font-black uppercase px-3 py-1 rounded-lg">
                                         {workspace.role?.toUpperCase()}
                                       </span>
                                     </div>
-                                    <ArrowRight size={16} className="text-gray-300 group-hover:text-orange-600 transition-colors group-hover:translate-x-1 duration-200" />
+                                    <ArrowRight size={16} className="text-zinc-500 group-hover:text-orange-500 transition-colors group-hover:translate-x-1 duration-200" />
                                   </div>
                                 </div>
                               );
@@ -683,41 +764,54 @@ export function WorkspaceSelect() {
                     </div>
                   )}
 
-                  {/* Built-in Expandable Form to Add Branch Outlet under this Org */}
-                  <div className="pt-6 border-t border-gray-100">
-                    <h3 className="font-bold text-gray-900 text-sm mb-3 ml-1">Establish Brand Expansion (Add Outlet)</h3>
-                    <form onSubmit={handleCreateWorkspace} className="flex flex-col sm:flex-row gap-3">
-                      <div className="flex-1">
-                        <input
-                          required
-                          type="text"
-                          value={newWorkspaceName}
-                          onChange={(e) => setNewWorkspaceName(e.target.value)}
-                          placeholder="Unique Branch Name (e.g. Mid Valley Branch)"
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:bg-white focus:outline-none focus:border-orange-500 transition-all text-xs font-bold text-gray-800 placeholder-gray-400"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={submitting}
-                        className="bg-gray-900 hover:bg-black text-white px-6 py-3 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-sm shrink-0 active:scale-95 disabled:opacity-50"
-                      >
-                        {submitting ? <Loader2 className="animate-spin" size={12} /> : <><Plus size={14} /> Add Branch Outlet</>}
-                      </button>
-                    </form>
-                  </div>
+                  {/* Add branch form */}
+                  {!isFromLogin && (
+                    <div className="pt-6 border-t border-zinc-800">
+                      <h3 className="font-bold text-zinc-300 text-sm mb-3 ml-1">Establish Brand Expansion (Add Outlet)</h3>
+                      <form onSubmit={handleCreateWorkspace} className="flex flex-col sm:flex-row gap-3">
+                        <div className="flex-1">
+                          <input
+                            required
+                            type="text"
+                            value={newWorkspaceName}
+                            onChange={(e) => setNewWorkspaceName(e.target.value)}
+                            placeholder="Unique Branch Name (e.g. Mid Valley Branch)"
+                            className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-2xl focus:outline-none focus:border-orange-500 text-zinc-100 placeholder-zinc-500 text-xs font-bold"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={submitting}
+                          className="bg-zinc-100 hover:bg-white text-zinc-950 px-6 py-3 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shrink-0 active:scale-95 disabled:opacity-50"
+                        >
+                          {submitting ? <Loader2 className="animate-spin" size={12} /> : <><Plus size={14} /> Add Branch Outlet</>}
+                        </button>
+                      </form>
+                    </div>
+                  )}
 
                 </div>
 
               </div>
             )}
 
-            {/* Information Standard Policy Note Footer */}
-            <div className="bg-blue-50/50 border border-blue-50/80 p-5 rounded-[2rem] text-blue-800/85 text-xs leading-relaxed space-y-2">
-              <p className="font-black uppercase tracking-widest text-[9px] text-blue-500">Security Architecture Standard</p>
-              <p className="font-semibold text-blue-900/70">
-                Outlets represent complete database schemas partitioned safely behind multi-tenant JSON Web Tokens. Entering an outlet workspace automatically requests a dynamic, secure session token scoped ONLY to that branch.
+            {/* Standard Safety Policy note footer */}
+            <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-[2rem] text-zinc-400 text-xs leading-relaxed space-y-2 select-none">
+              <p className="font-black uppercase tracking-widest text-[9px] text-orange-500">Security Isolation Policy</p>
+              <p className="font-semibold text-zinc-500">
+                Outlets represent complete database partitions closed safely behind multi-tenant secure tokens. Entering an outlet workspace automatically requests a dynamic, secure session token scoped ONLY to that branch.
               </p>
+            </div>
+
+            {/* Logout/Signout toolbar */}
+            <div className="flex justify-between items-center px-4">
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 p-3 text-zinc-500 hover:text-red-400 transition-all text-xs font-black uppercase tracking-wider"
+              >
+                <LogOut size={16} />
+                Sign Out / Disconnect
+              </button>
             </div>
 
           </div>
@@ -728,51 +822,51 @@ export function WorkspaceSelect() {
       {/* EDIT ORGANIZATION MODAL */}
       {isEditModalOpen && currentOrg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsEditModalOpen(false)} />
-          <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-gray-100 p-8 z-10 animate-in zoom-in-95 duration-200">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsEditModalOpen(false)} />
+          <div className="relative bg-zinc-900 w-full max-w-md rounded-[2.5rem] border border-zinc-800 p-8 z-10 text-zinc-100">
             
             <button 
               onClick={() => setIsEditModalOpen(false)}
-              className="absolute top-6 right-6 p-2 rounded-full bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all"
+              className="absolute top-6 right-6 p-2 rounded-full bg-zinc-950 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-all"
             >
               <X size={16} />
             </button>
 
             <div className="mb-6">
-              <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center mb-3">
+              <div className="w-12 h-12 bg-orange-500/10 text-orange-500 rounded-2xl flex items-center justify-center mb-3 border border-orange-500/15">
                 <Building2 size={24} />
               </div>
-              <h3 className="text-xl font-black text-gray-900 tracking-tight">Organization Profile</h3>
-              <p className="text-xs text-gray-400 font-semibold mt-0.5">Manage group details and identifiers</p>
+              <h3 className="text-xl font-black text-zinc-100 tracking-tight text-left">Organization Profile</h3>
+              <p className="text-xs text-zinc-500 font-semibold mt-0.5 text-left">Manage group details and SSM identifiers</p>
             </div>
 
             {orgError && (
-              <div className="mb-4 bg-red-50 border border-red-100 text-red-600 p-3.5 rounded-2xl text-xs font-bold">
+              <div className="mb-4 bg-red-950/40 border border-red-900/50 text-red-400 p-3.5 rounded-2xl text-xs font-bold text-left">
                 {orgError}
               </div>
             )}
 
             <form onSubmit={handleUpdateOrganization} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 ml-1">Brand / Organization Name</label>
+              <div className="text-left">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Brand / Organization Name</label>
                 <input
                   required
                   type="text"
                   value={editOrgName}
                   onChange={(e) => setEditOrgName(e.target.value)}
                   placeholder="e.g. McDonald's Malaysia"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200/60 rounded-xl focus:bg-white focus:outline-none focus:border-orange-500 transition-all text-xs font-bold text-gray-800"
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:border-orange-500 text-zinc-100 text-xs font-semibold focus:outline-none"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 ml-1">Company Register Number (SSM)</label>
+              <div className="text-left">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Company Register Number (SSM)</label>
                 <input
                   type="text"
                   value={editCompanyRegisterNumber}
                   onChange={(e) => setEditCompanyRegisterNumber(e.target.value)}
                   placeholder="e.g. 199901004321 (483214-A)"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200/60 rounded-xl focus:bg-white focus:outline-none focus:border-orange-500 transition-all text-xs font-bold text-gray-800"
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl focus:border-orange-500 text-zinc-100 text-xs font-semibold focus:outline-none"
                 />
               </div>
 
@@ -780,7 +874,7 @@ export function WorkspaceSelect() {
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="w-1/2 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black text-xs uppercase tracking-wider rounded-xl transition-all"
+                  className="w-1/2 py-3 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 border border-zinc-850 font-black text-xs uppercase tracking-wider rounded-xl transition-all"
                 >
                   Cancel
                 </button>
@@ -788,7 +882,7 @@ export function WorkspaceSelect() {
                 <button
                   type="submit"
                   disabled={updatingOrg}
-                  className="w-1/2 py-3 bg-orange-600 hover:bg-orange-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-orange-100"
+                  className="w-1/2 py-3 bg-orange-600 hover:bg-orange-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5"
                 >
                   {updatingOrg ? <Loader2 className="animate-spin" size={14} /> : 'Save Changes'}
                 </button>
