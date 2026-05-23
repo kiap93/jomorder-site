@@ -1579,20 +1579,82 @@ app.get("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
     return res.status(403).json({ error: "Forbidden: You do not have access to this restaurant's staff list." });
   }
   try {
+    const db = loadFallbackDB();
     const { data: profiles, error } = await supabaseAdmin.from("profiles").select("*").eq("restaurant_id", restId);
     if (error) throw error;
-    const enrichedStaff = (profiles || []).map((p) => {
-      const settings = getStaffSettings(p.id, p.role);
-      return {
-        id: p.id,
-        email: p.email,
-        role: p.role,
-        restaurant_id: p.restaurant_id,
+    let rUsers = [];
+    try {
+      const { data } = await supabaseAdmin.from("restaurant_users").select("*").eq("restaurant_id", restId);
+      rUsers = data || [];
+    } catch (e) {
+      console.warn("Could not query restaurant_users in server staff GET:", e);
+    }
+    let extraProfiles = [];
+    const rUserIds = rUsers.map((ru) => ru.user_id).filter(Boolean);
+    if (rUserIds.length > 0) {
+      try {
+        const { data } = await supabaseAdmin.from("profiles").select("*").in("id", rUserIds);
+        extraProfiles = data || [];
+      } catch (e) {
+        console.warn("Could not load associated profiles:", e);
+      }
+    }
+    const staffMap = /* @__PURE__ */ new Map();
+    const localRUs = db.restaurant_users.filter((ru) => ru.restaurant_id === restId);
+    for (const ru of localRUs) {
+      const lp = db.profiles.find((p) => p.id === ru.user_id);
+      if (lp) {
+        const settings = getStaffSettings(ru.user_id, ru.role);
+        staffMap.set(ru.user_id, {
+          id: ru.user_id,
+          email: lp.email,
+          role: ru.role,
+          restaurant_id: restId,
+          status: settings.status,
+          permissions: settings.permissions
+        });
+      }
+    }
+    const localPrimaryProfs = db.profiles.filter((p) => p.restaurant_id === restId);
+    for (const lp of localPrimaryProfs) {
+      const settings = getStaffSettings(lp.id, lp.role);
+      staffMap.set(lp.id, {
+        id: lp.id,
+        email: lp.email,
+        role: lp.role,
+        restaurant_id: restId,
         status: settings.status,
         permissions: settings.permissions
-      };
-    });
-    res.json(enrichedStaff);
+      });
+    }
+    if (profiles) {
+      for (const p of profiles) {
+        const settings = getStaffSettings(p.id, p.role);
+        staffMap.set(p.id, {
+          id: p.id,
+          email: p.email,
+          role: p.role,
+          restaurant_id: p.restaurant_id,
+          status: settings.status,
+          permissions: settings.permissions
+        });
+      }
+    }
+    for (const ru of rUsers) {
+      const prof = extraProfiles.find((p) => p.id === ru.user_id);
+      if (prof) {
+        const settings = getStaffSettings(ru.user_id, ru.role || prof.role);
+        staffMap.set(ru.user_id, {
+          id: ru.user_id,
+          email: prof.email,
+          role: ru.role || prof.role,
+          restaurant_id: restId,
+          status: ru.status || settings.status,
+          permissions: ru.custom_permissions || settings.permissions
+        });
+      }
+    }
+    res.json(Array.from(staffMap.values()));
   } catch (err) {
     console.error("Error fetching staff:", err);
     res.status(500).json({ error: err.message });
@@ -1609,6 +1671,78 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
     return res.status(400).json({ error: "Email, password, and role are required." });
   }
   try {
+    let existingProfile = null;
+    const { data: matchedProf } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    if (matchedProf) {
+      existingProfile = matchedProf;
+    } else {
+      const db2 = loadFallbackDB();
+      const fp = db2.profiles.find((p) => p.email?.toLowerCase() === email.toLowerCase());
+      if (fp) {
+        existingProfile = fp;
+      }
+    }
+    if (existingProfile) {
+      const userId = existingProfile.id;
+      const db2 = loadFallbackDB();
+      const inFallbackPrimary = existingProfile.restaurant_id === restId;
+      const inFallbackRU = db2.restaurant_users.some((ru) => ru.user_id === userId && ru.restaurant_id === restId);
+      let inLiveRU = false;
+      try {
+        const { data: ruMap } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", userId).eq("restaurant_id", restId).maybeSingle();
+        if (ruMap) {
+          inLiveRU = true;
+        }
+      } catch (err) {
+        console.warn("Error querying restaurant_users:", err);
+      }
+      if (inFallbackPrimary || inFallbackRU || inLiveRU) {
+        return res.status(400).json({ error: "User is already registered for this restaurant." });
+      }
+      const defaultPerms2 = getStaffSettings(userId, role).permissions;
+      try {
+        await supabaseAdmin.from("restaurant_users").upsert({
+          user_id: userId,
+          restaurant_id: restId,
+          role,
+          status: "active",
+          custom_permissions: permissions || defaultPerms2
+        });
+      } catch (err) {
+        console.warn("Could not insert mapping in live DB:", err);
+      }
+      const fallbackRUIndex = db2.restaurant_users.findIndex((ru) => ru.user_id === userId && ru.restaurant_id === restId);
+      if (fallbackRUIndex > -1) {
+        db2.restaurant_users[fallbackRUIndex].role = role;
+        db2.restaurant_users[fallbackRUIndex].status = "active";
+        db2.restaurant_users[fallbackRUIndex].custom_permissions = permissions || defaultPerms2;
+      } else {
+        db2.restaurant_users.push({
+          restaurant_id: restId,
+          user_id: userId,
+          role,
+          status: "active",
+          last_entry_at: null,
+          custom_permissions: permissions || defaultPerms2
+        });
+      }
+      saveFallbackDB(db2);
+      const registry2 = readStaffRegistry();
+      registry2[userId] = {
+        status: "active",
+        permissions: permissions || defaultPerms2
+      };
+      writeStaffRegistry(registry2);
+      logToAudit(caller.id || "admin", caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
+      return res.status(201).json({
+        id: userId,
+        email,
+        role,
+        restaurant_id: restId,
+        status: "active",
+        permissions: registry2[userId].permissions
+      });
+    }
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -1638,6 +1772,18 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
     };
     writeStaffRegistry(registry);
     logToAudit(caller.id || "admin", caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+    const db = loadFallbackDB();
+    if (!db.profiles.some((p) => p.id === authUser.user.id)) {
+      db.profiles.push({
+        id: authUser.user.id,
+        email,
+        role,
+        restaurant_id: restId,
+        status: "active",
+        last_entry_at: null
+      });
+      saveFallbackDB(db);
+    }
     res.status(201).json({
       id: profile.id,
       email: profile.email,
@@ -1659,33 +1805,83 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
     return res.status(403).json({ error: "Forbidden: Unauthorized to edit staff details." });
   }
   try {
-    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).eq("restaurant_id", restId).maybeSingle();
+    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).maybeSingle();
     if (fetchError) throw fetchError;
-    if (!profile) return res.status(404).json({ error: "Staff member not found in this organization." });
-    let updatedProfile = profile;
-    if (role && role !== profile.role) {
-      const { data, error: updateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", staffId).select().single();
-      if (updateError) throw updateError;
-      updatedProfile = data;
+    if (!profile) return res.status(404).json({ error: "Staff member not found." });
+    const isPrimary = profile.restaurant_id === restId;
+    let isMapped = false;
+    let existingMapping = null;
+    try {
+      const { data } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", staffId).eq("restaurant_id", restId).maybeSingle();
+      if (data) {
+        isMapped = true;
+        existingMapping = data;
+      }
+    } catch (_) {
+    }
+    if (!isPrimary && !isMapped) {
+      return res.status(404).json({ error: "Staff member is not associated with this restaurant." });
+    }
+    let updatedProfile = { ...profile };
+    if (isPrimary) {
+      if (role && role !== profile.role) {
+        const { data, error: updateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", staffId).select().single();
+        if (updateError) throw updateError;
+        updatedProfile = data;
+      }
+    } else {
+      const { data, error: mappingUpdateErr } = await supabaseAdmin.from("restaurant_users").upsert({
+        user_id: staffId,
+        restaurant_id: restId,
+        role: role || existingMapping?.role || profile.role,
+        status: status || existingMapping?.status || "active",
+        custom_permissions: permissions || existingMapping?.custom_permissions || {}
+      }).select().single();
+      if (mappingUpdateErr) throw mappingUpdateErr;
+      existingMapping = data;
     }
     const registry = readStaffRegistry();
     if (!registry[staffId]) {
       registry[staffId] = {
-        status: status || "active",
-        permissions: permissions || getStaffSettings(staffId, role || profile.role).permissions
+        status: status || existingMapping?.status || "active",
+        permissions: permissions || existingMapping?.custom_permissions || getStaffSettings(staffId, role || profile.role).permissions
       };
     } else {
       if (status) registry[staffId].status = status;
       if (permissions) registry[staffId].permissions = permissions;
     }
     writeStaffRegistry(registry);
+    const db = loadFallbackDB();
+    if (isPrimary) {
+      const fallbackPIndex = db.profiles.findIndex((p) => p.id === staffId);
+      if (fallbackPIndex > -1) {
+        if (role) db.profiles[fallbackPIndex].role = role;
+      }
+    } else {
+      const fallbackRUIndex = db.restaurant_users.findIndex((ru) => ru.user_id === staffId && ru.restaurant_id === restId);
+      if (fallbackRUIndex > -1) {
+        if (role) db.restaurant_users[fallbackRUIndex].role = role;
+        if (status) db.restaurant_users[fallbackRUIndex].status = status;
+        if (permissions) db.restaurant_users[fallbackRUIndex].custom_permissions = permissions;
+      } else {
+        db.restaurant_users.push({
+          restaurant_id: restId,
+          user_id: staffId,
+          role: role || profile.role,
+          status: status || "active",
+          last_entry_at: null,
+          custom_permissions: permissions || getStaffSettings(staffId, role || profile.role).permissions
+        });
+      }
+    }
+    saveFallbackDB(db);
     logToAudit(caller.id || "admin", caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
     res.json({
       id: updatedProfile.id,
       email: updatedProfile.email,
-      role: updatedProfile.role,
-      restaurant_id: updatedProfile.restaurant_id,
-      status: registry[staffId].status,
+      role: isPrimary ? updatedProfile.role : existingMapping?.role || profile.role,
+      restaurant_id: restId,
+      status: isPrimary ? registry[staffId].status : existingMapping?.status || "active",
       permissions: registry[staffId].permissions
     });
   } catch (err) {
@@ -1700,20 +1896,41 @@ app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (re
     return res.status(403).json({ error: "Forbidden: Only owners/system admins can delete staff accounts." });
   }
   try {
-    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).eq("restaurant_id", restId).maybeSingle();
+    const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).maybeSingle();
     if (fetchError) throw fetchError;
     if (!profile) return res.status(404).json({ error: "Staff user not found." });
     if (caller.id === staffId) {
       return res.status(400).json({ error: "You cannot delete your own account!" });
     }
-    await supabaseAdmin.auth.admin.deleteUser(staffId);
-    await supabaseAdmin.from("profiles").delete().eq("id", staffId);
+    const isPrimary = profile.restaurant_id === restId;
+    let isMapped = false;
+    try {
+      const { data } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", staffId).eq("restaurant_id", restId).maybeSingle();
+      if (data) {
+        isMapped = true;
+      }
+    } catch (_) {
+    }
+    if (!isPrimary && !isMapped) {
+      return res.status(404).json({ error: "Staff member is not associated with this restaurant." });
+    }
+    const db = loadFallbackDB();
+    if (isPrimary) {
+      await supabaseAdmin.auth.admin.deleteUser(staffId);
+      await supabaseAdmin.from("profiles").delete().eq("id", staffId);
+      db.profiles = db.profiles.filter((p) => p.id !== staffId);
+      db.restaurant_users = db.restaurant_users.filter((ru) => ru.user_id !== staffId);
+    } else {
+      await supabaseAdmin.from("restaurant_users").delete().eq("user_id", staffId).eq("restaurant_id", restId);
+      db.restaurant_users = db.restaurant_users.filter((ru) => !(ru.user_id === staffId && ru.restaurant_id === restId));
+    }
+    saveFallbackDB(db);
     const registry = readStaffRegistry();
     if (registry[staffId]) {
       delete registry[staffId];
       writeStaffRegistry(registry);
     }
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted staff account: ${profile.email}`, restId);
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
     res.json({ success: true, message: "Staff member deleted successfully." });
   } catch (err) {
     console.error("Error deleting staff:", err);

@@ -461,13 +461,13 @@ export function WorkspaceSelect() {
                     onClick={handleOpenEditModal}
                     className="p-1.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-orange-500 border border-zinc-800 hover:border-orange-500/20 shadow-sm transition-all flex items-center gap-1 text-[10px] font-black uppercase tracking-wider active:scale-95 duration-150"
                   >
-                    Manage corporate details
+                    {t('workspace.manageCorporate')}
                   </button>
                 </div>
                 {currentOrg.company_register_number ? (
-                  <p className="text-xs text-zinc-500 font-bold mt-1.5 tracking-wider uppercase">SSM No: {currentOrg.company_register_number}</p>
+                  <p className="text-xs text-zinc-500 font-bold mt-1.5 tracking-wider uppercase">{t('workspace.ssmNo', { number: currentOrg.company_register_number })}</p>
                 ) : (
-                  <p className="text-xs text-zinc-600 font-medium mt-1.5 italic">Provide registration number via settings</p>
+                  <p className="text-xs text-zinc-600 font-medium mt-1.5 italic">{t('workspace.provideSSM')}</p>
                 )}
               </div>
             </div>
@@ -525,7 +525,7 @@ export function WorkspaceSelect() {
         {loading ? (
           <div className="bg-zinc-900 px-20 py-24 rounded-[3rem] border border-zinc-800 flex flex-col items-center justify-center">
             <Loader2 className="animate-spin text-orange-500 mb-4" size={36} />
-            <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Resolving identity context...</p>
+            <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">{t('workspace.resolvingIdentity')}</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -537,15 +537,15 @@ export function WorkspaceSelect() {
                   <Building2 size={30} />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-black text-zinc-100 tracking-tight">Create your Brand & Outlet</h2>
+                  <h2 className="text-2xl font-black text-zinc-100 tracking-tight">{t('workspace.createBrandOutlet')}</h2>
                   <p className="text-sm text-zinc-400 font-semibold mt-1">
-                    You are not linked to any brand organizations yet. Establish your first corporate brand organization and initial branch outlet.
+                    {t('workspace.createBrandOutletSubtitle')}
                   </p>
                 </div>
-
+ 
                 <form onSubmit={handleCreateWorkspace} className="space-y-4 pt-2">
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Brand / Organization Name</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">{t('workspace.brandOrgName')}</label>
                     <input
                       required
                       type="text"
@@ -555,9 +555,9 @@ export function WorkspaceSelect() {
                       className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border-2 border-zinc-800 text-zinc-100 focus:border-orange-500 outline-none transition-all font-semibold text-sm"
                     />
                   </div>
-
+ 
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">First Outlet / Branch Name</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">{t('workspace.firstOutletName')}</label>
                     <input
                       required
                       type="text"
@@ -567,13 +567,13 @@ export function WorkspaceSelect() {
                       className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border-2 border-zinc-800 text-zinc-100 focus:border-orange-500 outline-none transition-all font-semibold text-sm"
                     />
                   </div>
-
+ 
                   <button
                     type="submit"
                     disabled={submitting}
                     className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 pr-4"
                   >
-                    {submitting ? <Loader2 className="animate-spin" size={16} /> : 'Create and Launch Workspace'}
+                    {submitting ? <Loader2 className="animate-spin" size={16} /> : t('workspace.createAndLaunch')}
                   </button>
                 </form>
               </div>
@@ -582,14 +582,13 @@ export function WorkspaceSelect() {
             {/* Case C: ACTIVE CHOSEN ORGANIZATIONS */}
             {selectedOrgId && currentOrg && (
               <div className="space-y-6 animate-in fade-in duration-300">
-                
-                {/* Brand Selection Tabs */}
+                             {/* Brand Selection Tabs */}
                 {organizations.length > 1 && (
                   <div className="bg-zinc-900 p-6 rounded-[2rem] border border-zinc-800/80 space-y-3">
                     <div className="flex items-center gap-2">
                       <Building2 size={16} className="text-orange-500" />
                       <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500">
-                        Select Corporate Brand / Organization
+                        {t('workspace.selectCorporateTab')}
                       </h2>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
@@ -623,19 +622,19 @@ export function WorkspaceSelect() {
                 <div className="bg-zinc-900 rounded-[3rem] border border-zinc-800 p-8 sm:p-10 space-y-6">
                   <div>
                     <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500 ml-1">
-                      Branch Outlets
+                      {t('workspace.branchOutlets')}
                     </h2>
-                    <p className="text-zinc-500 text-xs mt-0.5 font-semibold">Select a workspace branch below to log on to POS servers.</p>
+                    <p className="text-zinc-500 text-xs mt-0.5 font-semibold">{t('workspace.selectBranchBelow')}</p>
                   </div>
-
+ 
                   {filteredOutlets.length === 0 ? (
                     <div className="p-10 bg-zinc-950 rounded-[2.25rem] border border-dashed border-zinc-800 text-center space-y-4">
                       <div className="w-12 h-12 bg-zinc-900 rounded-xl flex items-center justify-center mx-auto text-zinc-600 shadow-sm border border-zinc-800">
                         <Store size={20} />
                       </div>
                       <div>
-                        <h4 className="font-bold text-zinc-300 text-sm">No Branches Found</h4>
-                        <p className="text-xs text-zinc-500 font-semibold max-w-sm mx-auto mt-1">There are no branches mapped under "{currentOrg.name}". Expand limits below to add an outlet.</p>
+                        <h4 className="font-bold text-zinc-300 text-sm">{t('workspace.noBranchesFound')}</h4>
+                        <p className="text-xs text-zinc-500 font-semibold max-w-sm mx-auto mt-1">{t('workspace.noBranchesFoundDesc', { name: currentOrg.name })}</p>
                       </div>
                     </div>
                   ) : (
@@ -646,7 +645,7 @@ export function WorkspaceSelect() {
                         <div className="space-y-2.5">
                           <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-orange-500 ml-1">
                             <Check size={11} className="stroke-[3]" />
-                            <span>CONNECTED ACTIVE BRANCH</span>
+                            <span>{t('workspace.connectedActiveBranch')}</span>
                           </div>
                           
                           {(() => {
@@ -670,15 +669,15 @@ export function WorkspaceSelect() {
                                     <div className="flex flex-wrap items-center gap-2">
                                       <h3 className="font-extrabold text-zinc-200 group-hover:text-orange-500 transition-colors text-sm sm:text-base">{activeWorkspace.name}</h3>
                                       <span className="bg-orange-500/10 text-orange-400 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border border-orange-500/10">
-                                        ACTIVE
+                                        {t('common.active')}
                                       </span>
                                       {isSuspended && (
                                         <span className="bg-red-950/60 text-red-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-red-900/40">
-                                          SUSPENDED
+                                          {t('workspace.suspended')}
                                         </span>
                                       )}
                                     </div>
-                                    <p className="text-xs text-zinc-500 font-semibold mt-1">Currently assigned endpoint</p>
+                                    <p className="text-xs text-zinc-500 font-semibold mt-1">{t('workspace.currentlyAssigned')}</p>
                                   </div>
                                 </div>
 
@@ -703,7 +702,7 @@ export function WorkspaceSelect() {
                             <span className="h-px bg-zinc-800 flex-1"></span>
                             <span className="text-[10px] font-black uppercase tracking-wider text-zinc-600 flex items-center gap-1 shrink-0">
                               <Building2 size={11} />
-                              Available Branches ({sortedOtherWorkspaces.length})
+                              {t('workspace.availableBranches', { count: sortedOtherWorkspaces.length })}
                             </span>
                             <span className="h-px bg-zinc-800 flex-1"></span>
                           </div>
@@ -733,7 +732,7 @@ export function WorkspaceSelect() {
                                         <h3 className="font-bold text-zinc-300 group-hover:text-orange-500 transition-colors text-sm sm:text-base">{workspace.name}</h3>
                                         {isSuspended && (
                                           <span className="bg-red-950/50 text-red-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-red-900/30">
-                                            Suspended
+                                            {t('workspace.suspended')}
                                           </span>
                                         )}
                                         {formattedTime && (
@@ -742,7 +741,7 @@ export function WorkspaceSelect() {
                                           </span>
                                         )}
                                       </div>
-                                      <p className="text-xs text-zinc-500 font-semibold mt-1">Multi-Tenant Scoped Partition</p>
+                                      <p className="text-xs text-zinc-500 font-semibold mt-1">{t('workspace.multiTenantScoped')}</p>
                                     </div>
                                   </div>
 
@@ -767,7 +766,7 @@ export function WorkspaceSelect() {
                   {/* Add branch form */}
                   {!isFromLogin && (
                     <div className="pt-6 border-t border-zinc-800">
-                      <h3 className="font-bold text-zinc-300 text-sm mb-3 ml-1">Establish Brand Expansion (Add Outlet)</h3>
+                      <h3 className="font-bold text-zinc-300 text-sm mb-3 ml-1">{t('workspace.establishExpansion')}</h3>
                       <form onSubmit={handleCreateWorkspace} className="flex flex-col sm:flex-row gap-3">
                         <div className="flex-1">
                           <input
@@ -775,7 +774,7 @@ export function WorkspaceSelect() {
                             type="text"
                             value={newWorkspaceName}
                             onChange={(e) => setNewWorkspaceName(e.target.value)}
-                            placeholder="Unique Branch Name (e.g. Mid Valley Branch)"
+                            placeholder={t('workspace.uniqueBranchName')}
                             className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-2xl focus:outline-none focus:border-orange-500 text-zinc-100 placeholder-zinc-500 text-xs font-bold"
                           />
                         </div>
@@ -784,7 +783,7 @@ export function WorkspaceSelect() {
                           disabled={submitting}
                           className="bg-zinc-100 hover:bg-white text-zinc-950 px-6 py-3 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shrink-0 active:scale-95 disabled:opacity-50"
                         >
-                          {submitting ? <Loader2 className="animate-spin" size={12} /> : <><Plus size={14} /> Add Branch Outlet</>}
+                          {submitting ? <Loader2 className="animate-spin" size={12} /> : <><Plus size={14} /> {t('workspace.addBranchOutlet')}</>}
                         </button>
                       </form>
                     </div>
@@ -797,9 +796,9 @@ export function WorkspaceSelect() {
 
             {/* Standard Safety Policy note footer */}
             <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-[2rem] text-zinc-400 text-xs leading-relaxed space-y-2 select-none">
-              <p className="font-black uppercase tracking-widest text-[9px] text-orange-500">Security Isolation Policy</p>
+              <p className="font-black uppercase tracking-widest text-[9px] text-orange-500">{t('workspace.securityPolicy')}</p>
               <p className="font-semibold text-zinc-500">
-                Outlets represent complete database partitions closed safely behind multi-tenant secure tokens. Entering an outlet workspace automatically requests a dynamic, secure session token scoped ONLY to that branch.
+                {t('workspace.securityPolicyDesc')}
               </p>
             </div>
 
@@ -810,7 +809,7 @@ export function WorkspaceSelect() {
                 className="flex items-center gap-2 p-3 text-zinc-500 hover:text-red-400 transition-all text-xs font-black uppercase tracking-wider"
               >
                 <LogOut size={16} />
-                Sign Out / Disconnect
+                {t('workspace.signOutDisconnect')}
               </button>
             </div>
 
@@ -836,8 +835,8 @@ export function WorkspaceSelect() {
               <div className="w-12 h-12 bg-orange-500/10 text-orange-500 rounded-2xl flex items-center justify-center mb-3 border border-orange-500/15">
                 <Building2 size={24} />
               </div>
-              <h3 className="text-xl font-black text-zinc-100 tracking-tight text-left">Organization Profile</h3>
-              <p className="text-xs text-zinc-500 font-semibold mt-0.5 text-left">Manage group details and SSM identifiers</p>
+              <h3 className="text-xl font-black text-zinc-100 tracking-tight text-left">{t('workspace.orgProfile')}</h3>
+              <p className="text-xs text-zinc-500 font-semibold mt-0.5 text-left">{t('workspace.manageGroupDetails')}</p>
             </div>
 
             {orgError && (
@@ -848,7 +847,7 @@ export function WorkspaceSelect() {
 
             <form onSubmit={handleUpdateOrganization} className="space-y-4">
               <div className="text-left">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Brand / Organization Name</label>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">{t('workspace.brandOrgName')}</label>
                 <input
                   required
                   type="text"
@@ -860,7 +859,7 @@ export function WorkspaceSelect() {
               </div>
 
               <div className="text-left">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">Company Register Number (SSM)</label>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 ml-1">{t('workspace.companyRegisterNumber')}</label>
                 <input
                   type="text"
                   value={editCompanyRegisterNumber}
@@ -876,7 +875,7 @@ export function WorkspaceSelect() {
                   onClick={() => setIsEditModalOpen(false)}
                   className="w-1/2 py-3 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 border border-zinc-850 font-black text-xs uppercase tracking-wider rounded-xl transition-all"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 
                 <button
@@ -884,7 +883,7 @@ export function WorkspaceSelect() {
                   disabled={updatingOrg}
                   className="w-1/2 py-3 bg-orange-600 hover:bg-orange-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5"
                 >
-                  {updatingOrg ? <Loader2 className="animate-spin" size={14} /> : 'Save Changes'}
+                  {updatingOrg ? <Loader2 className="animate-spin" size={14} /> : t('workspace.saveChanges')}
                 </button>
               </div>
             </form>

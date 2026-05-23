@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 import { motion } from 'motion/react';
 import { 
@@ -15,6 +16,7 @@ import { Restaurant, Order } from '../types';
 
 export function PaymentSuccess() {
   const { restId, tableId, orderId, sessionId } = useParams();
+  const { t } = useLanguageStore();
   const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -98,7 +100,7 @@ export function PaymentSuccess() {
         >
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
           <div className="flex flex-col items-center gap-1 mb-10">
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Total Settlement</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">{t('common.totalSettlement')}</p>
             <h2 className="text-5xl font-black tabular-nums tracking-tight">
               RM <span className="text-white">{totalPaid.toFixed(2)}</span>
             </h2>

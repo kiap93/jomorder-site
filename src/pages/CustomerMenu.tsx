@@ -10,6 +10,7 @@ import { resolveMenuTranslations, resolveCategoryTranslations, TranslationContex
 import { calculateSelectionPrice, validateSelection, flattenSelections } from '../lib/configEngine';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { getVisibleModifiers } from '../lib/modifierEngine';
+import { offlineService } from '../lib/offlineService';
 
 export function CustomerMenu() {
   const { restId, tableId, sessionId: urlSessionId } = useParams();
@@ -72,6 +73,11 @@ export function CustomerMenu() {
   const [hasActiveOrders, setHasActiveOrders] = useState(false);
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
   const [basketVersion, setBasketVersion] = useState<number>(0);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    return offlineService.subscribeConnectivity(setIsOnline);
+  }, []);
   const mutationQueue = useRef<MutationQueue | null>(null);
   const fetchDataInProgress = useRef(false);
 
@@ -81,6 +87,23 @@ export function CustomerMenu() {
       if (data?.basket_version) setBasketVersion(data.basket_version);
     });
   }, []);
+
+  useEffect(() => {
+    if (cart && cart.length > 0) {
+      offlineService.saveLocalCart(cart.map(item => ({
+        id: item.id || Math.random().toString(36).slice(2),
+        menuItemId: item.menuItemId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        selection: item.selection,
+        subtotal: item.price * item.quantity,
+        notes: item.specialInstructions
+      })));
+    } else {
+      offlineService.clearLocalCart();
+    }
+  }, [cart]);
 
   useEffect(() => {
     setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
@@ -239,15 +262,55 @@ export function CustomerMenu() {
           setTimeout(() => reject(new Error("Loading restaurant data timed out. Please try again or check your connection.")), 30000)
         );
 
-        console.log("Fetching primary data: restaurant, categories, table...");
-        const [restRes, catsRes, tableRes] = await Promise.race([
-          Promise.all([
-            fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
-            fetch(getApiUrl(`/api/public/restaurants/${restId}/categories`)).then(r => r.json()),
-            fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`)).then(r => r.json())
-          ]),
-          timeoutPromise
-        ]) as any;
+        let restRes, catsRes, tableRes, itemsRes;
+
+        try {
+          console.log("Fetching primary data: restaurant, categories, table...");
+          const responses = await Promise.race([
+            Promise.all([
+              fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
+              fetch(getApiUrl(`/api/public/restaurants/${restId}/categories`)).then(r => r.json()),
+              fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`)).then(r => r.json()),
+              fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`)).then(r => r.json())
+            ]),
+            timeoutPromise
+          ]) as any;
+
+          restRes = responses[0];
+          catsRes = responses[1];
+          tableRes = responses[2];
+          itemsRes = responses[3];
+
+          // Store successful payloads to local cache
+          if (restRes && !restRes.error) {
+            localStorage.setItem(`pos_rest_cache_${restId}`, JSON.stringify(restRes));
+          }
+          if (catsRes && Array.isArray(catsRes)) {
+            localStorage.setItem(`pos_cats_cache_${restId}`, JSON.stringify(catsRes));
+          }
+          if (tableRes) {
+            localStorage.setItem(`pos_table_cache_${restId}_${tableId}`, JSON.stringify(tableRes));
+          }
+          if (itemsRes && Array.isArray(itemsRes)) {
+            localStorage.setItem(`pos_menu_items_cache_${restId}`, JSON.stringify(itemsRes));
+          }
+        } catch (netErr) {
+          console.warn("Network request failed, loading cached offline configuration:", netErr);
+          // Restore from cache
+          const cachedRest = localStorage.getItem(`pos_rest_cache_${restId}`);
+          const cachedCats = localStorage.getItem(`pos_cats_cache_${restId}`);
+          const cachedTable = localStorage.getItem(`pos_table_cache_${restId}_${tableId}`);
+          const cachedItems = localStorage.getItem(`pos_menu_items_cache_${restId}`);
+
+          if (cachedRest) restRes = JSON.parse(cachedRest);
+          if (cachedCats) catsRes = JSON.parse(cachedCats);
+          if (cachedTable) tableRes = JSON.parse(cachedTable);
+          if (cachedItems) itemsRes = JSON.parse(cachedItems);
+
+          if (!restRes) {
+            throw new Error("Working Offline: No cached content found. Please connect to internet once to download the restaurant settings.");
+          }
+        }
 
         if (restRes.error) throw new Error(restRes.error);
         if (!restRes) throw new Error("Restaurant not found. Please check correctly.");
@@ -278,19 +341,20 @@ export function CustomerMenu() {
               })
             });
 
-            if (!sessionRes.ok) throw new Error("Session resolution failed");
-            const sessionData = await sessionRes.json();
+            if (sessionRes.ok) {
+              const sessionData = await sessionRes.json();
 
-            if (sessionData && sessionData[0]) {
-              currentSession = {
-                id: sessionData[0].session_id,
-                token: sessionData[0].token,
-                status: sessionData[0].session_status
-              };
-              localStorage.setItem(storageKey, sessionData[0].token);
-              setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
-              if (urlSessionId !== currentSession.id) {
-                navigate(`/restaurant/${restId}/table/${tableId}/session/${currentSession.id}`, { replace: true });
+              if (sessionData && sessionData[0]) {
+                currentSession = {
+                  id: sessionData[0].session_id,
+                  token: sessionData[0].token,
+                  status: sessionData[0].session_status
+                };
+                localStorage.setItem(storageKey, sessionData[0].token);
+                setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
+                if (urlSessionId !== currentSession.id) {
+                  navigate(`/restaurant/${restId}/table/${tableId}/session/${currentSession.id}`, { replace: true });
+                }
               }
             }
           } catch (e: any) {
@@ -299,12 +363,7 @@ export function CustomerMenu() {
           console.timeEnd("fetchData-session");
         }
 
-        console.time("fetchData-items");
-        const itemsRes = await fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`));
-        if (!itemsRes.ok) throw new Error("Failed to fetch menu items");
-        const itemsData = await itemsRes.json();
-
-        processedItems = (itemsData || []).map((i: any) => ({
+        processedItems = (itemsRes || []).map((i: any) => ({
           id: i.id,
           restaurantId: i.restaurant_id,
           categoryId: i.category_id,
@@ -319,15 +378,14 @@ export function CustomerMenu() {
           comboGroups: i.combo_groups || [],
           modifierGroups: i.modifier_groups || []
         }));
-        console.timeEnd("fetchData-items");
 
         setRestaurant(prev => {
           const nr = { 
             id: restRes.id, 
             name: restRes.name, 
             currency: restRes.currency, 
-            serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
-            sst: parseFloat(restRes.sst || 0) / 100 
+            serviceCharge: parseFloat(restRes.service_charge || 0) / 105, 
+            sst: parseFloat(restRes.sst || 0) / 105 
           };
           return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
         });
@@ -336,19 +394,45 @@ export function CustomerMenu() {
         setOriginalMenuItems(processedItems);
         setMenuItems(processedItems);
 
+        let basketLoaded = false;
         if (currentSession?.id) {
-          const bRes = await fetch(getApiUrl(`/api/public/baskets?sessionId=${currentSession.id}`));
-          if (bRes.ok) {
-            const basketData = await bRes.json();
-            if (basketData) {
-              setBasketId(basketData.id);
-              if (basketData.basket_version) setBasketVersion(basketData.basket_version);
-              const biRes = await fetch(getApiUrl(`/api/public/baskets/${basketData.id}/items`));
-              if (biRes.ok) {
-                const items = await biRes.json();
-                if (items) syncLocalCartFromServer(items, processedItems);
+          try {
+            const bRes = await fetch(getApiUrl(`/api/public/baskets?sessionId=${currentSession.id}`));
+            if (bRes.ok) {
+              const basketData = await bRes.json();
+              if (basketData) {
+                setBasketId(basketData.id);
+                if (basketData.basket_version) setBasketVersion(basketData.basket_version);
+                const biRes = await fetch(getApiUrl(`/api/public/baskets/${basketData.id}/items`));
+                if (biRes.ok) {
+                  const items = await biRes.json();
+                  if (items) {
+                    syncLocalCartFromServer(items, processedItems);
+                    basketLoaded = true;
+                  }
+                }
               }
             }
+          } catch (bErr) {
+            console.warn("Failed session-basket online load, falling back to local cached basket", bErr);
+          }
+        }
+
+        if (!basketLoaded) {
+          const offlineCart = await offlineService.getLocalCart();
+          if (offlineCart && offlineCart.length > 0) {
+            console.log("Loading offline basket cache from IndexedDB:", offlineCart);
+            setCart(offlineCart.map(i => ({
+              id: i.id,
+              menuItemId: i.menuItemId,
+              name: i.name,
+              price: i.price,
+              quantity: i.quantity,
+              options: [],
+              selection: i.selection,
+              specialInstructions: i.notes,
+              smartRenderedLines: {}
+            })));
           }
         }
       } catch (err: any) {
@@ -979,6 +1063,14 @@ export function CustomerMenu() {
         <div className="bg-zinc-900 text-white py-2.5 px-6 flex items-center justify-center gap-2 sticky top-0 z-[60]">
           <ShoppingBag size={14} className="text-orange-500" />
           <span className="text-[9px] font-bold uppercase tracking-wider">Preview Mode</span>
+        </div>
+      )}
+      
+      {/* Offline Warning for Guest */}
+      {!isOnline && (
+        <div className="bg-amber-500 text-zinc-950 py-2 px-4 flex items-center justify-center gap-2 text-xs font-black tracking-wide shrink-0 sticky top-0 z-[60] shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-red-650 animate-ping shrink-0" />
+          Offline Mode — Orders will auto-synergize when network resumes!
         </div>
       )}
       {/* Header */}

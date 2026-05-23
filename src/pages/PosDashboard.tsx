@@ -3,12 +3,15 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { Order, OrderStatus, Restaurant } from '../types';
+import { Order, Restaurant } from '../types';
+import { OrderStatus, OrderType } from '../enums';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, Check, X, Clock, Banknote } from 'lucide-react';
 import { CashCalculator } from '../components/CashCalculator';
 import { PaymentWorkspace } from '../components/PaymentWorkspace';
 import { flattenSelections } from '../lib/configEngine';
+import { offlineService } from '../lib/offlineService';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 export function PosDashboard() {
   const { restId } = useParams();
@@ -16,6 +19,7 @@ export function PosDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const { t } = useLanguageStore();
   
   const filter = searchParams.get('filter') || 'active';
   const setFilter = (newFilter: string) => {
@@ -96,10 +100,10 @@ export function PosDashboard() {
         clearTimeout(loadingTimer);
 
         if (data) {
-          setOrders(data.map(o => ({
+          const fetchedOrders = data.map((o: any) => ({
             id: o.id,
             tableId: o.table_id,
-            tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+            tableName: (o as any).tables?.name || o.table_id?.slice(-4).toUpperCase() || 'TAKEAWAY',
             orderType: o.order_type,
             status: o.status as OrderStatus,
             totalPrice: parseFloat(o.total_price),
@@ -109,12 +113,56 @@ export function PosDashboard() {
             paid_at: o.paid_at,
             createdAt: o.created_at,
             sessionId: o.session_id
-          })) as any);
+          }));
+
+          setOrders(fetchedOrders);
           setError(null);
+
+          // Silent persistent sync of loaded orders into IndexedDB for offline queries!
+          try {
+            await offlineService.repository.saveOrders(fetchedOrders.map((o: any) => ({
+              id: o.id,
+              table_id: o.tableId,
+              status: o.status,
+              total_amount: o.totalPrice,
+              items: o.items,
+              p_session_id: o.sessionId,
+              created_at: o.createdAt,
+              updated_at: new Date().toISOString(),
+              version: 1
+            })));
+          } catch (persistErr) {
+            console.warn("Cached orders save non-fatal IndexedDB error", persistErr);
+          }
         }
       } catch (err: any) {
-        console.error("Fetch orders exception:", err);
-        setError(err.message || "An unexpected error occurred");
+        console.warn("Fetch orders exception, attempting fallback to cached IndexedDB:", err);
+        clearTimeout(loadingTimer);
+        try {
+          const cachedOrders = await offlineService.getLocalOrders();
+          if (cachedOrders && cachedOrders.length > 0) {
+            setOrders(cachedOrders.map(o => ({
+              id: o.id,
+              tableId: o.table_id || '',
+              tableName: o.table_id ? o.table_id.slice(-4).toUpperCase() : 'TAKEAWAY',
+              orderType: 'dine_in',
+              status: o.status as OrderStatus,
+              totalPrice: o.total_amount || 0,
+              paidAmount: o.status === 'completed' ? (o.total_amount || 0) : 0,
+              paymentMethod: 'cash',
+              items: o.items || [],
+              paid_at: o.status === 'completed' ? new Date().toISOString() : undefined,
+              createdAt: o.created_at,
+              sessionId: o.p_session_id || ''
+            })) as any);
+            setError(null);
+          } else {
+            setError(err.message || "Working Offline: No order records found in current cache.");
+          }
+        } catch (dbErr) {
+          console.error("IndexedDB error walking cached orders:", dbErr);
+          setError(err.message || "An unexpected error occurred");
+        }
       } finally {
         setLoading(false);
       }
@@ -209,20 +257,20 @@ export function PosDashboard() {
   if (loading && orders.length === 0) return (
     <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Scanning orders...</p>
+      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">{t('pos.scanningOrders')}</p>
     </div>
   );
 
   if (error && orders.length === 0) return (
     <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-[3rem] border border-gray-100 shadow-sm mx-4">
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 font-black text-4xl">!</div>
-      <h2 className="text-2xl font-black text-gray-900 mb-2">Sync Error</h2>
+      <h2 className="text-2xl font-black text-gray-900 mb-2">{t('pos.error')}</h2>
       <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
       <button 
         onClick={() => window.location.reload()}
         className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl"
       >
-        Force Refresh
+        {t('pos.refresh')}
       </button>
     </div>
   );
@@ -230,9 +278,11 @@ export function PosDashboard() {
   return (
     <div className="space-y-4">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-        <div>
-          <h1 className="text-lg font-black text-gray-900 tracking-tight capitalize leading-none mb-1">{filter} Queue</h1>
-          <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest leading-none">Ops Monitor</p>
+         <div>
+          <h1 className="text-lg font-black text-gray-900 tracking-tight capitalize leading-none mb-1">
+            {t('pos.queue', { filter: t(`status.${filter}`) || filter })}
+          </h1>
+          <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest leading-none">{t('pos.opsMonitor')}</p>
         </div>
         <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg overflow-x-auto scrollbar-none">
           {['active', 'paid', 'pending', 'confirmed', 'cooking', 'ready', 'served', 'completed', 'cancelled'].map(f => (
@@ -243,7 +293,7 @@ export function PosDashboard() {
                 filter === f ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {f}
+              {t(`status.${f}`) || f}
             </button>
           ))}
         </div>
@@ -272,25 +322,25 @@ export function PosDashboard() {
                       {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                     <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none border ${
-                       order.orderType === 'takeaway' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-green-50 text-green-700 border-green-100'
+                       order.orderType === OrderType.TAKEAWAY ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-green-50 text-green-700 border-green-100'
                     }`}>
-                      {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
+                      {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
                     </span>
                     {(order as any).paid_at && (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase leading-none italic shadow-sm shadow-emerald-500/20">
-                        Paid
+                        {t('pos.paid')}
                       </span>
                     )}
                   </div>
                 </div>
                 <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border ${
-                  order.status === 'pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                  order.status === 'confirmed' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                  order.status === 'cooking' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                  order.status === 'ready' ? 'bg-green-50 text-green-700 border-green-200' :
+                  order.status === OrderStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                  order.status === OrderStatus.CONFIRMED ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                  order.status === OrderStatus.COOKING ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                  order.status === OrderStatus.READY ? 'bg-green-50 text-green-700 border-green-200' :
                   'bg-gray-50 text-gray-700 border-gray-200'
                 }`}>
-                  {order.status}
+                  {t(`status.${order.status}`) || order.status}
                 </div>
               </div>
 
@@ -329,7 +379,7 @@ export function PosDashboard() {
               <div className="p-3 pt-0 mt-auto bg-gray-50/10">
                 <div className="flex justify-between items-center mb-2 pt-2 border-t border-gray-100">
                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                    {(order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? 'Due' : 'Sum'}
+                    {(order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? t('pos.due') : t('pos.sum')}
                   </span>
                   <div className="text-right">
                     <span className="text-sm font-black text-gray-900 tabular-nums">
@@ -339,73 +389,73 @@ export function PosDashboard() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1.5">
-                    {order.status === 'pending' && (
+                    {order.status === OrderStatus.PENDING && (
                       <button
-                        onClick={() => updateStatus(order.id, 'confirmed')}
+                        onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
                         className="flex-1 h-8 bg-yellow-400 text-yellow-950 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-yellow-500 transition-colors shadow-sm"
                       >
-                        Accept
+                        {t('pos.accept')}
                       </button>
                     )}
-                    {order.status === 'confirmed' && (
+                    {order.status === OrderStatus.CONFIRMED && (
                       <button
-                        onClick={() => updateStatus(order.id, 'cooking')}
+                        onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
                         className="flex-1 h-8 bg-blue-100 text-blue-900 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-blue-200 transition-colors"
                       >
-                        Cook
+                        {t('pos.cook')}
                       </button>
                     )}
-                    {order.status === 'cooking' && (
+                    {order.status === OrderStatus.COOKING && (
                       <button
-                        onClick={() => updateStatus(order.id, 'ready')}
+                        onClick={() => updateStatus(order.id, OrderStatus.READY)}
                         className="flex-1 h-8 bg-orange-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/10"
                       >
-                        Ready
+                        {t('pos.ready')}
                       </button>
                     )}
-                    {order.status === 'ready' && (
+                    {order.status === OrderStatus.READY && (
                       <button
-                        onClick={() => updateStatus(order.id, 'served')}
+                        onClick={() => updateStatus(order.id, OrderStatus.SERVED)}
                         className="flex-1 h-8 bg-emerald-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/10"
                       >
-                        {order.orderType === 'takeaway' ? 'Pickup' : 'Serve'}
+                        {order.orderType === OrderType.TAKEAWAY ? t('pos.pickup') : t('pos.serve')}
                       </button>
                     )}
-                    {order.status === 'served' && (
+                    {order.status === OrderStatus.SERVED && (
                       <button
-                        onClick={() => updateStatus(order.id, 'completed')}
+                        onClick={() => updateStatus(order.id, OrderStatus.COMPLETED)}
                         className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors"
                       >
-                        Done
+                        {t('pos.done')}
                       </button>
                     )}
-                    {(order.status === 'completed' || order.status === 'cancelled' || order.status === 'served') && (order as any).session_id && (
+                    {(order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SERVED) && (order as any).session_id && (
                       <button
                         onClick={() => closeSession((order as any).session_id, (order as any).table_id)}
                         className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors shadow-sm"
                       >
-                        Close
+                        {t('pos.close')}
                       </button>
                     )}
-                    {!(order as any).paid_at && order.status !== 'cancelled' && order.status !== 'completed' && (
+                    {!(order as any).paid_at && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
                       <button
                         onClick={() => setSettlingOrder(order)}
                         className="flex-1 h-8 bg-emerald-100 text-emerald-800 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1 border border-emerald-200/50"
                       >
                         <Banknote size={12} />
-                        Pay
+                        {t('pos.pay')}
                       </button>
                     )}
                     {confirmingCancel === order.id ? (
                       <div className="flex gap-1">
                         <button
                           onClick={() => {
-                            updateStatus(order.id, 'cancelled');
+                            updateStatus(order.id, OrderStatus.CANCELLED);
                             setConfirmingCancel(null);
                           }}
                           className="px-2 h-8 bg-red-600 text-white rounded font-black text-[9px] uppercase tracking-widest"
                         >
-                          Cancel
+                          {t('pos.cancel')}
                         </button>
                         <button
                           onClick={() => setConfirmingCancel(null)}

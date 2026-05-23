@@ -10,6 +10,7 @@ import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 const VisibilityManager = ({ 
   value, 
@@ -70,6 +71,7 @@ const VisibilityManager = ({
 };
 
 export function AdminPanel() {
+  const { t } = useLanguageStore();
   const { restId } = useParams();
   const navigate = useNavigate();
   const { user, profile, loading: loadingAuth } = useAuthStore();
@@ -887,13 +889,13 @@ export function AdminPanel() {
   if (loading) return (
     <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Initializing Management Studio...</p>
+      <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">{t('admin.initializing')}</p>
       {/* Show retry after 20s if still loading */}
       <button 
         onClick={() => fetchData()}
         className="mt-4 text-[10px] font-black underline uppercase tracking-widest text-zinc-400 hover:text-zinc-600"
       >
-        Taking a while? Click to retry sync
+        {t('admin.takingLonger')}
       </button>
     </div>
   );
@@ -901,13 +903,13 @@ export function AdminPanel() {
   if (error) return (
     <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-[3rem] border border-gray-100 shadow-sm mx-4">
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 font-black text-4xl">!</div>
-      <h2 className="text-2xl font-black text-gray-900 mb-2">Sync Error</h2>
+      <h2 className="text-2xl font-black text-gray-900 mb-2">{t('pos.error')}</h2>
       <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
       <button 
         onClick={() => fetchData()}
         className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl"
       >
-        Retry Sync
+        {t('admin.retrySync')}
       </button>
     </div>
   );
@@ -916,21 +918,21 @@ export function AdminPanel() {
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Management</h1>
-          <p className="text-gray-500 font-medium">Control center for {restaurant?.name || 'Branch'}</p>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight">{t('admin.management')}</h1>
+          <p className="text-gray-500 font-medium">{t('admin.controlCenter').replace('{name}', restaurant?.name || 'Branch')}</p>
         </div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
         {[
-          { id: 'menu', icon: UtensilsCrossed, label: 'Menu Items' },
-          { id: 'categories', icon: List, label: 'Categories' },
-          { id: 'tables', icon: Monitor, label: 'Tables / QR' },
-          { id: 'orders', icon: ClipboardList, label: 'Order History' },
-          { id: 'analytics', icon: BarChart2, label: 'Analytics' },
-          { id: 'localization', icon: Globe, label: 'Translations' },
-          { id: 'staff', icon: Users, label: 'Staff & Audits' },
-          { id: 'settings', icon: Save, label: 'Settings' }
+          { id: 'menu', icon: UtensilsCrossed, key: 'admin.menuItems' },
+          { id: 'categories', icon: List, key: 'admin.categories' },
+          { id: 'tables', icon: Monitor, key: 'admin.tablesQR' },
+          { id: 'orders', icon: ClipboardList, key: 'admin.orderHistory' },
+          { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
+          { id: 'localization', icon: Globe, key: 'admin.translations' },
+          { id: 'staff', icon: Users, key: 'admin.staffAudits' },
+          { id: 'settings', icon: Save, key: 'admin.settings' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -940,7 +942,7 @@ export function AdminPanel() {
             }`}
           >
             <tab.icon size={20} />
-            {tab.label}
+            {t(tab.key)}
           </button>
         ))}
       </div>
@@ -949,12 +951,12 @@ export function AdminPanel() {
       {activeTab === 'menu' && (
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100">
            <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-black text-gray-900">Items List</h2>
+            <h2 className="text-xl font-black text-gray-900">{t('admin.itemsList')}</h2>
             <button
               onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', comboGroups: [], modifierGroups: [], productType: 'single' })}
               className="bg-gray-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-lg"
             >
-              <Plus size={20} /> Add Dish
+              <Plus size={20} /> {t('admin.addDish')}
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1009,7 +1011,7 @@ export function AdminPanel() {
       {activeTab === 'categories' && (
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100">
           <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-black text-gray-900">Categories</h2>
+            <h2 className="text-xl font-black text-gray-900">{t('admin.categories')}</h2>
             <button
               onClick={() => setIsAddingCategory(true)}
               className="bg-orange-50 text-orange-600 p-3 rounded-2xl hover:bg-orange-100 transition-colors"
@@ -1031,7 +1033,7 @@ export function AdminPanel() {
                     value={newCategoryName}
                     onChange={e => setNewCategoryName(e.target.value)}
                     className="bg-white px-4 rounded-xl flex-1 font-bold text-sm"
-                    placeholder="Category Name"
+                    placeholder={t('admin.categoryName')}
                   />
                   <button onClick={addCategory} className="bg-orange-600 text-white p-2 rounded-xl"><Plus size={18} /></button>
                   <button onClick={() => setIsAddingCategory(false)} className="text-gray-400 p-2"><X size={18} /></button>
@@ -1072,11 +1074,11 @@ export function AdminPanel() {
                 </div>
                 
                 <div className="text-center mb-6">
-                  <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">Table {table.name}</h3>
+                  <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">{t('kds.table').replace('{table}', table.name)}</h3>
                   <div className="flex items-center justify-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
                     <span className={`text-[10px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
-                      {activeSession ? 'Active Session' : 'Available'}
+                      {activeSession ? t('admin.activeSession') : t('admin.available')}
                     </span>
                   </div>
                 </div>
@@ -1104,7 +1106,7 @@ export function AdminPanel() {
                         className="w-full h-11 bg-zinc-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2"
                       >
                         <X size={14} />
-                        Close Session
+                        {t('admin.closeSession')}
                       </button>
                     </div>
                   ) : (
@@ -1115,7 +1117,7 @@ export function AdminPanel() {
                           table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
                         }`}
                       >
-                        Available
+                        {t('admin.available')}
                       </button>
                       <button
                         onClick={() => updateTableStatus(table.id, 'occupied')}
@@ -1123,7 +1125,7 @@ export function AdminPanel() {
                           table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
                         }`}
                       >
-                        Occupied
+                        {t('admin.occupied')}
                       </button>
                     </div>
                   )}
@@ -1134,7 +1136,7 @@ export function AdminPanel() {
                       className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
                     >
                       <Trash2 size={13} />
-                      <span className="text-[10px] font-bold uppercase">Delete</span>
+                      <span className="text-[10px] font-bold uppercase">{t('admin.delete')}</span>
                     </button>
                     <div className="relative flex-1">
                       <button 
@@ -1145,7 +1147,7 @@ export function AdminPanel() {
                         className="w-full h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2"
                       >
                         <Settings2 size={13} />
-                        <span className="text-[10px] font-bold uppercase">Actions</span>
+                        <span className="text-[10px] font-bold uppercase">{t('admin.actions')}</span>
                       </button>
                       <AnimatePresence>
                         {openTableActionsId === table.id && (
@@ -1156,14 +1158,14 @@ export function AdminPanel() {
                             className="absolute bottom-full right-0 z-[2] p-2 shadow-2xl bg-white rounded-2xl w-48 mb-2 border border-blue-50"
                           >
                             <div className="px-3 py-2 border-b border-gray-50 mb-1">
-                              <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">Management</span>
+                              <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{t('admin.management')}</span>
                             </div>
                             <button 
                               onClick={() => navigate(`/restaurant/${restId}/table/${table.id}`)} 
                               className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
                             >
                               <Monitor size={14} className="text-zinc-400" />
-                              Open Table Page
+                              {t('admin.openTablePage')}
                             </button>
                             <button 
                               onClick={() => {
@@ -1173,14 +1175,14 @@ export function AdminPanel() {
                               className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
                             >
                               <Globe size={14} className="text-zinc-400" />
-                              Translate Menu
+                              {t('admin.translateMenu')}
                             </button>
                             <button 
                               onClick={() => setOpenTableActionsId(null)}
                               className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
                             >
                               <Edit2 size={14} className="text-zinc-400" />
-                              Edit Details
+                              {t('admin.editDetails')}
                             </button>
                           </motion.div>
                         )}
@@ -1196,7 +1198,7 @@ export function AdminPanel() {
             className="border-2 border-dashed border-gray-200 p-8 rounded-3xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"
           >
             <Plus size={32} />
-            Add Table
+            {t('admin.addTable')}
           </button>
         </div>
       )}
@@ -1205,8 +1207,8 @@ export function AdminPanel() {
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 min-h-[60vh]">
           <div className="flex justify-between items-center mb-8">
             <div>
-              <h2 className="text-xl font-black text-gray-900">Recent Transactions</h2>
-              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">Live order archive</p>
+              <h2 className="text-xl font-black text-gray-900">{t('admin.recentTransactions')}</h2>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">{t('admin.liveOrderArchive')}</p>
             </div>
             <button
                onClick={() => fetchData()}
@@ -1220,12 +1222,12 @@ export function AdminPanel() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-zinc-100">
-                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order ID</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Table</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Items</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status</th>
-                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">Time</th>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.orderId')}</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.table')}</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.items')}</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.total')}</th>
+                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.status')}</th>
+                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.time')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-50">
@@ -1235,7 +1237,7 @@ export function AdminPanel() {
                       <span className="font-mono font-bold text-xs text-zinc-400">#{order.id.slice(-6).toUpperCase()}</span>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="text-xs font-black text-zinc-900">Table {order.tables?.name || 'Walk-in'}</span>
+                      <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-col gap-1">
@@ -1272,7 +1274,7 @@ export function AdminPanel() {
                 <div className="bg-zinc-50 w-16 h-16 rounded-3xl flex items-center justify-center text-zinc-300 mx-auto mb-4">
                   <ShoppingBag size={32} />
                 </div>
-                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">No transactions yet</p>
+                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{t('admin.noTransactionsYet')}</p>
               </div>
             )}
           </div>
@@ -1283,12 +1285,12 @@ export function AdminPanel() {
         <div className="space-y-8">
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
-              <h2 className="text-xl font-black text-gray-900 mb-1">Performance Overview</h2>
-              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">Real-time business insights</p>
+              <h2 className="text-xl font-black text-gray-900 mb-1">{t('admin.performanceOverview')}</h2>
+              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">{t('admin.realTimeInsights')}</p>
             </div>
             <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl">
               <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-2">From</label>
+                <label className="text-[8px] font-black uppercase text-gray-400 px-2">{t('admin.from')}</label>
                 <input 
                   type="date"
                   value={dateRange.start}
@@ -1298,7 +1300,7 @@ export function AdminPanel() {
               </div>
               <div className="w-px h-8 bg-gray-200" />
               <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-2">To</label>
+                <label className="text-[8px] font-black uppercase text-gray-400 px-2">{t('admin.to')}</label>
                 <input 
                   type="date"
                   value={dateRange.end}
@@ -1311,17 +1313,17 @@ export function AdminPanel() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">Total Revenue</div>
+              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.totalRevenue')}</div>
               <div className="text-4xl font-black text-gray-900">
                 {restaurant?.currency} {analyticsData.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
             </div>
             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">Total Orders</div>
+              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.totalOrders')}</div>
               <div className="text-4xl font-black text-gray-900">{analyticsData.orders}</div>
             </div>
             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">Average Ticket</div>
+              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.avgTicket')}</div>
               <div className="text-4xl font-black text-gray-900">
                 {restaurant?.currency} {analyticsData.avgTicket.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
@@ -1330,9 +1332,9 @@ export function AdminPanel() {
 
           <section className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-10">
-              <h2 className="text-xl font-black text-gray-900">Top Selling Items</h2>
+              <h2 className="text-xl font-black text-gray-900">{t('admin.topSellingItems')}</h2>
               <div className="bg-orange-50 text-orange-600 text-[10px] font-black px-4 py-2 rounded-full uppercase tracking-wider">
-                Sorted by Popularity
+                {t('admin.sortedByPopularity')}
               </div>
             </div>
             
@@ -1345,10 +1347,10 @@ export function AdminPanel() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Rank</th>
+                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('admin.rank')}</th>
                       <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Item Name</th>
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Orders</th>
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Revenue</th>
+                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">{t('admin.ordersCount')}</th>
+                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">{t('admin.revenue')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1380,8 +1382,8 @@ export function AdminPanel() {
                   <BarChart2 size={32} />
                 </div>
                 <div>
-                  <p className="font-black text-gray-900">No data found</p>
-                  <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">Try selecting a different date range</p>
+                  <p className="font-black text-gray-900">{t('admin.noDataFound')}</p>
+                  <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">{t('admin.trySelectingDifferent')}</p>
                 </div>
               </div>
             )}
@@ -1391,7 +1393,7 @@ export function AdminPanel() {
 
       {activeTab === 'settings' && restaurant && (
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 max-w-2xl">
-          <h2 className="text-xl font-black text-gray-900 mb-8">Branch Settings</h2>
+          <h2 className="text-xl font-black text-gray-900 mb-8">{t('admin.branchSettings')}</h2>
           
           <AnimatePresence>
             {settingsError && (
@@ -1409,7 +1411,7 @@ export function AdminPanel() {
 
           <div className="space-y-6">
             <div>
-              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Restaurant Name</label>
+              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.restaurantName')}</label>
               <input
                 value={restaurant.name}
                 onChange={e => setRestaurant({ ...restaurant, name: e.target.value })}
@@ -1419,7 +1421,7 @@ export function AdminPanel() {
 
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Service Charge (%)</label>
+                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.serviceCharge')}</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -1434,7 +1436,7 @@ export function AdminPanel() {
               </div>
 
               <div>
-                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">SST (%)</label>
+                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.sst')}</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -1450,7 +1452,7 @@ export function AdminPanel() {
             </div>
 
             <div>
-              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Currency</label>
+              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.currency')}</label>
               <input
                 value={restaurant.currency}
                 onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
@@ -1469,7 +1471,7 @@ export function AdminPanel() {
               ) : (
                 <>
                   <Save size={20} />
-                  Save Settings
+                  {t('admin.saveSettings')}
                 </>
               )}
             </button>
@@ -1494,8 +1496,8 @@ export function AdminPanel() {
             <div className="md:col-span-2 bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-xl font-black text-gray-900">Staff Directory</h2>
-                  <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">Multi-User RBAC Profiles</p>
+                  <h2 className="text-xl font-black text-gray-900">{t('admin.staffDirectory')}</h2>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">{t('admin.rbacProfiles')}</p>
                 </div>
                 <button
                   onClick={fetchStaffData}
@@ -1513,8 +1515,8 @@ export function AdminPanel() {
               ) : staffList.length === 0 ? (
                 <div className="flex h-48 flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-3xl p-6 text-center text-gray-400">
                   <Users size={40} className="mb-2 text-gray-200" />
-                  <p className="font-bold text-gray-700">No Staff Profiles Registered</p>
-                  <p className="text-xs mt-1">Create unique logins for your waiters, cashiers, and kitchen team.</p>
+                  <p className="font-bold text-gray-700">{t('admin.noStaffProfiles')}</p>
+                  <p className="text-xs mt-1">{t('admin.createUniqueLogins')}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1588,7 +1590,7 @@ export function AdminPanel() {
                 <div className="space-y-6">
                   <div>
                     <div className="flex justify-between items-center">
-                      <h3 className="text-lg font-black text-gray-900">Edit Settings</h3>
+                      <h3 className="text-lg font-black text-gray-900">{t('admin.editSettings')}</h3>
                       <button 
                         onClick={() => setEditingStaff(null)}
                         className="text-gray-400 hover:text-black"
@@ -1601,7 +1603,7 @@ export function AdminPanel() {
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Staff Role</label>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.staffRole')}</label>
                       <select
                         value={editingStaff.role}
                         onChange={e => {
@@ -1630,7 +1632,7 @@ export function AdminPanel() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">Account Status</label>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">{t('admin.accountStatus')}</label>
                       <select
                         value={editingStaff.status}
                         onChange={e => setEditingStaff({ ...editingStaff, status: e.target.value as any })}
@@ -1642,7 +1644,7 @@ export function AdminPanel() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">Custom Overrules</label>
+                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.customOverrules')}</label>
                       <div className="space-y-2.5 bg-gray-50 p-4 rounded-2xl border border-gray-100">
                         {Object.entries(editingStaff.permissions || {}).map(([perm, val]) => (
                           <label key={perm} className="flex items-center gap-3 cursor-pointer">
@@ -1677,7 +1679,7 @@ export function AdminPanel() {
                         onClick={handleSaveStaffEdit}
                         className="flex-1 px-4 py-3 bg-gray-900 text-white font-bold rounded-xl text-xs hover:bg-black transition shadow-lg"
                       >
-                        Save Settings
+                        {t('admin.saveSettings')}
                       </button>
                     </div>
                   </div>
@@ -1685,12 +1687,12 @@ export function AdminPanel() {
               ) : (
                 <form onSubmit={handleCreateStaff} className="space-y-4">
                   <div>
-                    <h3 className="text-lg font-black text-gray-900">Register Staff</h3>
-                    <p className="text-xs text-gray-400 mt-1">Provision a new user account below</p>
+                    <h3 className="text-lg font-black text-gray-900">{t('admin.registerStaff')}</h3>
+                    <p className="text-xs text-gray-400 mt-1">{t('admin.provisionNewUser')}</p>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Email Address</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.emailAddress')}</label>
                     <input
                       type="email"
                       required
@@ -1702,7 +1704,7 @@ export function AdminPanel() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Temporal Password</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.temporalPassword')}</label>
                     <input
                       type="password"
                       required
@@ -1714,7 +1716,7 @@ export function AdminPanel() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">Staff Role</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.staffRole')}</label>
                     <select
                       value={newStaffRole}
                       onChange={e => handleRoleChangeForNewStaff(e.target.value)}
@@ -1727,7 +1729,7 @@ export function AdminPanel() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1 text-xs">System Permissions</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1 text-xs">{t('admin.systemPermissions')}</label>
                     <div className="space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
                       {Object.entries(newStaffPermissions).map(([perm, val]) => (
                         <label key={perm} className="flex items-center gap-3 cursor-pointer">
@@ -1740,7 +1742,7 @@ export function AdminPanel() {
                                 [perm]: e.target.checked
                               });
                             }}
-                            className="rounded border-gray-350 text-orange-600 focus:ring-orange-500 h-4 w-4"
+                            className="rounded border-gray-355 text-orange-600 focus:ring-orange-500 h-4 w-4"
                           />
                           <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
                         </label>
@@ -1753,7 +1755,7 @@ export function AdminPanel() {
                     className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition"
                   >
                     <Plus size={16} />
-                    Deploy Staff Account
+                    {t('admin.deployStaffAccount')}
                   </button>
                 </form>
               )}
@@ -1765,9 +1767,9 @@ export function AdminPanel() {
             <div>
               <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
                 <Shield className="text-orange-600" size={24} />
-                Organization Audit Trail
+                {t('admin.orgAuditTrail')}
               </h2>
-              <p className="text-xs text-gray-400 mt-1">Immutable session history and security logging records</p>
+              <p className="text-xs text-gray-400 mt-1">{t('admin.immutableSessionHistory')}</p>
             </div>
 
             {auditLogs.length === 0 ? (

@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
-import { Order, OrderStatus } from '../types';
+import { Order } from '../types';
+import { OrderStatus, OrderType } from '../enums';
 import { motion } from 'motion/react';
 import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';
 import { flattenSelections } from '../lib/configEngine';
 import { getApiUrl } from '../lib/api';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 export function OrderTracker() {
   const { orderId, restId, tableId, sessionId } = useParams();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const { t } = useLanguageStore();
 
   useEffect(() => {
     if (!orderId || !restId || !tableId) return;
@@ -86,29 +89,36 @@ export function OrderTracker() {
   const sessionStatus = (currentOrder as any).session_status;
   const isSessionClosed = sessionStatus === 'closed' || sessionStatus === 'expired' || sessionStatus === 'replaced';
 
-  const steps: OrderStatus[] = ['pending', 'confirmed', 'cooking', 'ready', 'served', 'completed'];
+  const steps: OrderStatus[] = [
+    OrderStatus.PENDING,
+    OrderStatus.CONFIRMED,
+    OrderStatus.COOKING,
+    OrderStatus.READY,
+    OrderStatus.SERVED,
+    OrderStatus.COMPLETED
+  ];
   const currentIndex = steps.indexOf(currentOrder.status);
 
   const getStatusInfo = (status: OrderStatus) => {
     switch (status) {
-      case 'pending': return { icon: Clock, text: 'Order Sent', color: 'text-yellow-500' };
-      case 'confirmed': return { icon: CheckCircle2, text: 'Accepted', color: 'text-blue-500' };
-      case 'cooking': return { icon: ChefHat, text: 'Cooking Now', color: 'text-orange-500' };
-      case 'ready': return { icon: CheckCircle2, text: 'Ready', color: 'text-green-500' };
-      case 'served': return { icon: CheckCircle2, text: currentOrder.orderType === 'takeaway' ? 'Picked Up' : 'Served', color: 'text-gray-900' };
-      case 'completed': return { icon: CheckCircle2, text: 'Enjoy!', color: 'text-gray-900' };
+      case OrderStatus.PENDING: return { icon: Clock, text: t('status.pending'), color: 'text-yellow-500' };
+      case OrderStatus.CONFIRMED: return { icon: CheckCircle2, text: t('status.confirmed'), color: 'text-blue-500' };
+      case OrderStatus.COOKING: return { icon: ChefHat, text: t('status.cooking'), color: 'text-orange-500' };
+      case OrderStatus.READY: return { icon: CheckCircle2, text: t('status.ready'), color: 'text-green-500' };
+      case OrderStatus.SERVED: return { icon: CheckCircle2, text: t('status.served'), color: 'text-gray-900' };
+      case OrderStatus.COMPLETED: return { icon: CheckCircle2, text: t('status.completed'), color: 'text-gray-900' };
       default: return { icon: Clock, text: 'Wait...', color: 'text-gray-400' };
     }
   };
 
   const statusInfo = getStatusInfo(currentOrder.status);
   
-  const unpaidOrders = orders.filter(o => !o.paid_at && o.status !== 'cancelled');
-  const totalPrice = orders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.totalPrice : 0), 0);
+  const unpaidOrders = orders.filter(o => !o.paid_at && o.status !== OrderStatus.CANCELLED);
+  const totalPrice = orders.reduce((sum, o) => sum + (o.status !== OrderStatus.CANCELLED ? o.totalPrice : 0), 0);
   const unpaidTotal = unpaidOrders.reduce((sum, o) => sum + o.totalPrice, 0);
   
   const isUnpaid = unpaidTotal > 0;
-  const isCompleted = orders.every(o => o.status === 'completed' || o.status === 'cancelled') && !isUnpaid;
+  const isCompleted = orders.every(o => o.status === OrderStatus.COMPLETED || o.status === OrderStatus.CANCELLED) && !isUnpaid;
 
   return (
     <div className="max-w-md mx-auto min-h-screen p-6 bg-white pb-32">
@@ -156,7 +166,7 @@ export function OrderTracker() {
           <p className="text-white/80 text-sm font-medium mb-6 text-center">Your session is settled. Hope to see you again!</p>
           <div className="w-full bg-white rounded-2xl p-4 flex flex-col gap-3">
             <div className="flex justify-between items-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
-              <span>Final Settlement</span>
+              <span>{t('common.finalSettlement')}</span>
               <span className="text-emerald-600">PAID</span>
             </div>
             <div className="flex justify-between items-center">
@@ -189,7 +199,7 @@ export function OrderTracker() {
 
       <div className="flex flex-col items-center text-center">
         <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 relative">
-          <statusInfo.icon size={48} className={`${currentOrder.status === 'cooking' ? 'animate-pulse' : ''} ${statusInfo.color}`} />
+          <statusInfo.icon size={48} className={`${currentOrder.status === OrderStatus.COOKING ? 'animate-pulse' : ''} ${statusInfo.color}`} />
           <div className="absolute -bottom-2 -right-2 bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">
             #{currentOrder.id.slice(-4).toUpperCase()}
           </div>

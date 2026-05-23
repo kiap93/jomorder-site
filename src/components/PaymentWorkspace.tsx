@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { useLanguageStore } from '../store/useLanguageStore';
 import { Order, Restaurant, Payment, PaymentStatus } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
 import { CashCalculator } from './CashCalculator';
@@ -56,6 +57,7 @@ interface PaymentAttempt {
 }
 
 export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess }: PaymentWorkspaceProps) {
+  const { t } = useLanguageStore();
   const { profile } = useAuthStore();
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('cash');
   const [attempts, setAttempts] = useState<PaymentAttempt[]>([]);
@@ -295,7 +297,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           
           {!isSidebarCollapsed && (
             <div className="animate-in fade-in duration-300">
-              <h1 className="text-lg font-black text-white tracking-tighter uppercase leading-none italic">Settlement</h1>
+              <h1 className="text-lg font-black text-white tracking-tighter uppercase leading-none italic">{t('common.settlement')}</h1>
               <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mt-1">Terminal Active</p>
             </div>
           )}
@@ -666,7 +668,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                     </div>
                     <div>
                       <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Restricted Hub</h3>
-                      <p className="text-[9px] leading-[1.3] max-w-[180px] mx-auto text-zinc-600 font-bold">L4 Admin Privileges needed for House/Voucher settlement.</p>
+                      <p className="text-[9px] leading-[1.3] max-w-[180px] mx-auto text-zinc-600 font-bold">{t('common.l4AdminPrivilegesNeeded')}</p>
                     </div>
                   </div>
                 </div>

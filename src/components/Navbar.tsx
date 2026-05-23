@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { useState, useEffect } from 'react';
 import { getApiUrl } from '../lib/api';
+import { offlineService } from '../lib/offlineService';
 
 export function Navbar() {
   const location = useLocation();
@@ -16,6 +17,20 @@ export function Navbar() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Offline states
+  const [isOnline, setIsOnline] = useState(true);
+  const [queueStatus, setQueueStatus] = useState({ pendingCount: 0, failedCount: 0, processingCount: 0, isSyncing: false });
+
+  useEffect(() => {
+    const unsubConnectivity = offlineService.subscribeConnectivity(setIsOnline);
+    const unsubQueue = offlineService.subscribeQueueStatus(setQueueStatus);
+    return () => {
+      unsubConnectivity();
+      unsubQueue();
+    };
+  }, []);
+
   
   const pathParts = location.pathname.split('/');
   const restIndex = pathParts.indexOf('restaurant');
@@ -97,6 +112,36 @@ export function Navbar() {
 
   return (
     <>
+      {/* Offline Banner and Syncing indicators */}
+      <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[10000] flex flex-col gap-1.5 pointer-events-none items-center max-w-sm w-full font-sans">
+        {!isOnline && (
+          <div className="pointer-events-auto bg-amber-500 text-zinc-950 px-4 py-2.5 rounded-full text-xs font-black shadow-2xl flex items-center gap-2 border border-amber-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping shrink-0" />
+            <span className="leading-none">{t('navbar.workingOffline')}</span>
+          </div>
+        )}
+        {(queueStatus.isSyncing || queueStatus.pendingCount > 0) && (
+          <div className="pointer-events-auto bg-zinc-950/95 backdrop-blur-md border border-zinc-800 text-zinc-100 px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center gap-2.5">
+            <span className="animate-spin text-orange-500 font-extrabold shrink-0 text-xs">🔄</span>
+            <span className="leading-none">{t('navbar.syncBacklog', { count: queueStatus.pendingCount + queueStatus.processingCount })}</span>
+          </div>
+        )}
+        {queueStatus.failedCount > 0 && (
+          <div className="pointer-events-auto bg-red-950/90 backdrop-blur-md border border-red-800/80 text-red-100 px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center justify-between gap-3 w-full">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-sm">⚠️</span>
+              <span className="leading-none">{t('navbar.syncDelayed', { count: queueStatus.failedCount })}</span>
+            </div>
+            <button
+              onClick={() => offlineService.forceSyncAll()}
+              className="pointer-events-auto bg-red-800 hover:bg-red-700 text-white font-extrabold px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider active:scale-95 transition-all outline-none shrink-0"
+            >
+              {t('navbar.retrySync')}
+            </button>
+          </div>
+        )}
+      </div>
+
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-zinc-900 px-4 py-2 flex justify-around items-center md:top-0 md:bottom-auto md:flex-col md:w-14 md:h-full md:border-t-0 md:border-r md:pt-4 md:space-y-4 z-50 shadow-2xl">
         <Link 
           to={restId ? `/restaurant/${restId}/table/default` : '/'} 
@@ -134,7 +179,7 @@ export function Navbar() {
             {isWorkspaceSwitcherVisible && (
               <Link 
                 to="/workspace-select" 
-                title="Switch Workspace"
+                title={t('navbar.switchWorkspace')}
                 className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/workspace-select') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}
               >
                 <Building2 size={20} />
@@ -214,11 +259,10 @@ export function Navbar() {
                       </div>
                     </div>
                   )}
-
-                  {/* Quick Switch Branch Outlet within organization */}
+                          {/* Quick Switch Branch Outlet within organization */}
                   {activeOrgBranches.length > 1 && (
                     <div className="px-3 pb-2.5 mb-2 border-b border-zinc-900">
-                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">Switch Branch Outlet</p>
+                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-wider mb-2">{t('navbar.switchOutlet')}</p>
                       <div className="space-y-1 max-h-36 overflow-y-auto pr-1 select-none">
                         {activeOrgBranches.map((branch) => {
                           const isCurrent = branch.id === restId;
@@ -234,7 +278,7 @@ export function Navbar() {
                               }`}
                             >
                               <span className="truncate pr-2">{branch.name}</span>
-                              {isCurrent && <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-orange-500/10 font-bold">Active</span>}
+                              {isCurrent && <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-orange-500/10 font-bold">{t('navbar.active')}</span>}
                             </button>
                           );
                         })}

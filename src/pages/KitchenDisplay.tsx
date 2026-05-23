@@ -3,9 +3,11 @@ import { useParams } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { Order, OrderStatus } from '../types';
+import { Order } from '../types';
+import { OrderStatus, OrderType } from '../enums';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 import { flattenSelections } from '../lib/configEngine';
 
@@ -13,6 +15,7 @@ export function KitchenDisplay() {
   const { restId } = useParams();
   const { user, loading: loadingAuth } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
+  const { t } = useLanguageStore();
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -51,7 +54,7 @@ export function KitchenDisplay() {
           console.error("KDS JSON parse failed. Body snippet:", bodyText.slice(0, 100));
           throw new Error("Invalid response from server");
         }
-        const filteredData = data.filter((o: any) => ['pending', 'confirmed', 'cooking', 'ready'].includes(o.status));
+        const filteredData = data.filter((o: any) => [OrderStatus.PENDING as string, OrderStatus.CONFIRMED as string, OrderStatus.COOKING as string, OrderStatus.READY as string].includes(o.status));
 
         clearTimeout(timeoutTimer);
 
@@ -133,13 +136,13 @@ export function KitchenDisplay() {
             <Loader2 className="animate-spin text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight">KITCHEN MONITOR</h1>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Active Preparations</p>
+            <h1 className="text-xl font-black tracking-tight">{t('kds.title')}</h1>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{t('kds.activePreparations')}</p>
           </div>
         </div>
         <div className="text-right">
           <div className="text-2xl font-black font-mono">{orders.length}</div>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Open Tickets</p>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{t('kds.openTickets')}</p>
         </div>
       </header>
 
@@ -152,23 +155,25 @@ export function KitchenDisplay() {
               exit={{ opacity: 0, scale: 0.9 }}
               key={order.id}
               className={`w-80 flex-shrink-0 flex flex-col rounded-[2.5rem] overflow-hidden border-2 shadow-xl ${
-                order.status === 'pending' ? 'bg-white border-yellow-200' : 'bg-orange-50 border-orange-200'
+                order.status === OrderStatus.PENDING ? 'bg-white border-yellow-200' : 'bg-orange-50 border-orange-200'
               }`}
             >
               <div className={`p-6 border-b flex justify-between items-center ${
-                order.status === 'pending' ? 'bg-yellow-50/50' : 'bg-orange-100/50'
+                order.status === OrderStatus.PENDING ? 'bg-yellow-50/50' : 'bg-orange-100/50'
               }`}>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-xl text-gray-900">Table {order.tableName || order.tableId}</h3>
+                    <h3 className="font-black text-xl text-gray-900">
+                      {t('kds.table', { table: order.tableName || order.tableId })}
+                    </h3>
                     <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
-                       order.orderType === 'takeaway' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                       order.orderType === OrderType.TAKEAWAY ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                     }`}>
-                      {order.orderType === 'dine_in' ? 'Dine In' : order.orderType || 'Dine In'}
+                      {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
                     </span>
                     {(order as any).paidAt && (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase italic shadow-sm shadow-emerald-500/20">
-                        Paid
+                        {t('pos.paid')}
                       </span>
                     )}
                   </div>
@@ -219,33 +224,33 @@ export function KitchenDisplay() {
               </div>
 
               <div className="p-6">
-                {order.status === 'pending' && (
+                {order.status === OrderStatus.PENDING && (
                   <button
-                    onClick={() => updateStatus(order.id, 'confirmed')}
+                    onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
                     className="w-full bg-yellow-400 text-yellow-950 py-4 rounded-2xl font-black text-sm hover:bg-yellow-500 transition-all shadow-lg active:scale-95"
                   >
-                    ACCEPT ORDER
+                    {t('kds.acceptOrder')}
                   </button>
                 )}
-                {order.status === 'confirmed' && (
+                {order.status === OrderStatus.CONFIRMED && (
                   <button
-                    onClick={() => updateStatus(order.id, 'cooking')}
+                    onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
                     className="w-full bg-orange-100 text-orange-900 py-4 rounded-2xl font-black text-sm hover:bg-orange-200 transition-all shadow-lg active:scale-95"
                   >
-                    START COOKING
+                    {t('kds.startCooking')}
                   </button>
                 )}
-                {order.status === 'cooking' && (
+                {order.status === OrderStatus.COOKING && (
                   <button
-                    onClick={() => updateStatus(order.id, 'ready')}
+                    onClick={() => updateStatus(order.id, OrderStatus.READY)}
                     className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <CheckCircle2 size={18} /> MARK READY
+                    <CheckCircle2 size={18} /> {t('kds.markReady')}
                   </button>
                 )}
-                {order.status === 'ready' && (
+                {order.status === OrderStatus.READY && (
                    <div className="text-center py-4 bg-green-50 rounded-2xl text-green-700 font-black text-xs uppercase tracking-widest border border-green-100">
-                     Waiting for Handover
+                     {t('kds.waitingHandover')}
                    </div>
                 )}
               </div>

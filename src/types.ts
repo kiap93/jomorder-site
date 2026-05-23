@@ -1,4 +1,5 @@
-export type OrderStatus = 'pending' | 'confirmed' | 'cooking' | 'ready' | 'served' | 'completed' | 'cancelled';
+import { OrderStatus as OrderStatusEnum } from './enums';
+export type OrderStatus = OrderStatusEnum;
 
 export interface Restaurant {
   id: string;

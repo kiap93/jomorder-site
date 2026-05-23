@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
+import { useLanguageStore } from '../store/useLanguageStore';
 
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
@@ -19,6 +20,7 @@ import { PaymentWorkspace } from '../components/PaymentWorkspace';
 
 export function PosPayments() {
   const { restId } = useParams();
+  const { t } = useLanguageStore();
   const { user, loading: loadingAuth } = useAuthStore();
   const [tables, setTables] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'outstanding'>('outstanding');
@@ -125,7 +127,7 @@ export function PosPayments() {
                <Banknote size={18} />
             </div>
             <div>
-              <h1 className="text-lg font-black text-gray-900 tracking-tight leading-none uppercase italic">Settlement Hub</h1>
+              <h1 className="text-lg font-black text-gray-900 tracking-tight leading-none uppercase italic">{t('common.settlementHub')}</h1>
               <p className="text-gray-500 text-[9px] font-black uppercase tracking-widest mt-1">Live Billing Traffic</p>
             </div>
           </div>
