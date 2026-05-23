@@ -8,16 +8,13 @@ import './index.css';
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 function Root() {
+  const oauthClientId = googleClientId || '768393019310-dummy.apps.googleusercontent.com';
   return (
     <StrictMode>
       <ErrorBoundary>
-        {googleClientId ? (
-          <GoogleOAuthProvider clientId={googleClientId}>
-            <App />
-          </GoogleOAuthProvider>
-        ) : (
+        <GoogleOAuthProvider clientId={oauthClientId}>
           <App />
-        )}
+        </GoogleOAuthProvider>
       </ErrorBoundary>
     </StrictMode>
   );
