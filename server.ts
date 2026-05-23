@@ -2422,12 +2422,12 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
   }
 
   try {
-    // 1. Check if profile already exists with this email
+    // 1. Check if profile already exists with this email (case-insensitive check)
     let existingProfile: any = null;
     const { data: matchedProf } = await supabaseAdmin
       .from('profiles')
       .select('*')
-      .eq('email', email)
+      .ilike('email', email)
       .maybeSingle();
 
     if (matchedProf) {
@@ -2437,6 +2437,44 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
       const fp = db.profiles.find((p: any) => p.email?.toLowerCase() === email.toLowerCase());
       if (fp) {
         existingProfile = fp;
+      }
+    }
+
+    if (!existingProfile) {
+      try {
+        const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          // User is registered in Auth but profile was not found
+          existingProfile = {
+            id: existingAuthUser.id,
+            email: existingAuthUser.email,
+            role: role,
+            restaurant_id: restId
+          };
+
+          // Auto-insert/upsert the missing profile
+          try {
+            const { data: upsertedProf } = await supabaseAdmin
+              .from('profiles')
+              .upsert({
+                id: existingAuthUser.id,
+                email: existingAuthUser.email,
+                role: role,
+                restaurant_id: restId,
+                status: 'active'
+              })
+              .select()
+              .single();
+            if (upsertedProf) {
+              existingProfile = upsertedProf;
+            }
+          } catch (pe) {
+            console.warn("Could not upsert profile for existing admin auth user:", pe);
+          }
+        }
+      } catch (authLookError) {
+        console.warn("Could not list auth users to check for existing email in Express:", authLookError);
       }
     }
 

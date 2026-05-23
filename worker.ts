@@ -1335,16 +1335,54 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
   }
 
   try {
-    // 1. Check if profile already exists with this email
+    // 1. Check if profile already exists with this email (case-insensitive check)
     let existingProfile: any = null;
     const { data: matchedProf } = await supabase
       .from('profiles')
       .select('*')
-      .eq('email', email)
+      .ilike('email', email)
       .maybeSingle();
 
     if (matchedProf) {
       existingProfile = matchedProf;
+    }
+
+    if (!existingProfile) {
+      try {
+        const { data: usersList } = await supabase.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          // Yes, the user is already registered in Auth but was missing a profile mapping
+          existingProfile = {
+            id: existingAuthUser.id,
+            email: existingAuthUser.email,
+            role: role,
+            restaurant_id: restId
+          };
+
+          // Auto-insert/upsert the missing profile
+          try {
+            const { data: upsertedProf } = await supabase
+              .from('profiles')
+              .upsert({
+                id: existingAuthUser.id,
+                email: existingAuthUser.email,
+                role: role,
+                restaurant_id: restId,
+                status: 'active'
+              })
+              .select()
+              .single();
+            if (upsertedProf) {
+              existingProfile = upsertedProf;
+            }
+          } catch (pe) {
+            console.warn("Could not upsert profile for existing auth user:", pe);
+          }
+        }
+      } catch (authLookError) {
+        console.warn("Could not list auth users to check for existing email:", authLookError);
+      }
     }
 
     if (existingProfile) {

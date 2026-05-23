@@ -1675,7 +1675,7 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
   }
   try {
     let existingProfile = null;
-    const { data: matchedProf } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    const { data: matchedProf } = await supabaseAdmin.from("profiles").select("*").ilike("email", email).maybeSingle();
     if (matchedProf) {
       existingProfile = matchedProf;
     } else {
@@ -1683,6 +1683,36 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
       const fp = db2.profiles.find((p) => p.email?.toLowerCase() === email.toLowerCase());
       if (fp) {
         existingProfile = fp;
+      }
+    }
+    if (!existingProfile) {
+      try {
+        const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          existingProfile = {
+            id: existingAuthUser.id,
+            email: existingAuthUser.email,
+            role,
+            restaurant_id: restId
+          };
+          try {
+            const { data: upsertedProf } = await supabaseAdmin.from("profiles").upsert({
+              id: existingAuthUser.id,
+              email: existingAuthUser.email,
+              role,
+              restaurant_id: restId,
+              status: "active"
+            }).select().single();
+            if (upsertedProf) {
+              existingProfile = upsertedProf;
+            }
+          } catch (pe) {
+            console.warn("Could not upsert profile for existing admin auth user:", pe);
+          }
+        }
+      } catch (authLookError) {
+        console.warn("Could not list auth users to check for existing email in Express:", authLookError);
       }
     }
     if (existingProfile) {
