@@ -1406,7 +1406,10 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
       }
 
       if (inPrimary || inLiveRU) {
-        return c.json({ error: "User is already registered for this restaurant." }, 400);
+        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
+          return c.json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." }, 400);
+        }
+        return c.json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` }, 400);
       }
 
       // Map existing user

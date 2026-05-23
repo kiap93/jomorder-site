@@ -126,20 +126,18 @@ BEGIN
             NEW.restaurant_id,
             NEW.id,
             NEW.role,
-            COALESCE(NEW.status, 'active'),
-            COALESCE(NEW.custom_permissions, '{
+            'active',
+            '{
                 "can_refund": false,
                 "can_edit_menu": false,
                 "can_cancel_order": false,
                 "can_view_analytics": false,
                 "can_manage_staff": false
-            }'::jsonb)
+            }'::jsonb
         )
         ON CONFLICT (restaurant_id, user_id) 
         DO UPDATE SET 
-            role = EXCLUDED.role,
-            status = EXCLUDED.status,
-            custom_permissions = EXCLUDED.custom_permissions;
+            role = EXCLUDED.role;
     END IF;
     RETURN NEW;
 END;

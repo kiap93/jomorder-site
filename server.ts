@@ -2502,7 +2502,10 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
       }
 
       if (inFallbackPrimary || inFallbackRU || inLiveRU) {
-        return res.status(400).json({ error: "User is already registered for this restaurant." });
+        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
+          return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
+        }
+        return res.status(400).json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` });
       }
 
       // Map the existing user to this restaurant!
