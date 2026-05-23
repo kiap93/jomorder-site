@@ -2409,8 +2409,12 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
   const { email, password, role, permissions } = req.body;
   const caller = (req as any).user;
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
-    return res.status(403).json({ error: "Forbidden: Only owners and managers can add staff accounts." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to register staff accounts." });
   }
 
   if (!email || !password || !role) {
@@ -2592,8 +2596,12 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
   const { role, status, permissions } = req.body;
   const caller = (req as any).user;
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
-    return res.status(403).json({ error: "Forbidden: Unauthorized to edit staff details." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to edit staff details." });
   }
 
   try {
@@ -2717,8 +2725,12 @@ app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (re
   const { restId, staffId } = req.params;
   const caller = (req as any).user;
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER') {
-    return res.status(403).json({ error: "Forbidden: Only owners/system admins can delete staff accounts." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to delete staff accounts." });
   }
 
   try {

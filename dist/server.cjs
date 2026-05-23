@@ -1664,8 +1664,11 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
-  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER" && caller.role !== "manager" && caller.role !== "MANAGER") {
-    return res.status(403).json({ error: "Forbidden: Only owners and managers can add staff accounts." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to register staff accounts." });
   }
   if (!email || !password || !role) {
     return res.status(400).json({ error: "Email, password, and role are required." });
@@ -1801,8 +1804,11 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
-  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER" && caller.role !== "manager" && caller.role !== "MANAGER") {
-    return res.status(403).json({ error: "Forbidden: Unauthorized to edit staff details." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to edit staff details." });
   }
   try {
     const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).maybeSingle();
@@ -1892,8 +1898,11 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
 app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
-  if (caller.role !== "admin" && caller.role !== "owner" && caller.role !== "OWNER") {
-    return res.status(403).json({ error: "Forbidden: Only owners/system admins can delete staff accounts." });
+  const callerSettings = getStaffSettings(caller.id, caller.role);
+  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
+  if (!canManageStaff) {
+    return res.status(403).json({ error: "Forbidden: You do not have permissions to delete staff accounts." });
   }
   try {
     const { data: profile, error: fetchError } = await supabaseAdmin.from("profiles").select("*").eq("id", staffId).maybeSingle();

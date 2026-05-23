@@ -75,6 +75,11 @@ export function AdminPanel() {
   const { restId } = useParams();
   const navigate = useNavigate();
   const { user, profile, loading: loadingAuth } = useAuthStore();
+  const loggedInRole = profile?.role?.toLowerCase();
+  const isActualOwner = loggedInRole === 'owner' || loggedInRole === 'admin';
+  const hasStaffManagementPermission = !!profile?.permissions?.can_manage_staff;
+  const canManageStaff = isActualOwner || hasStaffManagementPermission;
+
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -151,6 +156,10 @@ export function AdminPanel() {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageStaff) {
+      alert("Unauthorized: You do not have permissions to register staff.");
+      return;
+    }
     if (!newStaffEmail || !newStaffPassword || !newStaffRole || !restId) return;
     const token = useAuthStore.getState().token;
     if (!token) return;
@@ -186,6 +195,10 @@ export function AdminPanel() {
   };
 
   const handleSaveStaffEdit = async () => {
+    if (!canManageStaff) {
+      alert("Unauthorized: You do not have permissions to edit staff settings.");
+      return;
+    }
     if (!editingStaff || !restId) return;
     const token = useAuthStore.getState().token;
     if (!token) return;
@@ -218,6 +231,10 @@ export function AdminPanel() {
   };
 
   const handleDeleteStaff = async (staffId: string) => {
+    if (!canManageStaff) {
+      alert("Unauthorized: You do not have permissions to delete staff accounts.");
+      return;
+    }
     if (!confirm("Are you sure you want to delete this staff member? This will completely wipe their auth account and profile data.")) return;
     const token = useAuthStore.getState().token;
     if (!token) return;
@@ -1547,20 +1564,22 @@ export function AdminPanel() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setEditingStaff(st)}
-                            className="p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStaff(st.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+                        {canManageStaff && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setEditingStaff(st)}
+                              className="p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteStaff(st.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Display active permissions chips */}
@@ -1586,7 +1605,15 @@ export function AdminPanel() {
 
             {/* Right side: Add/Edit Account view */}
             <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6 self-start">
-              {editingStaff ? (
+              {!canManageStaff ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 w-full">
+                  <Shield size={40} className="mb-4 text-orange-600/30" />
+                  <p className="font-extrabold text-gray-800 text-sm">Access Restricted</p>
+                  <p className="text-xs mt-2 text-gray-400 leading-relaxed max-w-[200px] mx-auto">
+                    You do not have administrative permissions to register or modify staff accounts.
+                  </p>
+                </div>
+              ) : editingStaff ? (
                 <div className="space-y-6">
                   <div>
                     <div className="flex justify-between items-center">

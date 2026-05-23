@@ -1322,8 +1322,12 @@ app.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
   const caller = c.get('user');
   const supabase = getSupabase(c.env);
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
-    return c.json({ error: "Forbidden: Only owners and managers can add staff accounts." }, 403);
+  const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return c.json({ error: "Forbidden: You do not have permissions to register staff accounts." }, 403);
   }
 
   if (!email || !password || !role) {
@@ -1479,8 +1483,12 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) => {
   const caller = c.get('user');
   const supabase = getSupabase(c.env);
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER' && caller.role !== 'manager' && caller.role !== 'MANAGER') {
-    return c.json({ error: "Forbidden: Unauthorized to edit staff details." }, 403);
+  const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return c.json({ error: "Forbidden: You do not have permissions to edit staff details." }, 403);
   }
 
   try {
@@ -1587,8 +1595,12 @@ app.delete("/api/restaurants/:restId/staff/:staffId", authenticate, async (c) =>
   const caller = c.get('user');
   const supabase = getSupabase(c.env);
 
-  if (caller.role !== 'admin' && caller.role !== 'owner' && caller.role !== 'OWNER') {
-    return c.json({ error: "Forbidden: Only owners/system admins can delete staff accounts." }, 403);
+  const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
+
+  if (!canManageStaff) {
+    return c.json({ error: "Forbidden: You do not have permissions to delete staff accounts." }, 403);
   }
 
   try {
