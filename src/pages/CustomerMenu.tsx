@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { MutationQueue } from '../lib/mutationQueue';
-import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product } from '../types';
+import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product, BasketItem, SessionEpoch } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe, ChefHat } from 'lucide-react';
 import { resolveMenuTranslations, resolveCategoryTranslations, TranslationContext, getKitchenCanonical } from '../lib/translationEngine';
@@ -11,6 +11,62 @@ import { calculateSelectionPrice, validateSelection, flattenSelections } from '.
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { getVisibleModifiers } from '../lib/modifierEngine';
 import { offlineService } from '../lib/offlineService';
+
+function getSessionEpoch(tableId: string): SessionEpoch | null {
+  const storageKey = `dining_session_token_${tableId}`;
+  const raw = localStorage.getItem(storageKey);
+  if (!raw) return null;
+  if (raw.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && typeof parsed.token === 'string') {
+        return {
+          token: parsed.token,
+          version: typeof parsed.version === 'number' ? parsed.version : 1,
+          issued_at: typeof parsed.issued_at === 'number' ? parsed.issued_at : Date.now()
+        };
+      }
+    } catch (_) {}
+  }
+  return {
+    token: raw,
+    version: 1,
+    issued_at: Date.now()
+  };
+}
+
+function updateSessionEpoch(tableId: string, token: string): SessionEpoch {
+  const storageKey = `dining_session_token_${tableId}`;
+  const existing = getSessionEpoch(tableId);
+  const now = Date.now();
+  
+  let newEpoch: SessionEpoch;
+  if (existing) {
+    if (existing.token === token) {
+      newEpoch = {
+        token,
+        version: existing.version,
+        issued_at: existing.issued_at
+      };
+    } else {
+      newEpoch = {
+        token,
+        version: existing.version + 1,
+        issued_at: now
+      };
+      console.log(`[Token Versioning] Session epoch advanced to version ${newEpoch.version} due to new session token.`);
+    }
+  } else {
+    newEpoch = {
+      token,
+      version: 1,
+      issued_at: now
+    };
+  }
+  
+  localStorage.setItem(storageKey, JSON.stringify(newEpoch));
+  return newEpoch;
+}
 
 export function CustomerMenu() {
   const { restId, tableId, sessionId: urlSessionId } = useParams();
@@ -24,9 +80,9 @@ export function CustomerMenu() {
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [basketId, setBasketId] = useState<string | null>(null);
 
-  const syncLocalCartFromServer = (basketItems: any[], allProducts: MenuItem[]) => {
+  const syncLocalCartFromServer = (basketItems: (BasketItem & { product_id?: string; menu_item_id?: string; special_instructions?: string; special_Instructions?: string; notes?: string })[], allProducts: MenuItem[]) => {
     const newCart: OrderItem[] = basketItems.map(item => {
-      const product = allProducts.find(p => p.id === item.product_id);
+      const product = allProducts.find(p => p.id === item.product_id || p.id === item.menu_item_id);
       if (!product) return null;
 
       const selection = item.configuration as ProductSelection;
@@ -42,7 +98,7 @@ export function CustomerMenu() {
         quantity: item.quantity,
         options: [],
         selection: selection,
-        specialInstructions: item.special_instructions,
+        specialInstructions: item.special_instructions || item.special_Instructions || item.notes || '',
         smartRenderedLines: {
           kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
           customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
@@ -242,7 +298,7 @@ export function CustomerMenu() {
       setDiningSession(null); // Only clear session on initial/full load
     }
     setError(null);
-    let processedItems: any[] = [];
+    let processedItems: MenuItem[] = [];
 
     const maxRetries = 2;
     let attempt = 0;
@@ -324,8 +380,8 @@ export function CustomerMenu() {
         let currentSession = null;
         if (!isPreviewMode && resolvedTable?.id) {
           console.time("fetchData-session");
-          const storageKey = `dining_session_token_${resolvedTable.id}`;
-          let existingToken = localStorage.getItem(storageKey);
+          const epoch = getSessionEpoch(resolvedTable.id);
+          const clientToken = epoch ? epoch.token : null;
 
           try {
             console.log("Resolving dining session...");
@@ -336,7 +392,7 @@ export function CustomerMenu() {
                 restaurantId: restId,
                 tableId: resolvedTable.id,
                 deviceInfo: navigator.userAgent,
-                clientToken: existingToken,
+                clientToken: clientToken,
                 fulfillment: orderType
               })
             });
@@ -350,7 +406,7 @@ export function CustomerMenu() {
                   token: sessionData[0].token,
                   status: sessionData[0].session_status
                 };
-                localStorage.setItem(storageKey, sessionData[0].token);
+                updateSessionEpoch(resolvedTable.id, sessionData[0].token);
                 setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
                 if (urlSessionId !== currentSession.id) {
                   navigate(`/restaurant/${restId}/table/${tableId}/session/${currentSession.id}`, { replace: true });
@@ -479,7 +535,7 @@ export function CustomerMenu() {
     window.addEventListener('focus', handleFocus);
 
     // Subscribe to table changes if it's a specific table
-    let subscription: any;
+    let subscription: ReturnType<typeof supabase.channel> | null = null;
     if (tableId && tableId !== 'default') {
       subscription = supabase
         .channel(`table-${tableId}-${Math.random().toString(36).slice(2)}`)
@@ -506,8 +562,8 @@ export function CustomerMenu() {
   useEffect(() => {
     // Re-resolve session if orderType changes (e.g. switching to Takeaway might create a different session behavior)
     if (diningSession && table?.id && restId) {
-       const storageKey = `dining_session_token_${table.id}`;
-       const existingToken = localStorage.getItem(storageKey);
+       const epoch = getSessionEpoch(table.id);
+       const clientToken = epoch ? epoch.token : null;
        
        const tryResolve = async () => {
          const maxRetries = 2;
@@ -519,7 +575,7 @@ export function CustomerMenu() {
                 p_restaurant_id: restId,
                 p_table_id: table.id,
                 p_device_info: navigator.userAgent,
-                p_client_token: existingToken,
+                p_client_token: clientToken,
                 p_fulfillment: orderType
              });
 
@@ -528,7 +584,7 @@ export function CustomerMenu() {
                   p_restaurant_id: restId,
                   p_table_id: table.id,
                   p_device_info: navigator.userAgent,
-                  p_client_token: existingToken
+                  p_client_token: clientToken
                });
              }
 
@@ -543,6 +599,7 @@ export function CustomerMenu() {
              }
 
              if (res.data && res.data[0]) {
+               updateSessionEpoch(table.id, res.data[0].token);
                setDiningSession({
                   id: res.data[0].session_id,
                   token: res.data[0].token,
@@ -564,6 +621,35 @@ export function CustomerMenu() {
        tryResolve();
     }
   }, [orderType]);
+
+  // Listen for storage changes to prevent stale tabs overwriting sessions
+  useEffect(() => {
+    if (!table?.id) return;
+    
+    const handleStorageChange = (e: StorageEvent) => {
+      const storageKey = `dining_session_token_${table.id}`;
+      if (e.key === storageKey && e.newValue) {
+        console.log("[Token Versioning] Storage change detected on other tab:", e.newValue);
+        try {
+          let newToken = '';
+          if (e.newValue.trim().startsWith('{')) {
+            const parsed = JSON.parse(e.newValue);
+            newToken = parsed.token;
+          } else {
+            newToken = e.newValue;
+          }
+          
+          if (newToken && diningSession && newToken !== diningSession.token) {
+            console.log("[Token Versioning] Session token updated on another tab. Reloading active session to avoid stale tab overwrites.");
+            window.location.reload();
+          }
+        } catch (_) {}
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [table?.id, diningSession?.token]);
 
   // Subscription for session changes
   useEffect(() => {

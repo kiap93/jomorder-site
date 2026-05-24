@@ -94,6 +94,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       if (data) {
         setSessionOrders(data.map((o: any) => ({
           ...o,
+          totalPrice: parseFloat(o.total_price || o.totalPrice || 0),
           paidAmount: (o.payments || []).reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
         })));
       }
@@ -110,7 +111,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       return sessionOrders
         .filter(o => !o.paid_at)
         .reduce((sum, o) => {
-          const price = parseFloat((o as any).totalPrice || (o as any).total_price || 0);
+          const price = o.totalPrice || 0;
           return sum + price;
         }, 0);
     }
@@ -118,7 +119,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     // Fallback logic if sessionOrders not yet loaded or empty
     if (order.paid_at) return 0;
     
-    return parseFloat((order as any).totalPrice || (order as any).total_price || 0);
+    return order.totalPrice || parseFloat((order as any).total_price || 0);
   }, [sessionOrders, order.totalPrice, (order as any).total_price, order.paid_at]);
 
   const paidAmount = useMemo(() => attempts.filter(a => a.status === 'paid').reduce((sum, a) => sum + a.amount, 0), [attempts]);
@@ -213,7 +214,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     onPaymentSuccess();
   };
 
-  const handlePaymentComplete = async (paymentData: any) => {
+  const handlePaymentComplete = async (paymentData: { amount: number }) => {
     // Refresh history
     await fetchPaymentHistory();
     

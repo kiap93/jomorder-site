@@ -60,36 +60,60 @@ export function Checkout() {
         if (restRes.error) throw new Error(restRes.error);
         if (orderRes.error) throw new Error(orderRes.error);
 
-        setRestaurant(restRes as any);
-        const orderData = orderRes as any;
+        setRestaurant(restRes as Restaurant);
+        const mapDbOrderToOrder = (db: any): Order => ({
+          id: db.id,
+          tableId: db.table_id || db.tableId,
+          sessionId: db.session_id || db.sessionId,
+          tableName: db.table?.name || db.tableName,
+          orderType: db.order_type || db.orderType || 'dine_in',
+          status: db.status,
+          totalPrice: parseFloat(db.total_price || db.totalPrice || '0'),
+          paymentMethod: db.payment_method || db.paymentMethod || 'online',
+          items: (db.items || []).map((i: any) => ({
+            id: i.id,
+            orderId: i.order_id,
+            productId: i.product_id,
+            quantity: i.quantity,
+            price: parseFloat(i.price || '0'),
+            configuration: i.configuration || {},
+            specialInstructions: i.special_instructions,
+            createdByDevice: i.created_by_device,
+            createdAt: i.created_at,
+            product: i.product
+          })),
+          createdAt: db.created_at || db.createdAt,
+          updatedAt: db.updated_at || db.updatedAt,
+          paid_at: db.paid_at,
+          confirmed_at: db.confirmed_at,
+          restaurant_id: db.restaurant_id
+        });
+
+        const orderData = mapDbOrderToOrder(orderRes);
         
         // Fetch session orders if exists
-        const currentSessionId = orderData.session_id;
+        const currentSessionId = orderData.sessionId;
         if (currentSessionId) {
           const sRes = await fetch(getApiUrl(`/api/public/dining-sessions/${currentSessionId}/orders`));
           if (sRes.ok) {
-            const sOrders = await sRes.json();
-            if (sOrders && sOrders.length > 0) {
-              setSessionOrders(sOrders as any);
-              const unpaidOrders = sOrders.filter((o: any) => !o.paid_at);
-              const total = unpaidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price), 0);
+            const sOrdersJson = await sRes.json();
+            if (sOrdersJson && sOrdersJson.length > 0) {
+              const mappedSessionOrders = sOrdersJson.map((so: any) => mapDbOrderToOrder(so));
+              setSessionOrders(mappedSessionOrders);
+              const unpaidOrders = mappedSessionOrders.filter(o => !o.paid_at);
+              const total = unpaidOrders.reduce((sum, o) => sum + o.totalPrice, 0);
               setSessionUnpaidTotal(total);
               setPayTarget('session');
               setOrder({
                 ...orderData,
-                totalPrice: parseFloat(orderData.total_price || 0),
                 sessionId: currentSessionId
-              } as any);
+              });
               return; // Exit early as we've handled everything for session
             }
           }
         }
 
-        setOrder({
-          ...orderData,
-          totalPrice: parseFloat(orderData.total_price || 0),
-          sessionId: orderData.session_id
-        } as any);
+        setOrder(orderData);
         setPayTarget('order');
       } catch (err: any) {
         setError(err.message);
@@ -129,13 +153,15 @@ export function Checkout() {
     setLoading(true);
     try {
       const amountToPay = payTarget === 'session' && sessionUnpaidTotal ? sessionUnpaidTotal : order.totalPrice;
+      const activeIdempotencyKey = `pay_${method}_${order.id}_${amountToPay.toFixed(2)}`;
 
       const payment = await paymentEngine.createPayment({
         restaurantId: restaurant.id,
         orderId: order.id,
         amount: amountToPay,
         method: method,
-        provider: 'pos_saas_internal'
+        provider: 'pos_saas_internal',
+        idempotencyKey: activeIdempotencyKey
       });
 
       const intent = await paymentEngine.initializeProvider(payment);
@@ -153,7 +179,13 @@ export function Checkout() {
     
     // Recovery of session token from localStorage
     const storageKey = `dining_session_token_${tableId}`;
-    const sessionToken = localStorage.getItem(storageKey) || '';
+    let sessionToken = localStorage.getItem(storageKey) || '';
+    if (sessionToken && sessionToken.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(sessionToken);
+        sessionToken = parsed.token || '';
+      } catch (_) {}
+    }
 
     // If it was a session payment, mark all session orders as paid and close the session
     if (payTarget === 'session' && order?.sessionId) {
@@ -285,7 +317,7 @@ export function Checkout() {
                             </div>
                           </div>
                           <span className={`font-black ${o.paid_at ? 'text-zinc-600 line-through' : 'text-white'}`}>
-                            RM {parseFloat((o as any).total_price || (o as any).totalPrice || 0).toFixed(2)}
+                            RM {o.totalPrice.toFixed(2)}
                           </span>
                         </div>
                       ))}

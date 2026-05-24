@@ -1,6 +1,7 @@
 import { IndexedDbRepository, OfflineOrder, OfflineTable } from './indexedDbRepository';
 import { NetworkMonitor } from './networkMonitor';
 import { QueueProcessor } from './queueProcessor';
+import { offlineService } from './offlineService';
 
 export class SyncService {
   private repository: IndexedDbRepository;
@@ -106,12 +107,17 @@ export class SyncService {
 
   /**
    * Last-Write-Wins and Timestamp/Version conflict resolution helper.
-   * If local has mutations queued, we assume local changes are highly priority, or merge.
+   * If local has mutations queued, we assume local changes have high priority, or we merge.
    */
   private resolveConflict<T extends { updated_at: string; version: number }>(local: T | undefined, remote: T): T {
     if (!local) return remote;
 
-    // Compare versions and timestamps
+    // Special order merging resolution for Layer 4 Conflict Resolver
+    if ((remote as any).items !== undefined) {
+      return offlineService.resolveOrderConflict(local as unknown as OfflineOrder, remote as unknown as OfflineOrder) as unknown as T;
+    }
+
+    // Compare versions and timestamps for general objects (like tables)
     const localTime = new Date(local.updated_at).getTime();
     const remoteTime = new Date(remote.updated_at).getTime();
 

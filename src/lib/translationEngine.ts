@@ -1,6 +1,6 @@
 import { guestSupabase as supabase } from './supabase';
 import { LanguageCode, Product, MenuItem } from '../types';
-import { getApiUrl } from './api';
+import { apiClient } from './apiClient';
 
 export interface TranslationContext {
   restaurantId: string;
@@ -94,13 +94,7 @@ export async function resolveMenuTranslations(
   if (targetLanguage === 'en') return items;
 
   try {
-    const response = await fetch(getApiUrl('/api/public/batch-translate'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, context })
-    });
-    if (!response.ok) return items;
-    const data = await response.json();
+    const data = await apiClient.post<any>('/api/public/batch-translate', { items, context });
     return data.items || items;
   } catch (err) {
     console.error('Batch translation failed:', err);
@@ -119,13 +113,7 @@ export async function resolveCategoryTranslations(
   if (targetLanguage === 'en') return categories;
 
   try {
-    const response = await fetch(getApiUrl('/api/public/batch-translate'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ categories, context })
-    });
-    if (!response.ok) return categories;
-    const data = await response.json();
+    const data = await apiClient.post<any>('/api/public/batch-translate', { categories, context });
     return data.categories || categories;
   } catch (err) {
     console.error('Batch translation failed:', err);
@@ -138,9 +126,7 @@ export async function resolveCategoryTranslations(
  */
 export async function getKitchenCanonical(menuItemId: string): Promise<string | null> {
   try {
-    const response = await fetch(getApiUrl(`/api/public/kitchen-canonical/${menuItemId}`));
-    if (!response.ok) return null;
-    const data = await response.json();
+    const data = await apiClient.get<any>(`/api/public/kitchen-canonical/${menuItemId}`);
     return data?.canonical_name || null;
   } catch (err) {
     return null;

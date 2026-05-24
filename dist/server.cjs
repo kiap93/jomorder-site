@@ -36,12 +36,18 @@ var import_genai = require("@google/genai");
 import_dotenv.default.config();
 var app = (0, import_express.default)();
 var PORT = 3e3;
-var JWT_SECRET = process.env.JWT_SECRET || "jomorder-secret-key-123";
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET is required");
+}
+var JWT_SECRET = process.env.JWT_SECRET;
 var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 var googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
+}
 var supabaseAdmin = (0, import_supabase_js.createClient)(
   process.env.VITE_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || ""
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 app.use((0, import_cors.default)());
 app.use(import_express.default.json());
@@ -158,9 +164,81 @@ app.get("/api/public/baskets/:basketId/items", async (req, res) => {
   res.json(data);
 });
 app.post("/api/public/sync-basket-item", async (req, res) => {
-  const { data, error } = await supabaseAdmin.rpc("sync_basket_item_v2", req.body);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = req.body;
+    const { data: sessionData, error: sessionErr } = await supabaseAdmin.from("dining_sessions").select("id, restaurant_id").eq("id", p_session_id).eq("session_token", p_session_token).in("status", ["active", "awaiting_payment", "paid"]).maybeSingle();
+    if (sessionErr || !sessionData) {
+      return res.status(400).json({ error: "Invalid dining session token or inactive session" });
+    }
+    const restaurantId = sessionData.restaurant_id;
+    const { data: basket, error: basketErr } = await supabaseAdmin.from("baskets").select("id, basket_version").eq("session_id", p_session_id).eq("status", "active").maybeSingle();
+    if (basketErr) return res.status(500).json({ error: basketErr.message });
+    let basketId = basket?.id;
+    let basketVersion = basket?.basket_version || 1;
+    if (!basketId) {
+      const { data: newBasket, error: newBasketErr } = await supabaseAdmin.from("baskets").insert({
+        restaurant_id: restaurantId,
+        session_id: p_session_id,
+        status: "active",
+        basket_version: 1
+      }).select("id").single();
+      if (newBasketErr) return res.status(500).json({ error: newBasketErr.message });
+      basketId = newBasket.id;
+      basketVersion = 1;
+    }
+    const { data: items, error: itemsErr } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", basketId);
+    if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+    const existingItem = items?.find((item) => {
+      const matchId = item.product_id === p_product_id || item.menu_item_id === p_product_id;
+      const matchConfig = JSON.stringify(item.configuration || {}) === JSON.stringify(p_configuration || {});
+      return matchId && matchConfig;
+    });
+    const currentQty = existingItem ? existingItem.quantity : 0;
+    const newQty = Math.max(0, currentQty + (p_delta || 0));
+    if (newQty === 0) {
+      if (existingItem) {
+        const { error: delErr } = await supabaseAdmin.from("basket_items").delete().eq("id", existingItem.id);
+        if (delErr) return res.status(500).json({ error: delErr.message });
+      }
+    } else {
+      if (existingItem) {
+        const { error: updErr } = await supabaseAdmin.from("basket_items").update({ quantity: newQty, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existingItem.id);
+        if (updErr) return res.status(500).json({ error: updErr.message });
+      } else {
+        const insertPayload = {
+          basket_id: basketId,
+          quantity: newQty,
+          configuration: p_configuration || {},
+          created_by_device: p_device_info || null
+        };
+        let useMenuItemId = false;
+        if (items && items.length > 0 && "menu_item_id" in items[0]) {
+          useMenuItemId = true;
+        }
+        if (useMenuItemId) {
+          insertPayload.menu_item_id = p_product_id;
+        } else {
+          insertPayload.product_id = p_product_id;
+        }
+        const { error: insErr } = await supabaseAdmin.from("basket_items").insert(insertPayload);
+        if (insErr) {
+          if (useMenuItemId) {
+            delete insertPayload.menu_item_id;
+            insertPayload.product_id = p_product_id;
+          } else {
+            delete insertPayload.product_id;
+            insertPayload.menu_item_id = p_product_id;
+          }
+          const { error: insErr2 } = await supabaseAdmin.from("basket_items").insert(insertPayload);
+          if (insErr2) return res.status(500).json({ error: insErr2.message });
+        }
+      }
+    }
+    await supabaseAdmin.from("baskets").update({ basket_version: basketVersion + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId);
+    res.json({ basket_id: basketId, new_quantity: newQty });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 app.post("/api/public/place-order", async (req, res) => {
   const { data, error } = await supabaseAdmin.rpc("place_order_v3", req.body);
@@ -187,6 +265,10 @@ app.post("/api/public/orders/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
+  const { data: existingOrder } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).eq("session_id", session.id).single();
+  if (existingOrder && existingOrder.paid_at) {
+    return res.json(existingOrder);
+  }
   const { data, error } = await supabaseAdmin.from("orders").update({
     paid_at: (/* @__PURE__ */ new Date()).toISOString(),
     status: "confirmed",
@@ -197,8 +279,12 @@ app.post("/api/public/orders/:id/mark-paid", async (req, res) => {
 });
 app.post("/api/public/dining-sessions/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
-  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("id", req.params.id).eq("token", sessionToken).single();
+  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id, status").eq("id", req.params.id).eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
+  if (session.status === "paid") {
+    const { data: fullSession } = await supabaseAdmin.from("dining_sessions").select("*").eq("id", session.id).single();
+    return res.json(fullSession || session);
+  }
   const now = (/* @__PURE__ */ new Date()).toISOString();
   await supabaseAdmin.from("orders").update({
     paid_at: now,
@@ -1264,17 +1350,51 @@ app.post("/api/batch-sync", authenticateJWT, async (req, res) => {
   }
 });
 app.post("/api/public/payments", async (req, res) => {
-  const { restaurantId, orderId, amount, method, provider } = req.body;
-  const { data, error } = await supabaseAdmin.from("payments").insert({
-    restaurant_id: restaurantId,
-    order_id: orderId,
-    amount,
-    payment_method: method,
-    provider,
-    status: "pending"
-  }).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { restaurantId, orderId, amount, method, provider, metadata } = req.body;
+    const idempotencyKey = req.body.idempotency_key || req.body.idempotencyKey;
+    if (idempotencyKey) {
+      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKey).maybeSingle();
+      if (existing) {
+        return res.json(existing);
+      }
+    }
+    const newMetadata = {
+      ...metadata || {},
+      idempotency_key: idempotencyKey
+    };
+    const insertPayload = {
+      restaurant_id: restaurantId,
+      order_id: orderId,
+      amount,
+      payment_method: method,
+      provider,
+      status: "pending",
+      metadata: newMetadata,
+      idempotency_key: idempotencyKey
+    };
+    const { data, error } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
+    if (error) {
+      if (error.message?.includes("idempotency_key") || error.code === "PGRST204") {
+        const fallbackPayload = {
+          restaurant_id: restaurantId,
+          order_id: orderId,
+          amount,
+          payment_method: method,
+          provider,
+          status: "pending",
+          metadata: newMetadata
+        };
+        const { data: fallbackData, error: fallbackError } = await supabaseAdmin.from("payments").insert(fallbackPayload).select().single();
+        if (fallbackError) return res.status(500).json({ error: fallbackError.message });
+        return res.json(fallbackData);
+      }
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 app.post("/api/public/payments/:id/initialize", async (req, res) => {
   const { id } = req.params;
@@ -1730,7 +1850,10 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
         console.warn("Error querying restaurant_users:", err);
       }
       if (inFallbackPrimary || inFallbackRU || inLiveRU) {
-        return res.status(400).json({ error: "User is already registered for this restaurant." });
+        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
+          return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
+        }
+        return res.status(400).json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` });
       }
       const defaultPerms2 = getStaffSettings(userId, role).permissions;
       try {

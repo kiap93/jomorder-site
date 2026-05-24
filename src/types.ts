@@ -230,7 +230,7 @@ export interface BasketItem {
   basketId: string;
   productId: string;
   quantity: number;
-  configuration: any;
+  configuration: ProductSelection;
   specialInstructions?: string;
   createdByDevice?: string;
   createdAt: string;
@@ -285,7 +285,7 @@ export interface CashTransaction {
   rounding_adjustment: number;
   status: CashTransactionStatus;
   created_at: string;
-  metadata?: any;
+  metadata?: Record<string, string | number | boolean | null>;
 }
 
 export interface UserProfile {
@@ -297,3 +297,57 @@ export interface UserProfile {
   status?: 'active' | 'suspended';
   permissions?: Record<string, boolean>;
 }
+
+export interface ModifierSelection {
+  modifierId: string;
+  name: string;
+  priceDelta: number;
+}
+
+export interface BasketSession {
+  basketId: string;
+  sessionId: string;
+  restaurantId: string;
+  status: BasketStatus;
+  basketVersion: number;
+}
+
+export interface PaymentIntent {
+  id: string;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  clientSecret?: string;
+  paymentMethodId?: string;
+}
+
+export interface QueueMutation {
+  id: string;
+  url: string;
+  method: string;
+  body: string;
+  headers: Record<string, string>;
+  retry_count: number;
+  status: 'pending' | 'failed' | 'processing';
+  created_at: number;
+  priority: number;
+  description?: string;
+  rollback_data?: Record<string, unknown>;
+}
+
+export interface MutationJob {
+  id: string;
+  entity: 'order' | 'payment' | 'basket';
+  operation: 'create' | 'update' | 'delete';
+  payload: any;
+  retries: number;
+  createdAt: number;
+  syncStatus: 'pending' | 'syncing' | 'failed';
+}
+
+export interface SessionEpoch {
+  token: string;
+  version: number;
+  issued_at: number;
+}
+

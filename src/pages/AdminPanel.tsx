@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../lib/api';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield } from 'lucide-react';
@@ -70,6 +70,29 @@ const VisibilityManager = ({
   );
 };
 
+export interface StaffMember {
+  id: string;
+  email: string;
+  role: string;
+  status: 'active' | 'suspended';
+  custom_permissions?: {
+    can_refund?: boolean;
+    can_edit_menu?: boolean;
+    can_cancel_order?: boolean;
+    can_manage_staff?: boolean;
+    can_view_analytics?: boolean;
+  };
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  user_email: string;
+  user_id: string;
+  role: string;
+  action: string;
+}
+
 export function AdminPanel() {
   const { t } = useLanguageStore();
   const { restId } = useParams();
@@ -84,7 +107,7 @@ export function AdminPanel() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<(Order & { total_price?: string, created_at?: string, tables?: { name: string } })[]>([]);
   const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,8 +122,8 @@ export function AdminPanel() {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   // Staff and Audits states
-  const [staffList, setStaffList] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [newStaffEmail, setNewStaffEmail] = useState('');

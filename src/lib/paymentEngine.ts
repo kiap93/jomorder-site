@@ -1,6 +1,5 @@
-import { supabase } from './supabase';
 import { Payment, PaymentStatus } from '../types';
-import { getApiUrl } from './api';
+import { apiClient } from './apiClient';
 
 export interface PaymentIntentResponse {
   paymentId: string;
@@ -24,44 +23,35 @@ export const paymentEngine = {
     amount: number;
     method: string;
     provider: string;
+    idempotencyKey?: string;
   }): Promise<Payment> {
-    const response = await fetch(getApiUrl('/api/public/payments'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
+    const { idempotencyKey, ...restParams } = params;
+    return apiClient.post<Payment>('/api/public/payments', {
+      ...restParams,
+      idempotencyKey,
+      idempotency_key: idempotencyKey // Send both styles
     });
-    if (!response.ok) throw new Error('Create payment failed');
-    return response.json();
   },
 
   /**
    * Initialize a specific provider flow (DuitNow, FPX, etc)
    */
   async initializeProvider(payment: Payment): Promise<PaymentIntentResponse> {
-    const response = await fetch(getApiUrl(`/api/public/payments/${payment.id}/initialize`), {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Initialize provider failed');
-    return response.json();
+    return apiClient.post<PaymentIntentResponse>(`/api/public/payments/${payment.id}/initialize`);
   },
 
   /**
    * Poll for payment success or failure
    */
   async checkStatus(paymentId: string): Promise<PaymentStatus> {
-    const response = await fetch(getApiUrl(`/api/public/payments/${paymentId}/status`));
-    if (!response.ok) throw new Error('Check status failed');
-    const data = await response.json();
+    const data = await apiClient.get<any>(`/api/public/payments/${paymentId}/status`);
     return data.status;
   },
 
   /**
    * Simulate a successful payment (for dev/demo only)
    */
-  async simulateSuccess(paymentId: string) {
-    const response = await fetch(getApiUrl(`/api/public/payments/${paymentId}/simulate-success`), {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Simulate success failed');
+  async simulateSuccess(paymentId: string): Promise<void> {
+    await apiClient.post(`/api/public/payments/${paymentId}/simulate-success`);
   }
 };

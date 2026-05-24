@@ -1,13 +1,38 @@
 import { offlineService } from './offlineService';
 
-type MutationTask = () => Promise<any>;
+function parseHeaders(headers?: HeadersInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!headers) return result;
+  if (headers instanceof Headers) {
+    headers.forEach((val, key) => {
+      result[key] = val;
+    });
+  } else if (Array.isArray(headers)) {
+    headers.forEach(([key, val]) => {
+      result[key] = val;
+    });
+  } else {
+    Object.assign(result, headers);
+  }
+  return result;
+}
+
+export interface QueueSyncResult {
+  status?: string;
+  basket_version?: number;
+  basket_id?: string;
+  new_quantity?: number;
+  error?: string;
+}
+
+type MutationTask = () => Promise<QueueSyncResult>;
 
 export class MutationQueue {
   private queue: MutationTask[] = [];
   private processing = false;
-  private onSyncComplete?: (data: any) => void;
+  private onSyncComplete?: (data: QueueSyncResult) => void;
 
-  constructor(onSyncComplete?: (data: any) => void) {
+  constructor(onSyncComplete?: (data: QueueSyncResult) => void) {
     this.onSyncComplete = onSyncComplete;
   }
 
@@ -40,10 +65,10 @@ export class MutationQueue {
     if (task) {
       // Setup dynamic spy interceptor on fetch
       const originalFetch = globalThis.fetch;
-      let capturedRequest: { url: string; options: any } | null = null;
+      let capturedRequest: { url: string; options?: RequestInit } | null = null;
 
       globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? input : (input as any).url || input.toString();
+        const url = typeof input === 'string' ? input : (input as Request).url || input.toString();
         capturedRequest = { url, options: init };
         return originalFetch(input, init);
       };
@@ -65,7 +90,7 @@ export class MutationQueue {
             url,
             options?.method || 'POST',
             options?.body || '',
-            options?.headers || {},
+            parseHeaders(options?.headers),
             2,
             description || `Auto-retry for failed: ${url}`
           );
@@ -83,10 +108,10 @@ export class MutationQueue {
 
   private async persistTaskOffline(task: MutationTask, description?: string) {
     const originalFetch = globalThis.fetch;
-    let capturedRequest: { url: string; options: any } | null = null;
+    let capturedRequest: { url: string; options?: RequestInit } | null = null;
 
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : (input as any).url || input.toString();
+      const url = typeof input === 'string' ? input : (input as Request).url || input.toString();
       capturedRequest = { url, options: init };
       // Cause an immediate network error to escape the block and capture parameters
       throw new TypeError('Failed to fetch (offline simulation)');
@@ -106,7 +131,7 @@ export class MutationQueue {
         url,
         options?.method || 'POST',
         options?.body || '',
-        options?.headers || {},
+        parseHeaders(options?.headers),
         2,
         description || `Sync item offline: ${url}`
       );

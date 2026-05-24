@@ -1,5 +1,6 @@
 import { IndexedDbRepository, OfflineMutation } from './indexedDbRepository';
 import { NetworkMonitor } from './networkMonitor';
+import { MutationJob } from '../types';
 
 export interface QueueStatus {
   pendingCount: number;
@@ -9,6 +10,10 @@ export interface QueueStatus {
 }
 
 export type QueueStatusCallback = (status: QueueStatus) => void;
+
+type QueueItem = 
+  | { type: 'mutation'; item: OfflineMutation; score: number }
+  | { type: 'job'; item: MutationJob; score: number };
 
 export class QueueProcessor {
   private repository: IndexedDbRepository;
@@ -40,15 +45,21 @@ export class QueueProcessor {
 
   async getQueueStatus(): Promise<QueueStatus> {
     const mutations = await this.repository.getMutations();
-    const pending = mutations.filter(m => m.status === 'pending');
-    const failed = mutations.filter(m => m.status === 'failed');
-    const processing = mutations.filter(m => m.status === 'processing');
+    const jobs = await this.repository.getMutationJobs();
+
+    const pendingMutations = mutations.filter(m => m.status === 'pending');
+    const failedMutations = mutations.filter(m => m.status === 'failed');
+    const processingMutations = mutations.filter(m => m.status === 'processing');
+
+    const pendingJobs = jobs.filter(j => j.syncStatus === 'pending');
+    const failedJobs = jobs.filter(j => j.syncStatus === 'failed');
+    const processingJobs = jobs.filter(j => j.syncStatus === 'syncing');
 
     return {
-      pendingCount: pending.length,
-      failedCount: failed.length,
-      processingCount: processing.length,
-      isSyncing: this.isProcessing || processing.length > 0
+      pendingCount: pendingMutations.length + pendingJobs.length,
+      failedCount: failedMutations.length + failedJobs.length,
+      processingCount: processingMutations.length + processingJobs.length,
+      isSyncing: this.isProcessing || processingMutations.length > 0 || processingJobs.length > 0
     };
   }
 
@@ -103,7 +114,39 @@ export class QueueProcessor {
   }
 
   /**
-   * Processes the entire queue sequentially
+   * Adds a new structured MutationJob to the queue with defined priority
+   */
+  async enqueueJob(
+    entity: 'order' | 'payment' | 'basket',
+    operation: 'create' | 'update' | 'delete',
+    payload: any
+  ): Promise<MutationJob> {
+    const job: MutationJob = {
+      id: 'job_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+      entity,
+      operation,
+      payload,
+      retries: 0,
+      createdAt: Date.now(),
+      syncStatus: 'pending'
+    };
+
+    await this.repository.saveMutationJob(job);
+    this.notify();
+
+    // Trigger process queue asynchronously
+    this.processQueue();
+
+    return job;
+  }
+
+  /**
+   * Processes both queues based on sync priorities:
+   * 1. MutationJob entity 'payment' (highest priority - score 5)
+   * 2. Any payment mutations / high-priority standard mutations (score 4)
+   * 3. MutationJob entity 'order' (score 3)
+   * 4. MutationJob entity 'basket' (score 2)
+   * 5. General mutations / analytics (lowest priority - score 1)
    */
   async processQueue(): Promise<void> {
     if (this.isProcessing) return;
@@ -116,26 +159,67 @@ export class QueueProcessor {
     this.notify();
 
     try {
-      let mutations = await this.repository.getMutations();
-      
-      // Process items that are either pending or failed. We execute them sequentially.
-      while (mutations.length > 0 && this.networkMonitor.isOnline) {
-        const activeMutation = mutations[0];
+      while (this.networkMonitor.isOnline) {
+        const mutations = await this.repository.getMutations();
+        const jobs = await this.repository.getMutationJobs();
 
-        // Skip if status is already processing in another lock, though we have sequential lock here
-        if (activeMutation.status === 'processing') {
-          break;
+        // Map and prioritize all active items
+        const pool: QueueItem[] = [];
+
+        for (const m of mutations) {
+          if (m.status !== 'pending' && m.status !== 'failed') continue;
+          
+          let score = 1; // Default
+          if (m.priority >= 3) {
+            score = 4;
+          } else if (m.url.includes('/payments')) {
+            score = 5; // Payment URLs have highest priority
+          }
+          
+          pool.push({ type: 'mutation', item: m, score });
         }
 
-        const success = await this.executeMutation(activeMutation);
+        for (const j of jobs) {
+          if (j.syncStatus !== 'pending' && j.syncStatus !== 'failed') continue;
+          
+          let score = 2; // Default (basket)
+          if (j.entity === 'payment') {
+            score = 5; // Payment Jobs have highest priority
+          } else if (j.entity === 'order') {
+            score = 3; // Orders inside POS have normal-high priority
+          }
+          
+          pool.push({ type: 'job', item: j, score });
+        }
+
+        if (pool.length === 0) {
+          break; // Queue is fully synchronized!
+        }
+
+        // Sort pool: highest score first, then earliest creation time
+        pool.sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          const timeA = a.type === 'mutation' ? a.item.created_at : a.item.createdAt;
+          const timeB = b.type === 'mutation' ? b.item.created_at : b.item.createdAt;
+          return timeA - timeB;
+        });
+
+        const active = pool[0];
+        let success = false;
+
+        if (active.type === 'mutation') {
+          success = await this.executeMutation(active.item);
+        } else {
+          success = await this.executeMutationJob(active.item);
+        }
+
         if (!success) {
-          // If execution failed due to network, stop processing subsequent mutations to preserve sequential order
-          console.warn('[QueueProcessor] Mutation execution failed. Halting queue processing for safety.');
+          // If transaction didn't pass, break the loop to keep serialization order and retry later
+          console.warn('[QueueProcessor] Worker execution halted due to temporary channel error. Postponing next sync.');
           break;
         }
-
-        // Fetch refreshed queue state
-        mutations = await this.repository.getMutations();
       }
     } catch (e) {
       console.error('[QueueProcessor] Error during queue processing loop', e);
@@ -146,15 +230,19 @@ export class QueueProcessor {
   }
 
   /**
-   * Cleans / discards a mutation
+   * Cleans / discards a mutation or job
    */
   async discardMutation(id: string): Promise<void> {
-    await this.repository.deleteMutation(id);
+    if (id.startsWith('job_')) {
+      await this.repository.deleteMutationJob(id);
+    } else {
+      await this.repository.deleteMutation(id);
+    }
     this.notify();
   }
 
   /**
-   * Forces retrying a specific mutation (or all failed mutations)
+   * Forces retrying all failed mutations and jobs
    */
   async forceRetryAll(): Promise<void> {
     const mutations = await this.repository.getMutations();
@@ -165,22 +253,44 @@ export class QueueProcessor {
         await this.repository.saveMutation(m);
       }
     }
+
+    const jobs = await this.repository.getMutationJobs();
+    for (const j of jobs) {
+      if (j.syncStatus === 'failed') {
+        j.syncStatus = 'pending';
+        j.retries = 0;
+        await this.repository.saveMutationJob(j);
+      }
+    }
+
     this.notify();
     await this.processQueue();
   }
 
   /**
-   * Forces retrying a single mutation
+   * Forces retrying a single mutation or job
    */
   async forceRetry(id: string): Promise<void> {
-    const mutations = await this.repository.getMutations();
-    const mutation = mutations.find(m => m.id === id);
-    if (mutation) {
-      mutation.status = 'pending';
-      mutation.retry_count = 0;
-      await this.repository.saveMutation(mutation);
-      this.notify();
-      await this.processQueue();
+    if (id.startsWith('job_')) {
+      const jobs = await this.repository.getMutationJobs();
+      const job = jobs.find(j => j.id === id);
+      if (job) {
+        job.syncStatus = 'pending';
+        job.retries = 0;
+        await this.repository.saveMutationJob(job);
+        this.notify();
+        await this.processQueue();
+      }
+    } else {
+      const mutations = await this.repository.getMutations();
+      const mutation = mutations.find(m => m.id === id);
+      if (mutation) {
+        mutation.status = 'pending';
+        mutation.retry_count = 0;
+        await this.repository.saveMutation(mutation);
+        this.notify();
+        await this.processQueue();
+      }
     }
   }
 
@@ -208,8 +318,6 @@ export class QueueProcessor {
       }
 
       // Handle server-side 400-499 errors (client errors)
-      // These are usually logical errors (bad validation, concurrent constraints, nonexistent resources)
-      // Retrying them forever would block the sync pipeline.
       if (response.status >= 400 && response.status < 500) {
         const errorDetail = await response.text();
         console.error(`[QueueProcessor] Client error ${response.status} resolving mutation ${mutation.id}:`, errorDetail);
@@ -237,6 +345,120 @@ export class QueueProcessor {
       }
 
       await this.repository.saveMutation(mutation);
+      this.notify();
+      return false;
+    }
+  }
+
+  private async executeMutationJob(job: MutationJob): Promise<boolean> {
+    job.syncStatus = 'syncing';
+    await this.repository.saveMutationJob(job);
+    this.notify();
+
+    const backoffTime = Math.pow(2, job.retries) * this.baseBackoffMs;
+
+    try {
+      console.log(`[QueueProcessor] Syncing MutationJob ${job.id} [${job.entity}/${job.operation}]`);
+
+      let url = '';
+      let method = 'POST';
+      let body: any = null;
+
+      // Map structured queue entities to REST POS endpoints
+      if (job.entity === 'order') {
+        if (job.operation === 'create') {
+          url = '/api/public/place-order'; // Fallback to public place-order if POS API lacks a dedicated route
+          method = 'POST';
+          body = job.payload;
+        } else if (job.operation === 'update') {
+          url = `/api/orders/${job.payload.id || job.payload.orderId}`;
+          method = 'PATCH';
+          body = job.payload;
+        } else if (job.operation === 'delete') {
+          url = `/api/orders/${job.payload.id || job.payload.orderId}`;
+          method = 'DELETE';
+          body = job.payload;
+        }
+      } else if (job.entity === 'payment') {
+        if (job.operation === 'create') {
+          url = '/api/public/payments';
+          method = 'POST';
+          body = job.payload;
+        } else if (job.operation === 'update') {
+          url = `/api/public/payments/${job.payload.id || job.payload.paymentId}/initialize`;
+          method = 'POST';
+          body = job.payload;
+        }
+      } else if (job.entity === 'basket') {
+        if (job.operation === 'update' || job.operation === 'create') {
+          url = '/api/public/sync-basket-item';
+          method = 'POST';
+          body = job.payload;
+        }
+      }
+
+      if (!url) {
+        console.error(`[QueueProcessor] Invalid Job Scheme: no endpoint resolved for ${job.entity}`);
+        await this.repository.deleteMutationJob(job.id);
+        this.notify();
+        return true; 
+      }
+
+      // Automatically attach Auth JWT token if available
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      
+      const sessionStoreStr = localStorage.getItem('auth-storage');
+      if (sessionStoreStr) {
+        try {
+          const authData = JSON.parse(sessionStoreStr);
+          const token = authData?.state?.token;
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+        } catch (_) {}
+      }
+
+      console.log(`[QueueProcessor] Dispatching fetch to resolved path: ${url}`);
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined
+      });
+
+      if (response.ok) {
+        console.log(`[QueueProcessor] MutationJob ${job.id} synchronized successfully.`);
+        await this.repository.deleteMutationJob(job.id);
+        this.notify();
+        return true;
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        const errorDetail = await response.text();
+        console.error(`[QueueProcessor] Client error ${response.status} on MutationJob ${job.id}:`, errorDetail);
+        job.syncStatus = 'failed';
+        job.retries += 1;
+        await this.repository.saveMutationJob(job);
+        this.notify();
+        return false;
+      }
+
+      throw new Error(`Server returned HTTP ${response.status}`);
+    } catch (e: any) {
+      console.warn(`[QueueProcessor] Connection error on MutationJob ${job.id}:`, e.message || e);
+      job.retries += 1;
+      
+      if (job.retries >= this.maxRetries) {
+        job.syncStatus = 'failed';
+        console.error(`[QueueProcessor] MutationJob ${job.id} reached retry ceiling. Stopping.`);
+      } else {
+        job.syncStatus = 'pending';
+        // Wait exponential backoff before continuing queue execution
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+      }
+
+      await this.repository.saveMutationJob(job);
       this.notify();
       return false;
     }

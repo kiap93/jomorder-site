@@ -24,6 +24,16 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 app.use('*', logger());
 app.use('*', cors());
 
+app.use('*', async (c, next) => {
+  if (!c.env || !c.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET env variable is required');
+  }
+  if (!c.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY missing');
+  }
+  await next();
+});
+
 app.onError((err, c) => {
   console.error(`${c.req.method} ${c.req.url} failed: ${err.message}`);
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
@@ -378,10 +388,137 @@ app.get('/api/public/baskets/:basketId/items', async (c) => {
 
 app.post('/api/public/sync-basket-item', async (c) => {
   const supabase = getSupabase(c.env);
-  const body = await c.req.json();
-  const { data, error } = await supabase.rpc('sync_basket_item_v2', body);
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+  try {
+    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = await c.req.json();
+
+    // 1. Session Token Validation
+    const { data: sessionData, error: sessionErr } = await supabase
+      .from('dining_sessions')
+      .select('id, restaurant_id')
+      .eq('id', p_session_id)
+      .eq('session_token', p_session_token)
+      .in('status', ['active', 'awaiting_payment', 'paid'])
+      .maybeSingle();
+
+    if (sessionErr || !sessionData) {
+      return c.json({ error: "Invalid dining session token or inactive session" }, 400);
+    }
+
+    const restaurantId = sessionData.restaurant_id;
+
+    // 2. Resolve Active Basket
+    const { data: basket, error: basketErr } = await supabase
+      .from('baskets')
+      .select('id, basket_version')
+      .eq('session_id', p_session_id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (basketErr) return c.json({ error: basketErr.message }, 500);
+
+    let basketId = basket?.id;
+    let basketVersion = basket?.basket_version || 1;
+
+    if (!basketId) {
+      const { data: newBasket, error: newBasketErr } = await supabase
+        .from('baskets')
+        .insert({
+          restaurant_id: restaurantId,
+          session_id: p_session_id,
+          status: 'active',
+          basket_version: 1
+        })
+        .select('id')
+        .single();
+
+      if (newBasketErr) return c.json({ error: newBasketErr.message }, 500);
+      basketId = newBasket.id;
+      basketVersion = 1;
+    }
+
+    // 3. Fetch current basket items to handle merge and identify column names
+    const { data: items, error: itemsErr } = await supabase
+      .from('basket_items')
+      .select('*')
+      .eq('basket_id', basketId);
+
+    if (itemsErr) return c.json({ error: itemsErr.message }, 500);
+
+    const existingItem = items?.find((item: any) => {
+      const matchId = item.product_id === p_product_id || item.menu_item_id === p_product_id;
+      const matchConfig = JSON.stringify(item.configuration || {}) === JSON.stringify(p_configuration || {});
+      return matchId && matchConfig;
+    });
+
+    const currentQty = existingItem ? existingItem.quantity : 0;
+    const newQty = Math.max(0, currentQty + (p_delta || 0));
+
+    if (newQty === 0) {
+      if (existingItem) {
+        const { error: delErr } = await supabase
+          .from('basket_items')
+          .delete()
+          .eq('id', existingItem.id);
+        if (delErr) return c.json({ error: delErr.message }, 500);
+      }
+    } else {
+      if (existingItem) {
+        const { error: updErr } = await supabase
+          .from('basket_items')
+          .update({ quantity: newQty, updated_at: new Date().toISOString() })
+          .eq('id', existingItem.id);
+        if (updErr) return c.json({ error: updErr.message }, 500);
+      } else {
+        const insertPayload: any = {
+          basket_id: basketId,
+          quantity: newQty,
+          configuration: p_configuration || {},
+          created_by_device: p_device_info || null
+        };
+
+        // Determine which column name is used
+        let useMenuItemId = false;
+        if (items && items.length > 0 && 'menu_item_id' in items[0]) {
+          useMenuItemId = true;
+        }
+
+        if (useMenuItemId) {
+          insertPayload.menu_item_id = p_product_id;
+        } else {
+          insertPayload.product_id = p_product_id;
+        }
+
+        const { error: insErr } = await supabase
+          .from('basket_items')
+          .insert(insertPayload);
+
+        if (insErr) {
+          // Retry with alternative column mapping
+          if (useMenuItemId) {
+            delete insertPayload.menu_item_id;
+            insertPayload.product_id = p_product_id;
+          } else {
+            delete insertPayload.product_id;
+            insertPayload.menu_item_id = p_product_id;
+          }
+          const { error: insErr2 } = await supabase
+            .from('basket_items')
+            .insert(insertPayload);
+          if (insErr2) return c.json({ error: insErr2.message }, 500);
+        }
+      }
+    }
+
+    // 4. Bump Basket Version
+    await supabase
+      .from('baskets')
+      .update({ basket_version: basketVersion + 1, updated_at: new Date().toISOString() })
+      .eq('id', basketId);
+
+    return c.json({ basket_id: basketId, new_quantity: newQty });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 app.post('/api/public/place-order', async (c) => {
@@ -435,6 +572,18 @@ app.post('/api/public/orders/:id/mark-paid', async (c) => {
   
   if (!session) return c.json({ error: 'Invalid session token' }, 401);
 
+  // Idempotency: check if already paid prior to executing update
+  const { data: existingOrder } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', c.req.param('id'))
+    .eq('session_id', session.id)
+    .single();
+
+  if (existingOrder && existingOrder.paid_at) {
+    return c.json(existingOrder);
+  }
+
   const { data, error } = await supabase
     .from('orders')
     .update({ 
@@ -456,12 +605,22 @@ app.post('/api/public/dining-sessions/:id/mark-paid', async (c) => {
   const { sessionToken } = await c.req.json();
   const { data: session } = await supabase
     .from('dining_sessions')
-    .select('id')
+    .select('id, status')
     .eq('id', c.req.param('id'))
     .eq('token', sessionToken)
     .single();
   
   if (!session) return c.json({ error: 'Invalid session token' }, 401);
+
+  // Idempotency: if already paid, return session without executing update again
+  if (session.status === 'paid') {
+    const { data: fullSession } = await supabase
+      .from('dining_sessions')
+      .select('*')
+      .eq('id', session.id)
+      .single();
+    return c.json(fullSession || session);
+  }
 
   const now = new Date().toISOString();
   await supabase.from('orders')
@@ -2214,23 +2373,76 @@ app.post("/api/dining-sessions/:id/settle", authenticate, async (c) => {
 
 // Payments (Public)
 app.post("/api/public/payments", async (c) => {
-  const supabase = getSupabase(c.env);
-  const body = await c.req.json();
-  const { data, error } = await supabase
-    .from('payments')
-    .insert({
-      restaurant_id: body.restaurantId,
-      order_id: body.orderId,
-      amount: body.amount,
-      payment_method: body.method,
-      provider: body.provider,
-      status: 'pending'
-    })
-    .select()
-    .single();
+  try {
+    const supabase = getSupabase(c.env);
+    const body = await c.req.json();
+    const { restaurantId, orderId, amount, method, provider, metadata } = body;
+    const idempotencyKey = body.idempotency_key || body.idempotencyKey;
 
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json(data);
+    if (idempotencyKey) {
+      // 1. Try checking for existing payment by idempotency_key
+      const { data: existing } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('metadata->>idempotency_key', idempotencyKey)
+        .maybeSingle();
+
+      if (existing) {
+        return c.json(existing);
+      }
+    }
+
+    const newMetadata = {
+      ...(metadata || {}),
+      idempotency_key: idempotencyKey
+    };
+
+    // Attempt with first-class column
+    const insertPayload: any = {
+      restaurant_id: restaurantId,
+      order_id: orderId,
+      amount: amount,
+      payment_method: method,
+      provider: provider,
+      status: 'pending',
+      metadata: newMetadata,
+      idempotency_key: idempotencyKey
+    };
+
+    const { data, error } = await supabase
+      .from('payments')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      // If of relation 'payments' column does not exist, retry without it
+      if (error.message?.includes('idempotency_key') || error.code === 'PGRST204') {
+        const fallbackPayload = {
+          restaurant_id: restaurantId,
+          order_id: orderId,
+          amount: amount,
+          payment_method: method,
+          provider: provider,
+          status: 'pending',
+          metadata: newMetadata
+        };
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('payments')
+          .insert(fallbackPayload)
+          .select()
+          .single();
+
+        if (fallbackError) return c.json({ error: fallbackError.message }, 500);
+        return c.json(fallbackData);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json(data);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 app.post("/api/public/payments/:id/initialize", async (c) => {
