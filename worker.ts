@@ -4,6 +4,14 @@ import { logger } from 'hono/logger';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import * as jose from 'jose';
+import {
+  LoginSchema,
+  RegisterSchema,
+  ResolveSessionSchema,
+  SyncBasketItemSchema,
+  PlaceOrderSchema,
+  PaymentsSchema
+} from "./src/lib/validation";
 
 type Bindings = {
   SUPABASE_URL: string;
@@ -327,7 +335,11 @@ app.get('/api/public/tables/:tableId', async (c) => {
 app.post('/api/public/resolve-session', async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
-  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = body;
+  const parsed = ResolveSessionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400);
+  }
+  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = parsed.data;
   
   const { data, error } = await supabase.rpc('resolve_dining_session_v2', {
     p_restaurant_id: restaurantId,
@@ -389,7 +401,12 @@ app.get('/api/public/baskets/:basketId/items', async (c) => {
 app.post('/api/public/sync-basket-item', async (c) => {
   const supabase = getSupabase(c.env);
   try {
-    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = await c.req.json();
+    const body = await c.req.json();
+    const parsed = SyncBasketItemSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.issues[0].message }, 400);
+    }
+    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = parsed.data;
 
     // 1. Session Token Validation
     const { data: sessionData, error: sessionErr } = await supabase
@@ -524,7 +541,11 @@ app.post('/api/public/sync-basket-item', async (c) => {
 app.post('/api/public/place-order', async (c) => {
   const supabase = getSupabase(c.env);
   const body = await c.req.json();
-  const { data, error } = await supabase.rpc('place_order_v3', body);
+  const parsed = PlaceOrderSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400);
+  }
+  const { data, error } = await supabase.rpc('place_order_v3', parsed.data);
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data);
 });
@@ -650,7 +671,12 @@ app.post('/api/public/dining-sessions/:id/mark-paid', async (c) => {
 
 app.post('/api/login', async (c) => {
   const supabase = getSupabase(c.env);
-  const { email, password } = await c.req.json();
+  const body = await c.req.json();
+  const parsed = LoginSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400);
+  }
+  const { email, password } = parsed.data;
   const envAdminEmail = c.env.ADMIN_USER_EMAIL;
   const envAdminPass = c.env.ADMIN_USER_PASSWORD;
 
@@ -703,11 +729,12 @@ app.post('/api/login', async (c) => {
 
 app.post('/api/register', async (c) => {
   const supabase = getSupabase(c.env);
-  const { email, password } = await c.req.json();
-  
-  if (!email || !password) {
-    return c.json({ error: 'Email and password are required' }, 400);
+  const body = await c.req.json();
+  const parsed = RegisterSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0].message }, 400);
   }
+  const { email, password } = parsed.data;
 
   try {
     const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
@@ -2376,15 +2403,19 @@ app.post("/api/public/payments", async (c) => {
   try {
     const supabase = getSupabase(c.env);
     const body = await c.req.json();
-    const { restaurantId, orderId, amount, method, provider, metadata } = body;
-    const idempotencyKey = body.idempotency_key || body.idempotencyKey;
+    const parsed = PaymentsSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.issues[0].message }, 400);
+    }
+    const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
+    const idempotencyKeyResolved = idempotency_key || idempotencyKey;
 
-    if (idempotencyKey) {
+    if (idempotencyKeyResolved) {
       // 1. Try checking for existing payment by idempotency_key
       const { data: existing } = await supabase
         .from('payments')
         .select('*')
-        .eq('metadata->>idempotency_key', idempotencyKey)
+        .eq('metadata->>idempotency_key', idempotencyKeyResolved)
         .maybeSingle();
 
       if (existing) {
@@ -2394,7 +2425,7 @@ app.post("/api/public/payments", async (c) => {
 
     const newMetadata = {
       ...(metadata || {}),
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKeyResolved
     };
 
     // Attempt with first-class column
@@ -2406,7 +2437,7 @@ app.post("/api/public/payments", async (c) => {
       provider: provider,
       status: 'pending',
       metadata: newMetadata,
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKeyResolved
     };
 
     const { data, error } = await supabase

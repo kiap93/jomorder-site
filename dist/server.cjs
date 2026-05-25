@@ -33,6 +33,70 @@ var import_supabase_js = require("@supabase/supabase-js");
 var import_google_auth_library = require("google-auth-library");
 var import_dotenv = __toESM(require("dotenv"), 1);
 var import_genai = require("@google/genai");
+
+// src/lib/validation.ts
+var import_zod = require("zod");
+var LoginSchema = import_zod.z.object({
+  email: import_zod.z.string().email({ message: "Invalid email structure" }),
+  password: import_zod.z.string().min(1, { message: "Password is required" })
+});
+var RegisterSchema = import_zod.z.object({
+  email: import_zod.z.string().email({ message: "Invalid email structure" }),
+  password: import_zod.z.string().min(6, { message: "Password must be at least 6 characters" })
+});
+var ResolveSessionSchema = import_zod.z.object({
+  restaurantId: import_zod.z.string().uuid({ message: "Restaurant ID must be a valid UUID" }),
+  tableId: import_zod.z.string().nullable().optional(),
+  deviceInfo: import_zod.z.string().nullable().optional(),
+  clientToken: import_zod.z.string().nullable().optional(),
+  fulfillment: import_zod.z.string().nullable().optional()
+});
+var SyncBasketItemSchema = import_zod.z.object({
+  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }),
+  p_session_token: import_zod.z.string().min(1, { message: "p_session_token is required" }),
+  p_product_id: import_zod.z.string().min(1, { message: "p_product_id is required" }),
+  p_delta: import_zod.z.number().int({ message: "p_delta must be an integer" }),
+  p_configuration: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  p_device_info: import_zod.z.string().nullable().optional()
+});
+var OrderItemSchema = import_zod.z.object({
+  id: import_zod.z.string().optional(),
+  menuItemId: import_zod.z.string().uuid({ message: "menuItemId must be a valid UUID" }),
+  quantity: import_zod.z.number().int().positive({ message: "quantity must be a positive integer" }),
+  price: import_zod.z.number().nonnegative({ message: "price cannot be negative" }),
+  name: import_zod.z.string().optional(),
+  selection: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  notes: import_zod.z.string().nullable().optional(),
+  kitchenName: import_zod.z.string().nullable().optional(),
+  smartRenderedLines: import_zod.z.object({
+    kds: import_zod.z.array(import_zod.z.string()).optional(),
+    customer: import_zod.z.array(import_zod.z.string()).optional(),
+    receipt: import_zod.z.array(import_zod.z.string()).optional()
+  }).optional()
+});
+var PlaceOrderSchema = import_zod.z.object({
+  p_restaurant_id: import_zod.z.string().uuid({ message: "p_restaurant_id must be a valid UUID" }),
+  p_table_id: import_zod.z.string().nullable().optional(),
+  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }).nullable().optional(),
+  p_session_token: import_zod.z.string().nullable().optional(),
+  p_order_type: import_zod.z.enum(["dine_in", "takeaway"]),
+  p_items: import_zod.z.array(OrderItemSchema).min(1, { message: "Order must contain at least one item" }),
+  p_total_price: import_zod.z.number().nonnegative({ message: "p_total_price cannot be negative" }),
+  p_payment_method: import_zod.z.string().optional(),
+  p_idempotency_key: import_zod.z.string().nullable().optional()
+});
+var PaymentsSchema = import_zod.z.object({
+  restaurantId: import_zod.z.string().uuid({ message: "restaurantId must be a valid UUID" }),
+  orderId: import_zod.z.string().uuid({ message: "orderId must be a valid UUID" }),
+  amount: import_zod.z.number().positive({ message: "amount must be a positive number" }),
+  method: import_zod.z.string().min(1, { message: "method is required" }),
+  provider: import_zod.z.string().min(1, { message: "provider is required" }),
+  metadata: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  idempotency_key: import_zod.z.string().nullable().optional(),
+  idempotencyKey: import_zod.z.string().nullable().optional()
+});
+
+// server.ts
 import_dotenv.default.config();
 var app = (0, import_express.default)();
 var PORT = 3e3;
@@ -121,7 +185,11 @@ app.get("/api/public/tables/:tableId", async (req, res) => {
   return res.json(data || {});
 });
 app.post("/api/public/resolve-session", async (req, res) => {
-  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = req.body;
+  const parsed = ResolveSessionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = parsed.data;
   const { data, error } = await supabaseAdmin.rpc("resolve_dining_session_v2", {
     p_restaurant_id: restaurantId,
     p_table_id: tableId,
@@ -165,7 +233,11 @@ app.get("/api/public/baskets/:basketId/items", async (req, res) => {
 });
 app.post("/api/public/sync-basket-item", async (req, res) => {
   try {
-    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = req.body;
+    const parsed = SyncBasketItemSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = parsed.data;
     const { data: sessionData, error: sessionErr } = await supabaseAdmin.from("dining_sessions").select("id, restaurant_id").eq("id", p_session_id).eq("session_token", p_session_token).in("status", ["active", "awaiting_payment", "paid"]).maybeSingle();
     if (sessionErr || !sessionData) {
       return res.status(400).json({ error: "Invalid dining session token or inactive session" });
@@ -241,7 +313,11 @@ app.post("/api/public/sync-basket-item", async (req, res) => {
   }
 });
 app.post("/api/public/place-order", async (req, res) => {
-  const { data, error } = await supabaseAdmin.rpc("place_order_v3", req.body);
+  const parsed = PlaceOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { data, error } = await supabaseAdmin.rpc("place_order_v3", parsed.data);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -333,7 +409,11 @@ app.post("/api/translate", authenticateJWT, async (req, res) => {
   }
 });
 app.post("/api/login", async (req, res) => {
-  const { email, password } = req.body;
+  const parsed = LoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { email, password } = parsed.data;
   const envAdminEmail = process.env.ADMIN_USER_EMAIL;
   const envAdminPass = process.env.ADMIN_USER_PASSWORD;
   const isAdminEnvMatch = envAdminEmail && email === envAdminEmail && password === envAdminPass;
@@ -376,10 +456,11 @@ app.post("/api/login", async (req, res) => {
   }
 });
 app.post("/api/register", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required" });
+  const parsed = RegisterSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
   }
+  const { email, password } = parsed.data;
   try {
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -1351,17 +1432,21 @@ app.post("/api/batch-sync", authenticateJWT, async (req, res) => {
 });
 app.post("/api/public/payments", async (req, res) => {
   try {
-    const { restaurantId, orderId, amount, method, provider, metadata } = req.body;
-    const idempotencyKey = req.body.idempotency_key || req.body.idempotencyKey;
-    if (idempotencyKey) {
-      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKey).maybeSingle();
+    const parsed = PaymentsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+    const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
+    const idempotencyKeyResolved = idempotency_key || idempotencyKey;
+    if (idempotencyKeyResolved) {
+      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
       if (existing) {
         return res.json(existing);
       }
     }
     const newMetadata = {
       ...metadata || {},
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKeyResolved
     };
     const insertPayload = {
       restaurant_id: restaurantId,
@@ -1371,7 +1456,7 @@ app.post("/api/public/payments", async (req, res) => {
       provider,
       status: "pending",
       metadata: newMetadata,
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKeyResolved
     };
     const { data, error } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
     if (error) {

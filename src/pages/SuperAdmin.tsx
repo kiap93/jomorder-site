@@ -827,11 +827,11 @@ export function SuperAdmin() {
 
       {/* ADJUST TENANT CONFIGURATION AND FLAGS DRAWER */}
       {selectedTenant && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl p-6 overflow-hidden relative animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl p-6 flex flex-col max-h-[90vh] relative animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
             <button 
               onClick={() => setSelectedTenant(null)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200"
+              className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 z-10"
             >
               <X size={20} />
             </button>
@@ -841,7 +841,7 @@ export function SuperAdmin() {
             </h2>
             <p className="text-xs text-zinc-500 mb-6">Real-time parameters for {selectedTenant.name}</p>
 
-            <div className="space-y-5">
+            <div className="space-y-5 overflow-y-auto flex-1 pr-2 min-h-0 scrollbar-thin scrollbar-thumb-zinc-700">
               {/* Plan Choice Dropdown */}
               <div>
                 <label className="text-[10px] font-black tracking-wider text-zinc-500 uppercase block mb-1.5">SaaS Subscription Plan</label>
@@ -963,10 +963,10 @@ export function SuperAdmin() {
             </div>
 
             {/* Bottom Actions */}
-            <div className="mt-8 pt-4 border-t border-zinc-800 flex gap-2">
+            <div className="mt-6 pt-4 border-t border-zinc-800 flex gap-2">
               <button
                 onClick={() => setSelectedTenant(null)}
-                className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-3 rounded-lg text-xs font-bold uppercase tracking-wider"
+                className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors"
               >
                 Close Portal Settings
               </button>
@@ -977,15 +977,15 @@ export function SuperAdmin() {
 
       {/* CREATE NEW TENANT MODAL */}
       {showCreateTenantModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
           <form 
             onSubmit={handleCreateTenant}
-            className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl p-6 overflow-hidden relative animate-in fade-in zoom-in-95 duration-200 shadow-2xl"
+            className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl p-6 flex flex-col max-h-[90vh] relative animate-in fade-in zoom-in-95 duration-200 shadow-2xl"
           >
             <button 
               type="button" 
               onClick={() => setShowCreateTenantModal(false)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200"
+              className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 z-10"
             >
               <X size={20} />
             </button>
@@ -995,7 +995,7 @@ export function SuperAdmin() {
             </h2>
             <p className="text-xs text-zinc-500 mb-6">Deploy a brand-new restaurant tenant instantly</p>
 
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto flex-1 pr-2 min-h-0 scrollbar-thin scrollbar-thumb-zinc-700">
               <div>
                 <label className="text-[10px] font-black tracking-wider text-zinc-500 uppercase block mb-1">Restaurant Tenant Name</label>
                 <input
@@ -1060,18 +1060,18 @@ export function SuperAdmin() {
               </div>
             </div>
 
-            <div className="mt-8 pt-4 border-t border-zinc-800 flex gap-2">
+            <div className="mt-6 pt-4 border-t border-zinc-800 flex gap-2">
               <button
                 type="button"
                 onClick={() => setShowCreateTenantModal(false)}
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-350 text-xs font-bold uppercase tracking-wider py-3 rounded-lg"
+                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-350 text-xs font-bold uppercase tracking-wider py-3 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isCreatingTenant}
-                className="flex-[1.5] bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold uppercase tracking-wider py-3 rounded-lg shadow-lg disabled:opacity-50"
+                className="flex-[1.5] bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold uppercase tracking-wider py-3 rounded-lg shadow-lg disabled:opacity-50 transition-colors"
               >
                 {isCreatingTenant ? 'Provisioning...' : 'Provision Now'}
               </button>
