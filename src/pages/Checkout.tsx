@@ -146,7 +146,9 @@ export function Checkout() {
           if (sRes.ok) {
             const sOrdersJson = await sRes.json() as DbOrder[];
             if (sOrdersJson && sOrdersJson.length > 0) {
-              const mappedSessionOrders = sOrdersJson.map((so: DbOrder) => mapDbOrderToOrder(so));
+              const mappedSessionOrders = sOrdersJson
+                .map((so: DbOrder) => mapDbOrderToOrder(so))
+                .filter((so: Order) => so.status !== 'cancelled');
               setSessionOrders(mappedSessionOrders);
               const unpaidOrders = mappedSessionOrders.filter(o => !o.paid_at);
               const total = unpaidOrders.reduce((sum, o) => sum + o.totalPrice, 0);
@@ -200,9 +202,43 @@ export function Checkout() {
   const scRate = restaurant?.serviceCharge || 0;
   const sstRate = restaurant?.sst || 0;
   
-  const calculatedSubtotal = amountToPay / ((1 + scRate) * (1 + sstRate));
-  const calculatedSC = calculatedSubtotal * scRate;
-  const calculatedSST = (calculatedSubtotal + calculatedSC) * sstRate;
+  // Let's compute direct subtotal from order item prices if available
+  let computedSubtotal = 0;
+  if (payTarget === 'session') {
+    const activeOrders = sessionOrders.filter(o => !o.paid_at && o.status !== 'cancelled');
+    computedSubtotal = activeOrders.reduce((sum, o) => {
+      const itemSum = (o.items || []).reduce((iSum, item) => iSum + (item.price * item.quantity), 0);
+      return sum + itemSum;
+    }, 0);
+  } else if (order && order.items && order.items.length > 0) {
+    computedSubtotal = (order.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  }
+
+  let calculatedSubtotal = 0;
+  let calculatedSC = 0;
+  let calculatedSST = 0;
+
+  if (computedSubtotal > 0) {
+    const directSC = computedSubtotal * scRate;
+    const directSST = (computedSubtotal + directSC) * sstRate;
+    const directTotal = computedSubtotal + directSC + directSST;
+
+    // Check if the direct calculated total corresponds closely with what's in the DB.
+    // Otherwise fallback to backward formulation to ensure strict math alignment.
+    if (Math.abs(directTotal - amountToPay) < 0.05) {
+      calculatedSubtotal = computedSubtotal;
+      calculatedSC = directSC;
+      calculatedSST = directSST;
+    } else {
+      calculatedSubtotal = amountToPay / ((1 + scRate) * (1 + sstRate));
+      calculatedSC = calculatedSubtotal * scRate;
+      calculatedSST = (calculatedSubtotal + calculatedSC) * sstRate;
+    }
+  } else {
+    calculatedSubtotal = amountToPay / ((1 + scRate) * (1 + sstRate));
+    calculatedSC = calculatedSubtotal * scRate;
+    calculatedSST = (calculatedSubtotal + calculatedSC) * sstRate;
+  }
 
   const handleMethodSelect = async (method: string) => {
     if (!restaurant || !order) return;

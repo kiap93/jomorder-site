@@ -857,20 +857,23 @@ export function CustomerMenu() {
     // 3. Sync with Server via Queue
     const mutationKey = Math.random().toString(36).slice(2, 11);
     
+    const syncUrl = getApiUrl(`/api/public/sync-basket-item`);
+    const syncOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p_session_id: currentSessionId,
+        p_session_token: currentSessionToken,
+        p_product_id: item.id,
+        p_delta: 1,
+        p_configuration: selection,
+        p_device_info: navigator.userAgent,
+        p_idempotency_key: mutationKey
+      })
+    };
+
     mutationQueue.current?.enqueue(async () => {
-      const response = await fetch(getApiUrl(`/api/public/sync-basket-item`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          p_session_id: currentSessionId,
-          p_session_token: currentSessionToken,
-          p_product_id: item.id,
-          p_delta: 1,
-          p_configuration: selection,
-          p_device_info: navigator.userAgent,
-          p_idempotency_key: mutationKey
-        })
-      });
+      const response = await fetch(syncUrl, syncOptions);
 
       if (!response.ok) {
         console.error("Failed to sync basket item");
@@ -882,7 +885,7 @@ export function CustomerMenu() {
         setBasketId(result.basket_id);
       }
       return result;
-    });
+    }, { url: syncUrl, options: syncOptions });
   };
 
   const updateQuantity = async (index: number, delta: number) => {
@@ -914,27 +917,30 @@ export function CustomerMenu() {
     // 3. Sync with Server via Queue
     const mutationKey = Math.random().toString(36).slice(2, 11);
 
+    const updateUrl = getApiUrl(`/api/public/sync-basket-item`);
+    const updateOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p_session_id: currentSessionId,
+        p_session_token: currentSessionToken,
+        p_product_id: item.menuItemId,
+        p_delta: delta,
+        p_configuration: item.selection,
+        p_device_info: navigator.userAgent,
+        p_idempotency_key: mutationKey
+      })
+    };
+
     mutationQueue.current?.enqueue(async () => {
-      const response = await fetch(getApiUrl(`/api/public/sync-basket-item`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          p_session_id: currentSessionId,
-          p_session_token: currentSessionToken,
-          p_product_id: item.menuItemId,
-          p_delta: delta,
-          p_configuration: item.selection,
-          p_device_info: navigator.userAgent,
-          p_idempotency_key: mutationKey
-        })
-      });
+      const response = await fetch(updateUrl, updateOptions);
 
       if (!response.ok) {
         console.error("Failed to update basket quantity");
         return null;
       }
       return await response.json();
-    });
+    }, { url: updateUrl, options: updateOptions });
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);

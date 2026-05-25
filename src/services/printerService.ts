@@ -298,7 +298,7 @@ class PrinterService {
    * Evaluates order items, splits them by category into correct station printer, 
    * creates Print Queue Jobs (Supabase first + DB retry local cache)
    */
-  async routeAndQueueOrder(restaurantId: string, order: Order, notes?: string): Promise<PrintJob[]> {
+  async routeAndQueueOrder(restaurantId: string, order: Order, notes?: string, autoPrint = false): Promise<PrintJob[]> {
     try {
       console.log(`[PrinterService] Routing order ${order.id} (Table: ${order.tableName || order.tableId})`);
       
@@ -497,7 +497,9 @@ class PrinterService {
       }
 
       // Proactively process the jobs if browser printing is configured
-      this.triggerLocalBrowserPrints(restaurantId, results);
+      if (autoPrint) {
+        this.triggerLocalBrowserPrints(restaurantId, results);
+      }
 
       return results;
     } catch (topErr) {

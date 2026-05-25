@@ -25,10 +25,16 @@ export interface QueueSyncResult {
   error?: string;
 }
 
-type MutationTask = () => Promise<QueueSyncResult>;
+type MutationTask = () => Promise<any>;
+
+interface QueueItem {
+  task: MutationTask;
+  requestDetails?: { url: string; options?: RequestInit };
+  description?: string;
+}
 
 export class MutationQueue {
-  private queue: MutationTask[] = [];
+  private queue: QueueItem[] = [];
   private processing = false;
   private onSyncComplete?: (data: QueueSyncResult) => void;
 
@@ -36,10 +42,24 @@ export class MutationQueue {
     this.onSyncComplete = onSyncComplete;
   }
 
-  async enqueue(task: MutationTask, description?: string) {
+  async enqueue(
+    task: MutationTask, 
+    requestDetails?: { url: string; options?: RequestInit }, 
+    description?: string
+  ) {
     if (!offlineService.isOnline) {
       console.log('[MutationQueue] System is offline. Directing request directly into durable queue.');
-      await this.persistTaskOffline(task, description);
+      if (requestDetails) {
+        const { url, options } = requestDetails;
+        await offlineService.queueProcessor.enqueue(
+          url,
+          options?.method || 'POST',
+          options?.body || '',
+          parseHeaders(options?.headers),
+          2,
+          description || `Sync item offline: ${url}`
+        );
+      }
       // Return empty mocked result to keep optimistic UI intact
       if (this.onSyncComplete) {
         this.onSyncComplete({ status: 'queued_offline', basket_version: Date.now() });
@@ -47,45 +67,33 @@ export class MutationQueue {
       return { status: 'queued_offline', basket_version: Date.now() };
     }
 
-    this.queue.push(task);
+    this.queue.push({ task, requestDetails, description });
     if (!this.processing) {
-      await this.process(description);
+      await this.process();
     }
   }
 
-  private async process(description?: string) {
+  private async process() {
     if (this.queue.length === 0) {
       this.processing = false;
       return;
     }
 
     this.processing = true;
-    const task = this.queue.shift();
+    const item = this.queue.shift();
 
-    if (task) {
-      // Setup dynamic spy interceptor on fetch
-      const originalFetch = globalThis.fetch;
-      let capturedRequest: { url: string; options?: RequestInit } | null = null;
-
-      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? input : (input as Request).url || input.toString();
-        capturedRequest = { url, options: init };
-        return originalFetch(input, init);
-      };
-
+    if (item) {
+      const { task, requestDetails, description } = item;
       try {
         const result = await task();
-        globalThis.fetch = originalFetch; // restore fetch
-        
         if (this.onSyncComplete) {
           this.onSyncComplete(result);
         }
       } catch (error) {
-        globalThis.fetch = originalFetch; // restore fetch
         console.warn('[MutationQueue] Task failed. Rebounding into durable IndexedDB queue:', error);
         
-        if (capturedRequest) {
-          const { url, options } = capturedRequest;
+        if (requestDetails) {
+          const { url, options } = requestDetails;
           await offlineService.queueProcessor.enqueue(
             url,
             options?.method || 'POST',
@@ -103,40 +111,7 @@ export class MutationQueue {
       }
     }
 
-    await this.process(description);
-  }
-
-  private async persistTaskOffline(task: MutationTask, description?: string) {
-    const originalFetch = globalThis.fetch;
-    let capturedRequest: { url: string; options?: RequestInit } | null = null;
-
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : (input as Request).url || input.toString();
-      capturedRequest = { url, options: init };
-      // Cause an immediate network error to escape the block and capture parameters
-      throw new TypeError('Failed to fetch (offline simulation)');
-    };
-
-    try {
-      await task();
-    } catch {
-      // Ignored - the exception is simulated to extract options
-    } finally {
-      globalThis.fetch = originalFetch; // restore fetch
-    }
-
-    if (capturedRequest) {
-      const { url, options } = capturedRequest;
-      await offlineService.queueProcessor.enqueue(
-        url,
-        options?.method || 'POST',
-        options?.body || '',
-        parseHeaders(options?.headers),
-        2,
-        description || `Sync item offline: ${url}`
-      );
-      console.log(`[MutationQueue] Intercepted and saved offline task: ${url}`);
-    }
+    await this.process();
   }
 
   get isIdle() {

@@ -1277,7 +1277,7 @@ export function AdminPanel() {
                 {orders.map(order => (
                   <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
                     <td className="px-8 py-4">
-                      <span className="font-mono font-bold text-xs text-zinc-400">#{order.id.slice(-6).toUpperCase()}</span>
+                      <span className="font-mono font-bold text-xs text-zinc-400">#{(order.id || '').slice(-6).toUpperCase()}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>
@@ -1594,7 +1594,7 @@ export function AdminPanel() {
                               {st.role}
                             </span>
                             <span className="text-xs text-gray-400 font-medium font-mono">
-                              ID: {st.id.slice(0, 8)}...
+                              ID: {st.id ? `${st.id.slice(0, 8)}...` : 'N/A'}
                             </span>
                           </div>
                         </div>
@@ -1858,7 +1858,7 @@ export function AdminPanel() {
                         </td>
                         <td className="p-4 font-bold text-gray-800">
                           {log.user_email}
-                          <div className="text-[10px] text-gray-400 font-mono">ID: {log.user_id.slice(0, 8)}...</div>
+                          <div className="text-[10px] text-gray-400 font-mono">ID: {log.user_id ? `${log.user_id.slice(0, 8)}...` : 'N/A'}</div>
                         </td>
                         <td className="p-4">
                           <span className="text-[10px] bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-black uppercase tracking-wider">

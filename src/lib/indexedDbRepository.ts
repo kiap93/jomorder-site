@@ -149,12 +149,20 @@ export class IndexedDbRepository {
 
   // --- Cart/Basket ---
   async saveCart(cart: OfflineCartItem[]): Promise<void> {
-    const store = await this.getStore('cart', 'readwrite');
-    // Clear first to keep fresh state, or overwrite
+    // Clear first to keep fresh state
     await this.clearCart();
-    for (const item of cart) {
-      store.put(item);
-    }
+
+    const store = await this.getStore('cart', 'readwrite');
+    return new Promise((resolve, reject) => {
+      const tx = store.transaction;
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(new Error('Transaction aborted'));
+
+      for (const item of cart) {
+        store.put(item);
+      }
+    });
   }
 
   async getCart(): Promise<OfflineCartItem[]> {

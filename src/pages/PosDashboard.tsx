@@ -6,12 +6,13 @@ import { useAuthStore } from '../store/useAuthStore';
 import { Order, Restaurant } from '../types';
 import { OrderStatus, OrderType } from '../enums';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Filter, Check, X, Clock, Banknote } from 'lucide-react';
+import { Search, Filter, Check, X, Clock, Banknote, Printer } from 'lucide-react';
 import { CashCalculator } from '../components/CashCalculator';
 import { PaymentWorkspace } from '../components/PaymentWorkspace';
 import { flattenSelections } from '../lib/configEngine';
 import { offlineService } from '../lib/offlineService';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { printerService } from '../services/printerService';
 
 export function PosDashboard() {
   const { restId } = useParams();
@@ -247,6 +248,54 @@ export function PosDashboard() {
     });
   };
 
+  const [printingOrders, setPrintingOrders] = useState<Record<string, boolean>>({});
+
+  const handlePrintOrderKOT = async (order: Order) => {
+    if (!restaurant?.id) return;
+    setPrintingOrders(prev => ({ ...prev, [order.id]: true }));
+    try {
+      // Find if there is an existing print job for this order in Supabase
+      const { data: jobs, error } = await supabase
+        .from('print_jobs')
+        .select('*')
+        .eq('order_id', order.id);
+
+      if (jobs && jobs.length > 0) {
+        // We found existing jobs! Print each one through printerService
+        for (const j of jobs) {
+          const formattedJob = {
+            id: j.id,
+            restaurantId: j.restaurant_id,
+            orderId: j.order_id,
+            printerId: j.printer_id,
+            idempotencyKey: j.idempotency_key,
+            type: j.type as any,
+            status: j.status as any,
+            retries: j.retries,
+            payload: j.payload,
+            reprintCount: j.reprint_count || 0,
+            createdAt: j.created_at,
+            updatedAt: j.updated_at
+          };
+          const html = printerService.renderKOTHtml(formattedJob.payload);
+          await printerService.printHtml(html);
+        }
+      } else {
+        // No existing jobs, format and push queue with autoPrint = true
+        await printerService.routeAndQueueOrder(restaurant.id, order, undefined, true);
+      }
+    } catch (err) {
+      console.error("Failed to print KOT from POS dashboard, using fallback", err);
+      try {
+        await printerService.routeAndQueueOrder(restaurant.id, order, undefined, true);
+      } catch (fallbackErr) {
+        console.error("Fallback KOT print failed too", fallbackErr);
+      }
+    } finally {
+      setPrintingOrders(prev => ({ ...prev, [order.id]: false }));
+    }
+  };
+
   const filteredOrders = orders.filter(o => {
     if (filter === 'active') return o.status !== 'completed' && o.status !== 'cancelled';
     if (filter === 'paid') return !!(o as any).paid_at;
@@ -473,6 +522,17 @@ export function PosDashboard() {
                       </button>
                     )}
                   </div>
+
+                  {order.status !== OrderStatus.CANCELLED && (
+                    <button
+                      onClick={() => handlePrintOrderKOT(order)}
+                      disabled={printingOrders[order.id]}
+                      className="w-full h-8 bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200/50 rounded font-black text-[10px] uppercase tracking-tighter flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shadow-xs"
+                    >
+                      <Printer size={12} className={printingOrders[order.id] ? "animate-spin" : ""} />
+                      {printingOrders[order.id] ? "Printing..." : "Print KOT"}
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>
