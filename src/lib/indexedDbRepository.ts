@@ -1,11 +1,11 @@
-import { MutationJob } from '../types';
+import { MutationJob, OrderItem, ProductSelection } from '../types';
 
 export interface OfflineOrder {
   id: string;
   table_id?: string;
   status: string;
   total_amount?: number;
-  items?: any[];
+  items?: OrderItem[];
   p_session_id?: string;
   created_at: string;
   updated_at: string;
@@ -28,7 +28,7 @@ export interface OfflineCartItem {
   name: string;
   price: number;
   quantity: number;
-  selection: any;
+  selection: ProductSelection;
   subtotal: number;
   notes?: string;
 }
@@ -44,7 +44,7 @@ export interface OfflineMutation {
   created_at: number;
   priority: number;
   description?: string;
-  rollback_data?: any; // To allow reverting UI states if recovery is impossible
+  rollback_data?: unknown; // To allow reverting UI states if recovery is impossible
 }
 
 export class IndexedDbRepository {

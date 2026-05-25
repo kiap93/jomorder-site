@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { getApiUrl } from '../lib/api';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { 
   Building2, 
   Store, 
@@ -21,20 +22,27 @@ import {
   Sparkles
 } from 'lucide-react';
 
-const getEntryTimestamps = (userId: string): Record<string, number> => {
+const getEntryTimestampsAsync = async (userId: string): Promise<Record<string, number>> => {
   try {
-    const data = localStorage.getItem(`workspace_entry_timestamps_${userId}`);
-    return data ? JSON.parse(data) : {};
+    const data = await indexedDbStorage.getItem<any>(`workspace_entry_timestamps_${userId}`);
+    if (typeof data === 'string') {
+      try {
+        return JSON.parse(data);
+      } catch (_) {
+        return {};
+      }
+    }
+    return data || {};
   } catch (e) {
     return {};
   }
 };
 
-const recordEntry = (userId: string, workspaceId: string) => {
+const recordEntryAsync = async (userId: string, workspaceId: string) => {
   try {
-    const data = getEntryTimestamps(userId);
+    const data = await getEntryTimestampsAsync(userId);
     data[workspaceId] = Date.now();
-    localStorage.setItem(`workspace_entry_timestamps_${userId}`, JSON.stringify(data));
+    await indexedDbStorage.setItem(`workspace_entry_timestamps_${userId}`, data);
   } catch (e) {
     console.error(e);
   }
@@ -95,6 +103,7 @@ export function WorkspaceSelect() {
   
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [entryTimestamps, setEntryTimestamps] = useState<Record<string, number>>({});
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
@@ -156,8 +165,10 @@ export function WorkspaceSelect() {
 
       // Restore session or auto enter checks
       if (user?.id) {
-        const storedBranchId = localStorage.getItem(`user_last_branch_${user.id}`);
-        const storedModulePath = localStorage.getItem(`user_last_module_${user.id}`);
+        const timestamps = await getEntryTimestampsAsync(user.id);
+        setEntryTimestamps(timestamps);
+        const storedBranchId = await indexedDbStorage.getItem<string>(`user_last_branch_${user.id}`);
+        const storedModulePath = await indexedDbStorage.getItem<string>(`user_last_module_${user.id}`);
         
         if (storedBranchId && rests.some(w => w.id === storedBranchId)) {
           const matchedBranch = rests.find(w => w.id === storedBranchId);
@@ -230,7 +241,7 @@ export function WorkspaceSelect() {
     try {
       await switchWorkspace(workspaceId);
       if (user?.id) {
-        recordEntry(user.id, workspaceId);
+        await recordEntryAsync(user.id, workspaceId);
       }
       
       const targetPath = !forceDefaultLanding && (directPath || (lastModulePath && lastModulePath.startsWith(`/restaurant/${workspaceId}`) ? lastModulePath : ''));
@@ -391,7 +402,6 @@ export function WorkspaceSelect() {
     ? filteredOutlets.filter(w => w.id !== activeWorkspaceId) 
     : filteredOutlets;
 
-  const entryTimestamps = user?.id ? getEntryTimestamps(user.id) : {};
   const sortedOtherWorkspaces = [...otherWorkspaces].sort((a, b) => {
     const timeA = a.last_entry_at ? new Date(a.last_entry_at).getTime() : (entryTimestamps[a.id] || 0);
     const timeB = b.last_entry_at ? new Date(b.last_entry_at).getTime() : (entryTimestamps[b.id] || 0);

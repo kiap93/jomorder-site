@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { getApiUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { Order, Restaurant, Payment, PaymentStatus } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
@@ -69,7 +70,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
-  const sessionId = (order as any).sessionId || (order as any).session_id;
+  const sessionId = order.sessionId || order.session_id;
 
   useEffect(() => {
     if (sessionId) {
@@ -92,11 +93,11 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       const data = await response.json();
       
       if (data) {
-        setSessionOrders(data.map((o: any) => ({
+        setSessionOrders((data as Array<Order & { payments?: Array<{ amount: string | number }> }>).map((o) => ({
           ...o,
-          totalPrice: parseFloat(o.total_price || o.totalPrice || 0),
-          paidAmount: (o.payments || []).reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
-        })));
+          totalPrice: parseFloat(String(o.total_price || o.totalPrice || 0)),
+          paidAmount: (o.payments || []).reduce((sum: number, p) => sum + parseFloat(String(p.amount)), 0)
+        } as Order)));
       }
     } catch (err) {
       console.error("Failed to fetch session orders:", err);
@@ -119,8 +120,8 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     // Fallback logic if sessionOrders not yet loaded or empty
     if (order.paid_at) return 0;
     
-    return order.totalPrice || parseFloat((order as any).total_price || 0);
-  }, [sessionOrders, order.totalPrice, (order as any).total_price, order.paid_at]);
+    return order.totalPrice || parseFloat(String(order.total_price || 0));
+  }, [sessionOrders, order.totalPrice, order.total_price, order.paid_at]);
 
   const paidAmount = useMemo(() => attempts.filter(a => a.status === 'paid').reduce((sum, a) => sum + a.amount, 0), [attempts]);
   
@@ -180,10 +181,10 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       if (!response.ok) throw new Error("Failed to fetch payment history");
       const data = await response.json();
       
-      setAttempts((data || []).map((p: any) => ({
+      setAttempts((data as Payment[] || []).map((p) => ({
         id: p.id,
         method: p.payment_method,
-        amount: parseFloat(p.amount),
+        amount: typeof p.amount === 'number' ? p.amount : parseFloat(String(p.amount)),
         status: p.status as PaymentStatus,
         timestamp: p.created_at,
         provider: p.provider
@@ -375,8 +376,8 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
              <div className="flex items-center gap-1.5 text-[10px] uppercase font-black text-zinc-600">
                 <Clock size={12} />
                 <span className="tabular-nums">
-                  {order.createdAt || (order as any).created_at 
-                    ? new Date(order.createdAt || (order as any).created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  {order.createdAt || order.created_at 
+                    ? new Date(order.createdAt || order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     : '--:--'
                   }
                 </span>
@@ -435,7 +436,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             if (!pRes.ok) throw new Error("Payment record failed");
                             const payment = await pRes.json();
 
-                            const deviceId = localStorage.getItem('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
+                            const deviceId = await indexedDbStorage.getItem<string>('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
                             
                             await fetch(getApiUrl(`/api/cash-transactions`), {
                               method: 'POST',
@@ -701,7 +702,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                        <span className={`w-1 h-1 rounded-full ${o.id === order.id ? 'bg-orange-500' : 'bg-zinc-700'}`} />
                        <span className="text-zinc-500 font-bold uppercase tracking-tighter leading-none">#O-{o.id.slice(-4).toUpperCase()}</span>
                     </div>
-                    <span className="text-zinc-400 font-black leading-none">RM {parseFloat((o as any).totalPrice || (o as any).total_price || 0).toFixed(2)}</span>
+                    <span className="text-zinc-400 font-black leading-none">RM {parseFloat(String(o.totalPrice || o.total_price || 0)).toFixed(2)}</span>
                   </div>
                 ))}
               </div>

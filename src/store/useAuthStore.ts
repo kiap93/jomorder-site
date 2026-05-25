@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { UserProfile } from '../types';
 import { getApiUrl } from '../lib/api';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 
 interface AuthState {
   user: { id: string; email: string } | null;
@@ -41,20 +42,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
       authChannel.addEventListener('message', channelListener);
 
-      // Handle storage event for extra robustness (legacy sync)
-      const storageListener = (e: StorageEvent) => {
-        if (e.key === getStorageKey()) {
-          console.log("AuthStore (Storage): Storage changed, refreshing session...");
-          get().refreshSession();
-        }
-      };
-      window.addEventListener('storage', storageListener);
-
+      // Cross-tab sync relies on multi-tab BroadcastChannel
       if (window.location.pathname.includes('/table/')) {
         set({ loading: false });
         return () => {
           authChannel.removeEventListener('message', channelListener);
-          window.removeEventListener('storage', storageListener);
         };
       }
 
@@ -62,7 +54,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       return () => {
         authChannel.removeEventListener('message', channelListener);
-        window.removeEventListener('storage', storageListener);
         initializationPromise = null;
       };
     })();
@@ -70,10 +61,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return initializationPromise;
   },
 
-  // Internal helper to refresh session from localStorage
+  // Internal helper to refresh session from IndexedDB
   refreshSession: async () => {
     const storageKey = getStorageKey();
-    const savedToken = window.localStorage.getItem(storageKey);
+    const savedToken = await indexedDbStorage.getItem<string>(storageKey);
 
     if (!savedToken) {
       set({ user: null, profile: null, token: null, loading: false });
@@ -106,7 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         const text = await response.text();
         console.warn("Session refresh failed with status:", response.status, text);
-        window.localStorage.removeItem(storageKey);
+        await indexedDbStorage.removeItem(storageKey);
         set({ user: null, profile: null, token: null, loading: false });
       }
     } catch (err) {
@@ -138,7 +129,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const { token, user: profile } = responseData;
-      window.localStorage.setItem(getStorageKey(), token);
+      await indexedDbStorage.setItem(getStorageKey(), token);
 
       set({ 
         user: { id: profile.id, email: profile.email },
@@ -186,7 +177,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const { token, user: profile } = responseData;
-      window.localStorage.setItem(getStorageKey(), token);
+      await indexedDbStorage.setItem(getStorageKey(), token);
 
       set({ 
         user: { id: profile.id, email: profile.email },
@@ -236,7 +227,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const { token, user: profile } = responseData;
-      window.localStorage.setItem(getStorageKey(), token);
+      await indexedDbStorage.setItem(getStorageKey(), token);
 
       set({ 
         user: { id: profile.id, email: profile.email },
@@ -263,17 +254,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     const storageKey = getStorageKey();
-    window.localStorage.removeItem(storageKey);
+    await indexedDbStorage.removeItem(storageKey);
     
     // Clear all manual JWT keys
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-        const key = window.localStorage.key(i);
-        if (key?.startsWith('manual_supabase_')) {
-          keysToRemove.push(key);
-        }
+    const allKeys = await indexedDbStorage.keys();
+    for (const key of allKeys) {
+      if (key.startsWith('manual_supabase_')) {
+        await indexedDbStorage.removeItem(key);
+      }
     }
-    keysToRemove.forEach(k => window.localStorage.removeItem(k));
 
     set({ user: null, profile: null, token: null, loading: false });
     
@@ -301,7 +290,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const { token, user: enrichedUser } = await response.json();
-      window.localStorage.setItem(getStorageKey(), token);
+      await indexedDbStorage.setItem(getStorageKey(), token);
 
       set({ 
         user: { id: enrichedUser.id, email: enrichedUser.email },

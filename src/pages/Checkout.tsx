@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { paymentEngine, PaymentIntentResponse } from '../lib/paymentEngine';
-import { Restaurant, Order, Payment } from '../types';
+import { Restaurant, Order, Payment, ProductSelection, Product, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { getApiUrl } from '../lib/api';
 import { 
@@ -18,6 +19,46 @@ import {
   Wallet
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+
+interface DbOrderItem {
+  id?: string;
+  order_id?: string;
+  product_id: string;
+  name?: string;
+  quantity: number;
+  price?: string | number;
+  configuration?: ProductSelection;
+  special_instructions?: string;
+  created_by_device?: string;
+  created_at?: string;
+  product?: Product;
+}
+
+interface DbOrder {
+  id: string;
+  table_id: string;
+  tableId?: string;
+  session_id?: string;
+  sessionId?: string;
+  tableNameSnapshot?: string;
+  tableName?: string;
+  table?: { name: string };
+  order_type: 'dine_in' | 'takeaway';
+  orderType?: 'dine_in' | 'takeaway';
+  status: OrderStatus;
+  total_price?: string | number;
+  totalPrice?: number;
+  payment_method: 'counter' | 'online';
+  paymentMethod?: 'counter' | 'online';
+  items?: DbOrderItem[];
+  created_at: string;
+  createdAt?: string;
+  updated_at: string;
+  updatedAt?: string;
+  paid_at?: string;
+  confirmed_at?: string;
+  restaurant_id?: string;
+}
 
 export function Checkout() {
   const { restId, orderId, tableId, sessionId } = useParams();
@@ -65,44 +106,47 @@ export function Checkout() {
           serviceCharge: parseFloat(restRes.service_charge || 0) / 100,
           sst: parseFloat(restRes.sst || 0) / 100
         } as Restaurant);
-        const mapDbOrderToOrder = (db: any): Order => ({
+        const mapDbOrderToOrder = (db: DbOrder): Order => ({
           id: db.id,
-          tableId: db.table_id || db.tableId,
+          tableId: db.table_id || db.tableId || '',
           sessionId: db.session_id || db.sessionId,
           tableName: db.table?.name || db.tableName,
           orderType: db.order_type || db.orderType || 'dine_in',
           status: db.status,
-          totalPrice: parseFloat(db.total_price || db.totalPrice || '0'),
+          totalPrice: parseFloat(String(db.total_price || db.totalPrice || '0')),
           paymentMethod: db.payment_method || db.paymentMethod || 'online',
-          items: (db.items || []).map((i: any) => ({
-            id: i.id,
+          items: (db.items || []).map((i: DbOrderItem) => ({
+            id: i.id || '',
             orderId: i.order_id,
             productId: i.product_id,
+            menuItemId: i.product_id,
+            name: i.product?.name || i.name || 'Menu Item',
             quantity: i.quantity,
-            price: parseFloat(i.price || '0'),
+            price: parseFloat(String(i.price || '0')),
+            options: [],
             configuration: i.configuration || {},
             specialInstructions: i.special_instructions,
             createdByDevice: i.created_by_device,
-            createdAt: i.created_at,
+            createdAt: i.created_at || '',
             product: i.product
           })),
-          createdAt: db.created_at || db.createdAt,
-          updatedAt: db.updated_at || db.updatedAt,
+          createdAt: db.created_at || db.createdAt || '',
+          updatedAt: db.updated_at || db.updatedAt || '',
           paid_at: db.paid_at,
           confirmed_at: db.confirmed_at,
           restaurant_id: db.restaurant_id
         });
 
-        const orderData = mapDbOrderToOrder(orderRes);
+        const orderData = mapDbOrderToOrder(orderRes as DbOrder);
         
         // Fetch session orders if exists
         const currentSessionId = orderData.sessionId;
         if (currentSessionId) {
           const sRes = await fetch(getApiUrl(`/api/public/dining-sessions/${currentSessionId}/orders`));
           if (sRes.ok) {
-            const sOrdersJson = await sRes.json();
+            const sOrdersJson = await sRes.json() as DbOrder[];
             if (sOrdersJson && sOrdersJson.length > 0) {
-              const mappedSessionOrders = sOrdersJson.map((so: any) => mapDbOrderToOrder(so));
+              const mappedSessionOrders = sOrdersJson.map((so: DbOrder) => mapDbOrderToOrder(so));
               setSessionOrders(mappedSessionOrders);
               const unpaidOrders = mappedSessionOrders.filter(o => !o.paid_at);
               const total = unpaidOrders.reduce((sum, o) => sum + o.totalPrice, 0);
@@ -119,8 +163,8 @@ export function Checkout() {
 
         setOrder(orderData);
         setPayTarget('order');
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setLoading(false);
       }
@@ -179,8 +223,8 @@ export function Checkout() {
       const intent = await paymentEngine.initializeProvider(payment);
       setPaymentIntent(intent);
       setStatus('processing');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -189,9 +233,9 @@ export function Checkout() {
   const simulateSuccess = async () => {
     if (!paymentIntent) return;
     
-    // Recovery of session token from localStorage
+    // Recovery of session token from IndexedDB
     const storageKey = `dining_session_token_${tableId}`;
-    let sessionToken = localStorage.getItem(storageKey) || '';
+    let sessionToken = await indexedDbStorage.getItem<string>(storageKey) || '';
     if (sessionToken && sessionToken.trim().startsWith('{')) {
       try {
         const parsed = JSON.parse(sessionToken);

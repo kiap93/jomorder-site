@@ -3,13 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../lib/api';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
-import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield } from 'lucide-react';
+import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield, Printer } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
+import { PrinterManager } from '../components/PrinterManager';
 import { useLanguageStore } from '../store/useLanguageStore';
 
 const VisibilityManager = ({ 
@@ -75,6 +76,7 @@ export interface StaffMember {
   email: string;
   role: string;
   status: 'active' | 'suspended';
+  permissions?: Record<string, boolean>;
   custom_permissions?: {
     can_refund?: boolean;
     can_edit_menu?: boolean;
@@ -108,7 +110,7 @@ export function AdminPanel() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [orders, setOrders] = useState<(Order & { total_price?: string, created_at?: string, tables?: { name: string } })[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function AdminPanel() {
     can_view_analytics: false,
     can_manage_staff: false
   });
-  const [editingStaff, setEditingStaff] = useState<any | null>(null);
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
 
   const fetchStaffData = async () => {
     if (!restId) return;
@@ -348,9 +350,9 @@ export function AdminPanel() {
         const itemMap = new Map<string, { count: number, revenue: number }>();
 
         orders.forEach(order => {
-          stats.revenue += parseFloat(order.total_price);
+          stats.revenue += parseFloat(String(order.total_price || order.totalPrice || 0));
           
-          order.items?.forEach((item: any) => {
+          order.items?.forEach((item: OrderItem) => {
             if (!item || typeof item.price !== 'number' || typeof item.quantity !== 'number') return;
             const current = itemMap.get(item.name) || { count: 0, revenue: 0 };
             itemMap.set(item.name, {
@@ -425,11 +427,11 @@ export function AdminPanel() {
       }
 
       if (catsData) {
-        setCategories(catsData.map((c: any) => ({ id: c.id, name: c.name, order: c.sort_order })));
+        setCategories(catsData.map((c: Record<string, any>) => ({ id: c.id, name: c.name, order: c.sort_order })));
       }
 
       if (itemsData) {
-        setMenuItems(itemsData.map((i: any) => ({
+        setMenuItems(itemsData.map((i: Record<string, any>) => ({
           id: i.id,
           restaurantId: restId,
           categoryId: i.category_id,
@@ -442,7 +444,7 @@ export function AdminPanel() {
           status: i.status || 'Available',
           productType: (i.product_type || 'single') as ProductType,
           displayBehavior: i.display_behavior,
-          comboGroups: (i.combo_groups || []).map((g: any) => ({
+          comboGroups: (i.combo_groups || []).map((g: Record<string, any>) => ({
             id: g.id,
             productId: g.combo_product_id,
             name: g.name,
@@ -453,7 +455,7 @@ export function AdminPanel() {
             displayBehavior: g.display_behavior,
             importance: g.importance as RenderImportance,
             sortOrder: g.sort_order,
-            items: (g.combo_group_items || []).map((gi: any) => ({
+            items: (g.combo_group_items || []).map((gi: Record<string, any>) => ({
               id: gi.id,
               groupId: gi.group_id,
               childProductId: gi.child_product_id,
@@ -471,7 +473,7 @@ export function AdminPanel() {
               } : undefined
             }))
           })),
-          modifierGroups: (i.modifier_groups || []).map((g: any) => ({
+          modifierGroups: (i.modifier_groups || []).map((g: Record<string, any>) => ({
             id: g.id,
             productId: g.product_id,
             parentModifierId: g.parent_modifier_id,
@@ -481,7 +483,7 @@ export function AdminPanel() {
             maxSelect: g.max_select,
             displayBehavior: g.display_behavior,
             sortOrder: g.sort_order,
-            modifiers: (g.modifiers || []).map((m: any) => ({
+            modifiers: (g.modifiers || []).map((m: Record<string, any>) => ({
               id: m.id,
               groupId: m.group_id,
               name: m.name,
@@ -496,7 +498,7 @@ export function AdminPanel() {
       }
 
       if (tablesData) {
-        setTables(tablesData.map((t: any) => {
+        setTables(tablesData.map((t: Record<string, any>) => {
           const rawSession = t.current_session;
           let session = null;
           if (rawSession) {
@@ -968,6 +970,7 @@ export function AdminPanel() {
           { id: 'menu', icon: UtensilsCrossed, key: 'admin.menuItems' },
           { id: 'categories', icon: List, key: 'admin.categories' },
           { id: 'tables', icon: Monitor, key: 'admin.tablesQR' },
+          { id: 'printers', icon: Printer, name: 'Kitchen Printers', key: 'admin.kitchenPrinters' },
           { id: 'orders', icon: ClipboardList, key: 'admin.orderHistory' },
           { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
           { id: 'localization', icon: Globe, key: 'admin.translations' },
@@ -982,7 +985,7 @@ export function AdminPanel() {
             }`}
           >
             <tab.icon size={20} />
-            {t(tab.key)}
+            {(tab as any).name || t(tab.key)}
           </button>
         ))}
       </div>
@@ -1281,7 +1284,7 @@ export function AdminPanel() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-col gap-1">
-                        {order.items?.map((item: any, i: number) => (
+                        {order.items?.map((item: OrderItem, i: number) => (
                           <span key={i} className="text-[10px] font-bold text-zinc-600">
                             {item.quantity}x {item.name}
                           </span>
@@ -1289,7 +1292,7 @@ export function AdminPanel() {
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="text-xs font-black text-orange-600">RM {(parseFloat(order.total_price) || 0).toFixed(2)}</span>
+                      <span className="text-xs font-black text-orange-600">RM {(parseFloat(String(order.total_price || order.totalPrice || 0)) || 0).toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider ${
@@ -1519,6 +1522,15 @@ export function AdminPanel() {
         </section>
       )}
 
+      {activeTab === 'printers' && restaurant && (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <PrinterManager 
+            restaurantId={restaurant.id} 
+            categories={categories} 
+          />
+        </div>
+      )}
+
       {activeTab === 'localization' && restaurant && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
           <TranslationStudio 
@@ -1560,7 +1572,7 @@ export function AdminPanel() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {staffList.map((st: any) => (
+                  {staffList.map((st: StaffMember) => (
                     <div 
                       key={st.id} 
                       className={`p-6 rounded-2xl border transition-all ${
@@ -1839,7 +1851,7 @@ export function AdminPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {auditLogs.map((log: any) => (
+                    {auditLogs.map((log: AuditLogEntry) => (
                       <tr key={log.id} className="border-b border-gray-150/50 hover:bg-gray-50/50 text-xs">
                         <td className="p-4 pl-6 text-gray-400 font-mono">
                           {new Date(log.timestamp).toLocaleString()}

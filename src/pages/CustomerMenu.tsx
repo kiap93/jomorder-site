@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { MutationQueue } from '../lib/mutationQueue';
 import { Category, MenuItem, OrderItem, Restaurant, Table, ProductSelection, SelectedGroupItem, LanguageCode, Product, BasketItem, SessionEpoch } from '../types';
@@ -11,33 +12,64 @@ import { calculateSelectionPrice, validateSelection, flattenSelections } from '.
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { getVisibleModifiers } from '../lib/modifierEngine';
 import { offlineService } from '../lib/offlineService';
+import { printerService } from '../services/printerService';
+import { Order } from '../types';
 
-function getSessionEpoch(tableId: string): SessionEpoch | null {
-  const storageKey = `dining_session_token_${tableId}`;
-  const raw = localStorage.getItem(storageKey);
-  if (!raw) return null;
-  if (raw.trim().startsWith('{')) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && typeof parsed.token === 'string') {
-        return {
-          token: parsed.token,
-          version: typeof parsed.version === 'number' ? parsed.version : 1,
-          issued_at: typeof parsed.issued_at === 'number' ? parsed.issued_at : Date.now()
-        };
-      }
-    } catch (_) {}
-  }
-  return {
-    token: raw,
-    version: 1,
-    issued_at: Date.now()
-  };
+interface RawDbProduct {
+  id: string;
+  restaurant_id: string;
+  category_id: string;
+  name: string;
+  price?: number | string;
+  base_price?: number | string;
+  image_url?: string;
+  description?: string;
+  is_active: boolean;
+  status?: string;
+  product_type?: string;
+  combo_groups?: any[];
+  modifier_groups?: any[];
 }
 
-function updateSessionEpoch(tableId: string, token: string): SessionEpoch {
+async function getSessionEpochAsync(tableId: string): Promise<SessionEpoch | null> {
   const storageKey = `dining_session_token_${tableId}`;
-  const existing = getSessionEpoch(tableId);
+  const raw = await indexedDbStorage.getItem<unknown>(storageKey);
+  if (!raw) return null;
+  if (typeof raw === 'object' && raw !== null) {
+    const rawObj = raw as Record<string, unknown>;
+    if (typeof rawObj.token === 'string') {
+      return {
+        token: rawObj.token,
+        version: typeof rawObj.version === 'number' ? rawObj.version : 1,
+        issued_at: typeof rawObj.issued_at === 'number' ? rawObj.issued_at : Date.now()
+      };
+    }
+  }
+  if (typeof raw === 'string') {
+    if (raw.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && typeof parsed.token === 'string') {
+          return {
+            token: parsed.token,
+            version: typeof parsed.version === 'number' ? parsed.version : 1,
+            issued_at: typeof parsed.issued_at === 'number' ? parsed.issued_at : Date.now()
+          };
+        }
+      } catch (_) {}
+    }
+    return {
+      token: raw,
+      version: 1,
+      issued_at: Date.now()
+    };
+  }
+  return null;
+}
+
+async function updateSessionEpochAsync(tableId: string, token: string): Promise<SessionEpoch> {
+  const storageKey = `dining_session_token_${tableId}`;
+  const existing = await getSessionEpochAsync(tableId);
   const now = Date.now();
   
   let newEpoch: SessionEpoch;
@@ -64,7 +96,7 @@ function updateSessionEpoch(tableId: string, token: string): SessionEpoch {
     };
   }
   
-  localStorage.setItem(storageKey, JSON.stringify(newEpoch));
+  await indexedDbStorage.setItem(storageKey, newEpoch);
   return newEpoch;
 }
 
@@ -162,7 +194,11 @@ export function CustomerMenu() {
   }, [cart]);
 
   useEffect(() => {
-    setLastOrderId(localStorage.getItem(`last_order_${restId}_${tableId}`));
+    const loadLastOrder = async () => {
+      const orderId = await indexedDbStorage.getItem<string>(`last_order_${restId}_${tableId}`);
+      setLastOrderId(orderId);
+    };
+    loadLastOrder();
   }, [restId, tableId]);
 
   useEffect(() => {
@@ -330,7 +366,7 @@ export function CustomerMenu() {
               fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`)).then(r => r.json())
             ]),
             timeoutPromise
-          ]) as any;
+          ]) as [unknown, unknown, unknown, unknown];
 
           restRes = responses[0];
           catsRes = responses[1];
@@ -339,29 +375,29 @@ export function CustomerMenu() {
 
           // Store successful payloads to local cache
           if (restRes && !restRes.error) {
-            localStorage.setItem(`pos_rest_cache_${restId}`, JSON.stringify(restRes));
+            await indexedDbStorage.setItem(`pos_rest_cache_${restId}`, restRes);
           }
           if (catsRes && Array.isArray(catsRes)) {
-            localStorage.setItem(`pos_cats_cache_${restId}`, JSON.stringify(catsRes));
+            await indexedDbStorage.setItem(`pos_cats_cache_${restId}`, catsRes);
           }
           if (tableRes) {
-            localStorage.setItem(`pos_table_cache_${restId}_${tableId}`, JSON.stringify(tableRes));
+            await indexedDbStorage.setItem(`pos_table_cache_${restId}_${tableId}`, tableRes);
           }
           if (itemsRes && Array.isArray(itemsRes)) {
-            localStorage.setItem(`pos_menu_items_cache_${restId}`, JSON.stringify(itemsRes));
+            await indexedDbStorage.setItem(`pos_menu_items_cache_${restId}`, itemsRes);
           }
         } catch (netErr) {
           console.warn("Network request failed, loading cached offline configuration:", netErr);
           // Restore from cache
-          const cachedRest = localStorage.getItem(`pos_rest_cache_${restId}`);
-          const cachedCats = localStorage.getItem(`pos_cats_cache_${restId}`);
-          const cachedTable = localStorage.getItem(`pos_table_cache_${restId}_${tableId}`);
-          const cachedItems = localStorage.getItem(`pos_menu_items_cache_${restId}`);
+          const cachedRest = await indexedDbStorage.getItem(`pos_rest_cache_${restId}`);
+          const cachedCats = await indexedDbStorage.getItem(`pos_cats_cache_${restId}`);
+          const cachedTable = await indexedDbStorage.getItem(`pos_table_cache_${restId}_${tableId}`);
+          const cachedItems = await indexedDbStorage.getItem(`pos_menu_items_cache_${restId}`);
 
-          if (cachedRest) restRes = JSON.parse(cachedRest);
-          if (cachedCats) catsRes = JSON.parse(cachedCats);
-          if (cachedTable) tableRes = JSON.parse(cachedTable);
-          if (cachedItems) itemsRes = JSON.parse(cachedItems);
+          if (cachedRest) restRes = cachedRest;
+          if (cachedCats) catsRes = cachedCats;
+          if (cachedTable) tableRes = cachedTable;
+          if (cachedItems) itemsRes = cachedItems;
 
           if (!restRes) {
             throw new Error("Working Offline: No cached content found. Please connect to internet once to download the restaurant settings.");
@@ -380,7 +416,7 @@ export function CustomerMenu() {
         let currentSession = null;
         if (!isPreviewMode && resolvedTable?.id) {
           console.time("fetchData-session");
-          const epoch = getSessionEpoch(resolvedTable.id);
+          const epoch = await getSessionEpochAsync(resolvedTable.id);
           const clientToken = epoch ? epoch.token : null;
 
           try {
@@ -406,31 +442,31 @@ export function CustomerMenu() {
                   token: sessionData[0].token,
                   status: sessionData[0].session_status
                 };
-                updateSessionEpoch(resolvedTable.id, sessionData[0].token);
+                await updateSessionEpochAsync(resolvedTable.id, sessionData[0].token);
                 setDiningSession(prev => (prev?.id === currentSession?.id && prev?.status === currentSession?.status) ? prev : currentSession);
                 if (urlSessionId !== currentSession.id) {
                   navigate(`/restaurant/${restId}/table/${tableId}/session/${currentSession.id}`, { replace: true });
                 }
               }
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
             console.warn("Session resolution non-fatal error", e);
           }
           console.timeEnd("fetchData-session");
         }
 
-        processedItems = (itemsRes || []).map((i: any) => ({
+        processedItems = (itemsRes as RawDbProduct[] || []).map((i) => ({
           id: i.id,
           restaurantId: i.restaurant_id,
           categoryId: i.category_id,
           name: i.name,
-          price: parseFloat(i.price || 0),
-          basePrice: parseFloat(i.base_price || i.price || 0),
+          price: typeof i.price === 'string' ? parseFloat(i.price) : (i.price || 0),
+          basePrice: typeof i.base_price === 'string' ? parseFloat(i.base_price) : (i.base_price || (typeof i.price === 'string' ? parseFloat(i.price) : (i.price || 0))),
           imageUrl: i.image_url,
           description: i.description,
           isActive: i.is_active,
-          status: i.status || 'Available',
-          productType: i.product_type || 'single',
+          status: (i.status || 'Available') as any,
+          productType: (i.product_type || 'single') as any,
           comboGroups: i.combo_groups || [],
           modifierGroups: i.modifier_groups || []
         }));
@@ -441,12 +477,17 @@ export function CustomerMenu() {
             name: restRes.name, 
             currency: restRes.currency, 
             serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
-            sst: parseFloat(restRes.sst || 0) / 100 
+            sst: parseFloat(restRes.sst || 0) / 100,
+            franchiseId: restRes.franchise_id
           };
-          return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
+          return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as Restaurant;
         });
         
-        if (Array.isArray(catsRes)) setCategories(catsRes.map(c => ({ id: c.id, name: c.name, order: c.sort_order })));
+        if (Array.isArray(catsRes)) {
+          const mappedCats = catsRes.map(c => ({ id: c.id, name: c.name, order: c.sort_order }));
+          setCategories(mappedCats);
+          setOriginalCategories(mappedCats);
+        }
         setOriginalMenuItems(processedItems);
         setMenuItems(processedItems);
 
@@ -491,8 +532,9 @@ export function CustomerMenu() {
             })));
           }
         }
-      } catch (err: any) {
-        const isLockError = err.name === 'AbortError' || err.message?.includes('Lock broken');
+      } catch (err: unknown) {
+        const errorObject = err as (Error & { name?: string });
+        const isLockError = errorObject?.name === 'AbortError' || errorObject?.message?.includes('Lock broken');
         if (isLockError && attempt < maxRetries) {
           attempt++;
           console.warn(`FetchData attempt ${attempt} lock conflict, retrying...`);
@@ -505,13 +547,14 @@ export function CustomerMenu() {
 
     try {
       await tryFetch();
-    } catch (err: any) {
-      if (err.name === 'AbortError' || err.message?.includes('Lock broken')) {
+    } catch (err: unknown) {
+      const errorObject = err as (Error & { name?: string });
+      if (errorObject?.name === 'AbortError' || errorObject?.message?.includes('Lock broken')) {
          console.warn("Fetch data permanently aborted by lock contention.");
          return;
       }
       console.error("Fetch data failed:", err);
-      setError(err.message || "Failed to load menu data");
+      setError(errorObject?.message || "Failed to load menu data");
     } finally {
       fetchDataInProgress.current = false;
       setLoading(false);
@@ -562,10 +605,9 @@ export function CustomerMenu() {
   useEffect(() => {
     // Re-resolve session if orderType changes (e.g. switching to Takeaway might create a different session behavior)
     if (diningSession && table?.id && restId) {
-       const epoch = getSessionEpoch(table.id);
-       const clientToken = epoch ? epoch.token : null;
-       
        const tryResolve = async () => {
+         const epoch = await getSessionEpochAsync(table.id);
+         const clientToken = epoch ? epoch.token : null;
          const maxRetries = 2;
          let attempt = 0;
 
@@ -599,15 +641,16 @@ export function CustomerMenu() {
              }
 
              if (res.data && res.data[0]) {
-               updateSessionEpoch(table.id, res.data[0].token);
+               await updateSessionEpochAsync(table.id, res.data[0].token);
                setDiningSession({
                   id: res.data[0].session_id,
                   token: res.data[0].token,
                   status: res.data[0].session_status
                });
              }
-           } catch (e: any) {
-             if ((e.message?.includes('Lock broken') || e.name === 'AbortError') && attempt < maxRetries) {
+           } catch (e: unknown) {
+             const errObj = e as (Error & { name?: string });
+             if ((errObj?.message?.includes('Lock broken') || errObj?.name === 'AbortError') && attempt < maxRetries) {
                attempt++;
                await new Promise(r => setTimeout(r, 500 * attempt));
                return attemptResolve();
@@ -670,8 +713,8 @@ export function CustomerMenu() {
         }));
         
         if (payload.new.status === 'closed' || payload.new.status === 'expired' || payload.new.status === 'replaced') {
-          localStorage.removeItem(`dining_session_token_${table.id}`);
-          localStorage.removeItem(`last_order_${restId}_${tableId}`);
+          indexedDbStorage.removeItem(`dining_session_token_${table.id}`);
+          indexedDbStorage.removeItem(`last_order_${restId}_${tableId}`);
           
           if (payload.new.status === 'replaced') {
              window.location.href = `/restaurant/${restId}/table/${tableId}`;
@@ -717,8 +760,9 @@ export function CustomerMenu() {
             if (items) {
               syncLocalCartFromServer(items, originalMenuItems);
             }
-          } catch (err: any) {
-             console.error("Basket reconciliation error:", err);
+          } catch (err: unknown) {
+             const errorObject = err as Error;
+             console.error("Basket reconciliation error:", errorObject?.message || err);
           }
         }
       })
@@ -736,7 +780,7 @@ export function CustomerMenu() {
     const translateMenu = async () => {
       const context: TranslationContext = {
         restaurantId: restaurant.id,
-        franchiseId: (restaurant as any).franchiseId,
+        franchiseId: restaurant.franchiseId,
         targetLanguage: currentLanguage
       };
 
@@ -906,7 +950,7 @@ export function CustomerMenu() {
     let attempt = 0;
     const idempotencyKey = Math.random().toString(36).slice(2, 15);
     
-    const tryInsert = async (): Promise<any> => {
+    const tryInsert = async (): Promise<{ order_id?: string; message?: string }> => {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
         const response = await fetch(getApiUrl(`/api/public/place-order`), {
@@ -928,8 +972,8 @@ export function CustomerMenu() {
         if (!response.ok) {
           throw new Error("Order placement failed");
         }
-        return await response.json();
-      } catch (err: any) {
+        return await response.json() as Promise<{ order_id?: string; message?: string }>;
+      } catch (err: unknown) {
         throw err;
       }
     };
@@ -942,13 +986,43 @@ export function CustomerMenu() {
         throw new Error(result?.message || "Order placement rejected by server. This may happen if the session was closed or the table was reassigned.");
       }
 
-      localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+      await indexedDbStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
       setLastOrderId(orderId);
+
+      try {
+        const itemsWithMetadata = await prepareItemsForOrder();
+        const currentOrder: Order = {
+          id: orderId,
+          tableId: table?.id || tableId || '',
+          tableName: table?.name || tableId || '',
+          orderType: orderType === 'takeaway' ? 'takeaway' : 'dine_in',
+          status: 'pending' as any,
+          totalPrice: total,
+          paymentMethod: 'counter',
+          items: itemsWithMetadata.map((i: any) => ({
+            menuItemId: i.menuItemId,
+            name: i.name,
+            price: i.price,
+            quantity: i.quantity,
+            options: i.options || [],
+            configuration: i.configuration || i.selection || {},
+            specialInstructions: i.specialInstructions,
+            product: menuItems.find(m => m.id === i.menuItemId)
+          })),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          restaurant_id: restId
+        };
+        await printerService.routeAndQueueOrder(restId || '', currentOrder);
+      } catch (printErr) {
+        console.warn("KOT Auto Print flow failed to queue for counter order:", printErr);
+      }
+
       setCart([]);
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${orderId}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Order completion failed:", err);
-      alert(err.message || "Failed to place order");
+      alert(err instanceof Error ? err.message : "Failed to place order");
       setLoading(false);
     }
   };
@@ -996,7 +1070,7 @@ export function CustomerMenu() {
     let attempt = 0;
     const idempotencyKey = Math.random().toString(36).slice(2, 15);
 
-    const tryInsert = async (): Promise<any> => {
+    const tryInsert = async (): Promise<{ order_id?: string; message?: string }> => {
       try {
         const itemsWithMetadata = await prepareItemsForOrder();
 
@@ -1019,8 +1093,8 @@ export function CustomerMenu() {
         if (!response.ok) {
           throw new Error("Checkout placement failed");
         }
-        return await response.json();
-      } catch (err: any) {
+        return await response.json() as Promise<{ order_id?: string; message?: string }>;
+      } catch (err: unknown) {
         throw err;
       }
     };
@@ -1033,14 +1107,44 @@ export function CustomerMenu() {
         throw new Error(result?.message || "Checkout failed. This may happen if the session was closed or the table was reassigned.");
       }
 
-      localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+      await indexedDbStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
       setLastOrderId(orderId);
+
+      try {
+        const itemsWithMetadata = await prepareItemsForOrder();
+        const currentOrder: Order = {
+          id: orderId,
+          tableId: table?.id || tableId || '',
+          tableName: table?.name || tableId || '',
+          orderType: orderType === 'takeaway' ? 'takeaway' : 'dine_in',
+          status: 'pending' as any,
+          totalPrice: total,
+          paymentMethod: 'online',
+          items: itemsWithMetadata.map((i: any) => ({
+            menuItemId: i.menuItemId,
+            name: i.name,
+            price: i.price,
+            quantity: i.quantity,
+            options: i.options || [],
+            configuration: i.configuration || i.selection || {},
+            specialInstructions: i.specialInstructions,
+            product: menuItems.find(m => m.id === i.menuItemId)
+          })),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          restaurant_id: restId
+        };
+        await printerService.routeAndQueueOrder(restId || '', currentOrder);
+      } catch (printErr) {
+        console.warn("KOT Auto Print flow failed to queue for online order:", printErr);
+      }
+
       setCart([]);
       // Lead to the dedicated elegant checkout page
       navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/${orderId}/checkout`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Checkout placement failed:", err);
-      alert(err.message || "Failed to place order");
+      alert(err instanceof Error ? err.message : "Failed to place order");
       setLoading(false);
     }
   };

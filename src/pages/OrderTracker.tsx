@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
+import { guestSupabase as supabase } from '../lib/supabase';
 
 import { Order } from '../types';
 import { OrderStatus, OrderType } from '../enums';
@@ -18,7 +20,9 @@ export function OrderTracker() {
 
   useEffect(() => {
     if (!orderId || !restId || !tableId) return;
-    localStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+    indexedDbStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
+
+    let activeChannel: any = null;
 
     const fetchSessionData = async () => {
       try {
@@ -56,20 +60,41 @@ export function OrderTracker() {
           }
         }
 
-      setOrders(allOrders.map(o => ({
-        id: o.id,
-        tableId: o.table_id,
-        tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
-        orderType: o.order_type === 'dine_in' ? 'dine_in' : (o.order_type || 'dine_in'),
-        status: o.status as OrderStatus,
-        totalPrice: parseFloat(o.total_price),
-        paymentMethod: o.payment_method || 'counter',
-        items: o.items,
-        paid_at: o.paid_at,
-        session_id: o.session_id,
-        session_status: (o as any).dining_sessions?.status,
-        createdAt: { toDate: () => new Date(o.created_at) }
-      })) as any);
+        setOrders(allOrders.map(o => ({
+          id: o.id,
+          tableId: o.table_id,
+          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+          orderType: o.order_type === 'dine_in' ? 'dine_in' : (o.order_type || 'dine_in'),
+          status: o.status as OrderStatus,
+          totalPrice: parseFloat(o.total_price),
+          paymentMethod: o.payment_method || 'counter',
+          items: o.items,
+          paid_at: o.paid_at,
+          session_id: o.session_id,
+          session_status: (o as any).dining_sessions?.status,
+          createdAt: { toDate: () => new Date(o.created_at) }
+        })) as any);
+
+        // Setup real-time listener if not already initialized
+        if (!activeChannel) {
+          const channelName = `tracker-${orderId}-${Math.random().toString(36).slice(2)}`;
+          const filter = targetSessionId 
+            ? `session_id=eq.${targetSessionId}` 
+            : `id=eq.${orderId}`;
+
+          activeChannel = supabase
+            .channel(channelName)
+            .on('postgres_changes', {
+              event: '*',
+              schema: 'public',
+              table: 'orders',
+              filter: filter
+            }, () => {
+              console.log(`[OrderTracker] Real-time order change detected! Refreshing data...`);
+              fetchSessionData();
+            })
+            .subscribe();
+        }
 
       } catch (err) {
         console.error('Fetch session data failed:', err);
@@ -78,9 +103,21 @@ export function OrderTracker() {
       }
     };
 
-
     fetchSessionData();
-  }, [orderId, restId]);
+
+    const handleFocus = () => {
+      console.log("[OrderTracker] Window focused, refreshing tracker data...");
+      fetchSessionData();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel);
+      }
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [orderId, restId, tableId, sessionId]);
 
   if (loading) return <div className="h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
   if (orders.length === 0) return <div className="p-20 text-center font-bold">Order not found.</div>;

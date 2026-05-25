@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
+import { indexedDbStorage } from './lib/indexedDbStorage';
 import { Navbar } from './components/Navbar';
 
 // Pages (to be created)
@@ -38,10 +39,10 @@ function ContextTracker() {
         path.includes('/order/');
         
       if (!isAuthOrOnboarding) {
-        localStorage.setItem(`user_last_module_${user.id}`, path);
-        localStorage.setItem(`user_last_branch_${user.id}`, profile.restaurantId);
+        indexedDbStorage.setItem(`user_last_module_${user.id}`, path);
+        indexedDbStorage.setItem(`user_last_branch_${user.id}`, profile.restaurantId);
         if (profile.organizationId) {
-          localStorage.setItem(`user_last_workspace_${user.id}`, profile.organizationId);
+          indexedDbStorage.setItem(`user_last_workspace_${user.id}`, profile.organizationId);
         }
       }
     }

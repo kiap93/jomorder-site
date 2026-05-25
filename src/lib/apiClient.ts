@@ -13,9 +13,9 @@ export interface ApiClientOptions extends RequestInit {
 export class ApiError extends Error {
   public status?: number;
   public statusText?: string;
-  public info?: any;
+  public info?: unknown;
 
-  constructor(message: string, status?: number, statusText?: string, info?: any) {
+  constructor(message: string, status?: number, statusText?: string, info?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -39,7 +39,7 @@ function getRequestKey(url: string, options: ApiClientOptions): string {
 /**
  * Enterprise client-side API layer normalized client.
  */
-export async function apiClient<T = any>(url: string, options: ApiClientOptions = {}): Promise<T> {
+export async function apiClient<T = unknown>(url: string, options: ApiClientOptions = {}): Promise<T> {
   const resolvedUrl = url.startsWith('/') ? getApiUrl(url) : url;
   const method = options.method || 'GET';
   const maxRetries = options.maxRetries ?? (method === 'GET' ? 3 : 0); // Default 3 retries for GET, 0 for write actions unless specified
@@ -188,17 +188,17 @@ export async function apiClient<T = any>(url: string, options: ApiClientOptions 
 /**
  * Standard utility API helpers mapping standard HTTP methods.
  */
-apiClient.get = <T = any>(url: string, options?: ApiClientOptions) => 
+apiClient.get = <T = unknown>(url: string, options?: ApiClientOptions) => 
   apiClient<T>(url, { ...options, method: 'GET' });
 
-apiClient.post = <T = any>(url: string, body?: any, options?: ApiClientOptions) => 
+apiClient.post = <T = unknown>(url: string, body?: unknown, options?: ApiClientOptions) => 
   apiClient<T>(url, { ...options, method: 'POST', body: body ? JSON.stringify(body) : undefined });
 
-apiClient.put = <T = any>(url: string, body?: any, options?: ApiClientOptions) => 
+apiClient.put = <T = unknown>(url: string, body?: unknown, options?: ApiClientOptions) => 
   apiClient<T>(url, { ...options, method: 'PUT', body: body ? JSON.stringify(body) : undefined });
 
-apiClient.patch = <T = any>(url: string, body?: any, options?: ApiClientOptions) => 
+apiClient.patch = <T = unknown>(url: string, body?: unknown, options?: ApiClientOptions) => 
   apiClient<T>(url, { ...options, method: 'PATCH', body: body ? JSON.stringify(body) : undefined });
 
-apiClient.delete = <T = any>(url: string, options?: ApiClientOptions) => 
+apiClient.delete = <T = unknown>(url: string, options?: ApiClientOptions) => 
   apiClient<T>(url, { ...options, method: 'DELETE' });

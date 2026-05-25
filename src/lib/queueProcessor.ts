@@ -1,6 +1,7 @@
 import { IndexedDbRepository, OfflineMutation } from './indexedDbRepository';
 import { NetworkMonitor } from './networkMonitor';
 import { MutationJob } from '../types';
+import { indexedDbStorage } from './indexedDbStorage';
 
 export interface QueueStatus {
   pendingCount: number;
@@ -81,11 +82,11 @@ export class QueueProcessor {
   async enqueue(
     url: string,
     method: string,
-    body: any,
+    body: unknown,
     headers: Record<string, string> = {},
     priority = 1,
     description?: string,
-    rollback_data?: any
+    rollback_data?: unknown
   ): Promise<OfflineMutation> {
     const mutation: OfflineMutation = {
       id: Math.random().toString(36).slice(2) + Date.now().toString(36),
@@ -119,7 +120,7 @@ export class QueueProcessor {
   async enqueueJob(
     entity: 'order' | 'payment' | 'basket',
     operation: 'create' | 'update' | 'delete',
-    payload: any
+    payload: unknown
   ): Promise<MutationJob> {
     const job: MutationJob = {
       id: 'job_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
@@ -331,8 +332,9 @@ export class QueueProcessor {
 
       // 5xx error or connection error: treat as temporary, retry with backoff later
       throw new Error(`Server returned HTTP ${response.status}`);
-    } catch (e: any) {
-      console.warn(`[QueueProcessor] Connection or transient error processing mutation ${mutation.id}:`, e.message || e);
+    } catch (e: unknown) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.warn(`[QueueProcessor] Connection or transient error processing mutation ${mutation.id}:`, errorMsg);
       
       mutation.retry_count += 1;
       if (mutation.retry_count >= this.maxRetries) {
@@ -362,7 +364,7 @@ export class QueueProcessor {
 
       let url = '';
       let method = 'POST';
-      let body: any = null;
+      let body: unknown = null;
 
       // Map structured queue entities to REST POS endpoints
       if (job.entity === 'order') {
@@ -409,15 +411,9 @@ export class QueueProcessor {
         'Content-Type': 'application/json'
       };
       
-      const sessionStoreStr = localStorage.getItem('auth-storage');
-      if (sessionStoreStr) {
-        try {
-          const authData = JSON.parse(sessionStoreStr);
-          const token = authData?.state?.token;
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-          }
-        } catch (_) {}
+      const token = await indexedDbStorage.getItem<string>('manual_supabase_jwt');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
       console.log(`[QueueProcessor] Dispatching fetch to resolved path: ${url}`);
@@ -445,8 +441,9 @@ export class QueueProcessor {
       }
 
       throw new Error(`Server returned HTTP ${response.status}`);
-    } catch (e: any) {
-      console.warn(`[QueueProcessor] Connection error on MutationJob ${job.id}:`, e.message || e);
+    } catch (e: unknown) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.warn(`[QueueProcessor] Connection error on MutationJob ${job.id}:`, errorMsg);
       job.retries += 1;
       
       if (job.retries >= this.maxRetries) {

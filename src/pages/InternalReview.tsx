@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, AlertCircle, Edit3, Search, Filter, Globe, ChevronRight, Activity } from 'lucide-react';
 import { getApiUrl } from '../lib/api';
+import { indexedDbStorage } from '../lib/indexedDbStorage';
 
 interface TranslationJob {
   id: string;
@@ -33,7 +34,7 @@ export const InternalReview: React.FC = () => {
 
   const saveEdit = async (job: TranslationJob) => {
     try {
-      const token = localStorage.getItem('staff_token');
+      const token = await indexedDbStorage.getItem<string>('staff_token');
       const response = await fetch(getApiUrl(`/api/translation-jobs/${job.id}`), {
         method: 'PATCH',
         headers: {
@@ -71,7 +72,7 @@ export const InternalReview: React.FC = () => {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('staff_token');
+      const token = await indexedDbStorage.getItem<string>('staff_token');
       const response = await fetch(getApiUrl(`/api/translation-jobs?filter=${filter}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -88,7 +89,7 @@ export const InternalReview: React.FC = () => {
   const updateStatus = async (job: TranslationJob, nextStatus: 'reviewed' | 'approved' | 'rejected') => {
     setProcessingId(job.id);
     try {
-      const token = localStorage.getItem('staff_token');
+      const token = await indexedDbStorage.getItem<string>('staff_token');
       // 1. Update job status
       const response = await fetch(getApiUrl(`/api/translation-jobs/${job.id}`), {
         method: 'PATCH',

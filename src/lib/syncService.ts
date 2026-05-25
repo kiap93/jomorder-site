@@ -2,6 +2,37 @@ import { IndexedDbRepository, OfflineOrder, OfflineTable } from './indexedDbRepo
 import { NetworkMonitor } from './networkMonitor';
 import { QueueProcessor } from './queueProcessor';
 import { offlineService } from './offlineService';
+import { OrderItem } from '../types';
+
+interface RawRemoteOrder {
+  id: string;
+  table_id?: string;
+  tableSlotId?: string;
+  status: string;
+  total_amount?: number;
+  price_gross?: number;
+  items?: OrderItem[];
+  order_items?: OrderItem[];
+  p_session_id?: string;
+  session_id?: string;
+  created_at: string;
+  updated_at?: string;
+  modified_at?: string;
+  version?: number;
+}
+
+interface RawRemoteTable {
+  id: string;
+  name: string;
+  status?: 'vacant' | 'active' | 'reserved';
+  seating_capacity?: number;
+  capacity?: number;
+  current_session_id?: string;
+  session_id?: string;
+  updated_at?: string;
+  modified_at?: string;
+  version?: number;
+}
 
 export class SyncService {
   private repository: IndexedDbRepository;
@@ -26,7 +57,7 @@ export class SyncService {
     try {
       const response = await fetch(`/api/restaurants/${restaurantId}/orders`, fetchOptions);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-      const remoteOrders: any[] = await response.json();
+      const remoteOrders: RawRemoteOrder[] = await response.json();
 
       const localOrders = await this.repository.getOrders();
       const localOrdersMap = new Map(localOrders.map(o => [o.id, o]));
@@ -72,7 +103,7 @@ export class SyncService {
     try {
       const response = await fetch(`/api/restaurants/${restaurantId}/tables`, fetchOptions);
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-      const remoteTables: any[] = await response.json();
+      const remoteTables: RawRemoteTable[] = await response.json();
 
       const localTables = await this.repository.getTables();
       const localMap = new Map(localTables.map(t => [t.id, t]));
@@ -109,11 +140,11 @@ export class SyncService {
    * Last-Write-Wins and Timestamp/Version conflict resolution helper.
    * If local has mutations queued, we assume local changes have high priority, or we merge.
    */
-  private resolveConflict<T extends { updated_at: string; version: number }>(local: T | undefined, remote: T): T {
+  private resolveConflict<T extends { id: string; updated_at: string; version: number }>(local: T | undefined, remote: T): T {
     if (!local) return remote;
 
     // Special order merging resolution for Layer 4 Conflict Resolver
-    if ((remote as any).items !== undefined) {
+    if ('items' in remote) {
       return offlineService.resolveOrderConflict(local as unknown as OfflineOrder, remote as unknown as OfflineOrder) as unknown as T;
     }
 
@@ -123,7 +154,7 @@ export class SyncService {
 
     if (local.version > remote.version || localTime > remoteTime) {
       // Local is newer: preserve local info
-      console.log(`[SyncService] Conflict detected: Local state is newer. Keeping local. ID: ${(local as any).id}`);
+      console.log(`[SyncService] Conflict detected: Local state is newer. Keeping local. ID: ${local.id}`);
       return local;
     }
 

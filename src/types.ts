@@ -241,17 +241,21 @@ export interface Order {
   id: string;
   tableId: string;
   sessionId?: string;
+  session_id?: string;
   tableName?: string;
   orderType: 'dine_in' | 'takeaway';
   status: OrderStatus;
   totalPrice: number;
+  total_price?: string | number;
   paymentMethod: 'counter' | 'online';
   items: OrderItem[];
   createdAt: string;
+  created_at?: string;
   updatedAt: string;
   paid_at?: string;
   confirmed_at?: string;
   restaurant_id?: string;
+  table_id?: string;
 }
 
 export type PaymentStatus = 'pending' | 'processing' | 'authorized' | 'paid' | 'failed' | 'cancelled' | 'expired' | 'refunded' | 'partially_refunded';
@@ -349,5 +353,95 @@ export interface SessionEpoch {
   token: string;
   version: number;
   issued_at: number;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  email: string;
+  role: 'OWNER' | 'MANAGER' | 'CASHIER' | 'KITCHEN' | 'WAITER' | 'RUNNER';
+  restaurantId: string;
+  status: 'active' | 'suspended';
+  created_at?: string;
+  user_id?: string;
+}
+
+export interface QueueJob {
+  id: string;
+  entity: 'order' | 'payment' | 'basket';
+  operation: 'create' | 'update' | 'delete';
+  payload: any;
+  retries: number;
+  createdAt: number;
+  syncStatus: 'pending' | 'syncing' | 'failed';
+}
+
+export interface AuditLog {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  timestamp: string;
+  details?: Record<string, any>;
+}
+
+export interface ThermalPrinter {
+  id: string;
+  restaurantId: string;
+  name: string;
+  type: 'thermal' | 'star' | 'browser';
+  interfaceType: 'network' | 'usb' | 'bluetooth' | 'browser';
+  connectionAddress: string;
+  status: 'online' | 'offline';
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface PrinterRoute {
+  id: string;
+  restaurantId: string;
+  printerId: string;
+  categoryId: string;
+  createdAt: string;
+}
+
+export interface KOTItem {
+  id?: string;
+  name: string;
+  quantity: number;
+  modifiers: string[];
+  specialInstructions?: string;
+}
+
+export interface KOTPayload {
+  orderId: string;
+  tableName: string;
+  orderType: 'dine_in' | 'takeaway';
+  time: string;
+  date: string;
+  items: KOTItem[];
+  notes?: string;
+  reprintCount?: number;
+  reprintedBy?: string;
+  reprintedAt?: string;
+}
+
+export interface PrintJob {
+  id: string;
+  restaurantId: string;
+  orderId: string;
+  printerId?: string;
+  idempotencyKey: string;
+  type: 'kot' | 'receipt';
+  status: 'pending' | 'printed' | 'failed';
+  retries: number;
+  errorMessage?: string;
+  payload: KOTPayload;
+  reprintCount: number;
+  reprintedBy?: string;
+  reprintedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
