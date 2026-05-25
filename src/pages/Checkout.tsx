@@ -60,7 +60,11 @@ export function Checkout() {
         if (restRes.error) throw new Error(restRes.error);
         if (orderRes.error) throw new Error(orderRes.error);
 
-        setRestaurant(restRes as Restaurant);
+        setRestaurant({
+          ...restRes,
+          serviceCharge: parseFloat(restRes.service_charge || 0) / 100,
+          sst: parseFloat(restRes.sst || 0) / 100
+        } as Restaurant);
         const mapDbOrderToOrder = (db: any): Order => ({
           id: db.id,
           tableId: db.table_id || db.tableId,
@@ -147,12 +151,20 @@ export function Checkout() {
     return () => clearInterval(interval);
   }, [status, paymentIntent]);
 
+  // Security & Billing Calculations
+  const amountToPay = payTarget === 'session' && sessionUnpaidTotal !== null ? sessionUnpaidTotal : (order?.totalPrice || 0);
+  const scRate = restaurant?.serviceCharge || 0;
+  const sstRate = restaurant?.sst || 0;
+  
+  const calculatedSubtotal = amountToPay / ((1 + scRate) * (1 + sstRate));
+  const calculatedSC = calculatedSubtotal * scRate;
+  const calculatedSST = (calculatedSubtotal + calculatedSC) * sstRate;
+
   const handleMethodSelect = async (method: string) => {
     if (!restaurant || !order) return;
     
     setLoading(true);
     try {
-      const amountToPay = payTarget === 'session' && sessionUnpaidTotal ? sessionUnpaidTotal : order.totalPrice;
       const activeIdempotencyKey = `pay_${method}_${order.id}_${amountToPay.toFixed(2)}`;
 
       const payment = await paymentEngine.createPayment({
@@ -325,6 +337,32 @@ export function Checkout() {
                   </div>
                 )}
                 
+                <div className="h-px bg-zinc-800/50 my-6" />
+
+                {/* Subtotal, Service Charge & SST Breakdown */}
+                <div className="space-y-2.5 mb-6 bg-zinc-900/30 p-4 rounded-2xl border border-zinc-800/50 text-[11px]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500 font-medium">Subtotal</span>
+                    <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSubtotal.toFixed(2)}</span>
+                  </div>
+                  {calculatedSC > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-500 font-medium">Service Charge ({(scRate * 100).toFixed(0)}%)</span>
+                      <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSC.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {calculatedSST > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-500 font-medium">Government SST ({(sstRate * 100).toFixed(0)}%)</span>
+                      <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSST.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-xs pt-2.5 border-t border-zinc-800/50">
+                    <span className="text-zinc-300 font-bold">Total Payable</span>
+                    <span className="text-orange-500 font-black tabular-nums">RM {amountToPay.toFixed(2)}</span>
+                  </div>
+                </div>
+
                 <div className="h-px bg-zinc-800/50 my-6" />
                 
                 <div className="flex items-center justify-between">

@@ -440,8 +440,8 @@ export function CustomerMenu() {
             id: restRes.id, 
             name: restRes.name, 
             currency: restRes.currency, 
-            serviceCharge: parseFloat(restRes.service_charge || 0) / 105, 
-            sst: parseFloat(restRes.sst || 0) / 105 
+            serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
+            sst: parseFloat(restRes.sst || 0) / 100 
           };
           return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as any;
         });
