@@ -22,84 +22,20 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express = __toESM(require("express"), 1);
-var import_path = __toESM(require("path"), 1);
-var import_fs = __toESM(require("fs"), 1);
+var import_express13 = __toESM(require("express"), 1);
+var import_path3 = __toESM(require("path"), 1);
 var import_vite = require("vite");
-var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
 var import_cors = __toESM(require("cors"), 1);
+var import_dotenv2 = __toESM(require("dotenv"), 1);
+
+// src/server/services/dbService.ts
 var import_supabase_js = require("@supabase/supabase-js");
 var import_google_auth_library = require("google-auth-library");
 var import_dotenv = __toESM(require("dotenv"), 1);
-var import_genai = require("@google/genai");
-
-// src/lib/validation.ts
-var import_zod = require("zod");
-var LoginSchema = import_zod.z.object({
-  email: import_zod.z.string().email({ message: "Invalid email structure" }),
-  password: import_zod.z.string().min(1, { message: "Password is required" })
-});
-var RegisterSchema = import_zod.z.object({
-  email: import_zod.z.string().email({ message: "Invalid email structure" }),
-  password: import_zod.z.string().min(6, { message: "Password must be at least 6 characters" })
-});
-var ResolveSessionSchema = import_zod.z.object({
-  restaurantId: import_zod.z.string().uuid({ message: "Restaurant ID must be a valid UUID" }),
-  tableId: import_zod.z.string().nullable().optional(),
-  deviceInfo: import_zod.z.string().nullable().optional(),
-  clientToken: import_zod.z.string().nullable().optional(),
-  fulfillment: import_zod.z.string().nullable().optional()
-});
-var SyncBasketItemSchema = import_zod.z.object({
-  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }),
-  p_session_token: import_zod.z.string().min(1, { message: "p_session_token is required" }),
-  p_product_id: import_zod.z.string().min(1, { message: "p_product_id is required" }),
-  p_delta: import_zod.z.number().int({ message: "p_delta must be an integer" }),
-  p_configuration: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
-  p_device_info: import_zod.z.string().nullable().optional()
-});
-var OrderItemSchema = import_zod.z.object({
-  id: import_zod.z.string().optional(),
-  menuItemId: import_zod.z.string().uuid({ message: "menuItemId must be a valid UUID" }),
-  quantity: import_zod.z.number().int().positive({ message: "quantity must be a positive integer" }),
-  price: import_zod.z.number().nonnegative({ message: "price cannot be negative" }),
-  name: import_zod.z.string().optional(),
-  selection: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
-  notes: import_zod.z.string().nullable().optional(),
-  kitchenName: import_zod.z.string().nullable().optional(),
-  smartRenderedLines: import_zod.z.object({
-    kds: import_zod.z.array(import_zod.z.string()).optional(),
-    customer: import_zod.z.array(import_zod.z.string()).optional(),
-    receipt: import_zod.z.array(import_zod.z.string()).optional()
-  }).optional()
-});
-var PlaceOrderSchema = import_zod.z.object({
-  p_restaurant_id: import_zod.z.string().uuid({ message: "p_restaurant_id must be a valid UUID" }),
-  p_table_id: import_zod.z.string().nullable().optional(),
-  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }).nullable().optional(),
-  p_session_token: import_zod.z.string().nullable().optional(),
-  p_order_type: import_zod.z.enum(["dine_in", "takeaway"]),
-  p_items: import_zod.z.array(OrderItemSchema).min(1, { message: "Order must contain at least one item" }),
-  p_total_price: import_zod.z.number().nonnegative({ message: "p_total_price cannot be negative" }),
-  p_payment_method: import_zod.z.string().optional(),
-  p_idempotency_key: import_zod.z.string().nullable().optional()
-});
-var PaymentsSchema = import_zod.z.object({
-  restaurantId: import_zod.z.string().uuid({ message: "restaurantId must be a valid UUID" }),
-  orderId: import_zod.z.string().uuid({ message: "orderId must be a valid UUID" }),
-  amount: import_zod.z.number().positive({ message: "amount must be a positive number" }),
-  method: import_zod.z.string().min(1, { message: "method is required" }),
-  provider: import_zod.z.string().min(1, { message: "provider is required" }),
-  metadata: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
-  idempotency_key: import_zod.z.string().nullable().optional(),
-  idempotencyKey: import_zod.z.string().nullable().optional()
-});
-
-// server.ts
+var import_path = __toESM(require("path"), 1);
+var import_fs = __toESM(require("fs"), 1);
 import_dotenv.default.config();
-var app = (0, import_express.default)();
-var PORT = 3e3;
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
 }
@@ -113,491 +49,6 @@ var supabaseAdmin = (0, import_supabase_js.createClient)(
   process.env.VITE_SUPABASE_URL || "",
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-app.use((0, import_cors.default)());
-app.use(import_express.default.json());
-app.use((0, import_cookie_parser.default)());
-app.use((req, res, next) => {
-  console.log(`[REQUEST] ${req.method} ${req.url}`);
-  next();
-});
-app.use((req, res, next) => {
-  const originalJson = res.json;
-  res.json = function(body) {
-    if (res.headersSent) {
-      console.warn(`[RE-SEND PREVENTED] Path: ${req.path}. Attempted to send:`, body);
-      return res;
-    }
-    return originalJson.call(this, body);
-  };
-  next();
-});
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-});
-var authenticateJWT = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(" ")[1];
-  if (!token) {
-    console.warn(`[AUTH FAIL] No token for ${req.path}`);
-    return res.status(401).json({ error: "Unauthorized: No token provided" });
-  }
-  try {
-    const decoded = import_jsonwebtoken.default.verify(token, JWT_SECRET);
-    req.user = decoded;
-    console.log(`[AUTH SUCCESS] User: ${decoded.email}, Path: ${req.path}`);
-    next();
-  } catch (err) {
-    console.warn(`[AUTH FAIL] Invalid token for ${req.path}:`, err.message);
-    return res.status(401).json({ error: "Unauthorized: Invalid token" });
-  }
-};
-app.get("/api/public/restaurants/:id", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: "Restaurant not found" });
-  return res.json(data || {});
-});
-app.get("/api/public/restaurants/:restId/categories", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/restaurants/:restId/menu-items", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("menu_items").select(`
-      *,
-      combo_groups (*, items:combo_group_items (*, child_product:menu_items (*, combo_groups (*, items:combo_group_items (*)), modifier_groups (*, modifiers!modifiers_group_id_fkey (*))))),
-      modifier_groups (*, modifiers!modifiers_group_id_fkey (*))
-    `).eq("restaurant_id", req.params.restId).eq("is_active", true);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/tables/:tableId", async (req, res) => {
-  const { restId } = req.query;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.tableId);
-  let query = supabaseAdmin.from("tables").select("*");
-  if (isUuid) {
-    query = query.eq("id", req.params.tableId);
-  } else {
-    query = query.eq("restaurant_id", restId).eq("name", req.params.tableId);
-  }
-  const { data, error } = await query.maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data || {});
-});
-app.post("/api/public/resolve-session", async (req, res) => {
-  const parsed = ResolveSessionSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0].message });
-  }
-  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = parsed.data;
-  const { data, error } = await supabaseAdmin.rpc("resolve_dining_session_v2", {
-    p_restaurant_id: restaurantId,
-    p_table_id: tableId,
-    p_device_info: deviceInfo,
-    p_client_token: clientToken,
-    p_fulfillment: fulfillment
-  });
-  if (error && (error.code === "PGRST202" || error.message.includes("p_fulfillment"))) {
-    const retry = await supabaseAdmin.rpc("resolve_dining_session_v2", {
-      p_restaurant_id: restaurantId,
-      p_table_id: tableId,
-      p_device_info: deviceInfo,
-      p_client_token: clientToken
-    });
-    if (retry.error) return res.status(500).json({ error: retry.error.message });
-    return res.json(retry.data);
-  }
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/orders/check", async (req, res) => {
-  const { sessionId } = req.query;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
-  const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
-  const { data, error, count } = await supabaseAdmin.from("orders").select("id", { count: "exact" }).eq("session_id", cleanSessionId).order("created_at", { ascending: false }).limit(1);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ orders: data, count });
-});
-app.get("/api/public/baskets", async (req, res) => {
-  const { sessionId } = req.query;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
-  const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
-  const { data, error } = await supabaseAdmin.from("baskets").select("id, basket_version").eq("session_id", cleanSessionId).eq("status", "active").maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/baskets/:basketId/items", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", req.params.basketId);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/public/sync-basket-item", async (req, res) => {
-  try {
-    const parsed = SyncBasketItemSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.issues[0].message });
-    }
-    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = parsed.data;
-    const { data: sessionData, error: sessionErr } = await supabaseAdmin.from("dining_sessions").select("id, restaurant_id").eq("id", p_session_id).eq("session_token", p_session_token).in("status", ["active", "awaiting_payment", "paid"]).maybeSingle();
-    if (sessionErr || !sessionData) {
-      return res.status(400).json({ error: "Invalid dining session token or inactive session" });
-    }
-    const restaurantId = sessionData.restaurant_id;
-    const { data: basket, error: basketErr } = await supabaseAdmin.from("baskets").select("id, basket_version").eq("session_id", p_session_id).eq("status", "active").maybeSingle();
-    if (basketErr) return res.status(500).json({ error: basketErr.message });
-    let basketId = basket?.id;
-    let basketVersion = basket?.basket_version || 1;
-    if (!basketId) {
-      const { data: newBasket, error: newBasketErr } = await supabaseAdmin.from("baskets").insert({
-        restaurant_id: restaurantId,
-        session_id: p_session_id,
-        status: "active",
-        basket_version: 1
-      }).select("id").single();
-      if (newBasketErr) return res.status(500).json({ error: newBasketErr.message });
-      basketId = newBasket.id;
-      basketVersion = 1;
-    }
-    const { data: items, error: itemsErr } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", basketId);
-    if (itemsErr) return res.status(500).json({ error: itemsErr.message });
-    const existingItem = items?.find((item) => {
-      const matchId = item.product_id === p_product_id || item.menu_item_id === p_product_id;
-      const matchConfig = JSON.stringify(item.configuration || {}) === JSON.stringify(p_configuration || {});
-      return matchId && matchConfig;
-    });
-    const currentQty = existingItem ? existingItem.quantity : 0;
-    const newQty = Math.max(0, currentQty + (p_delta || 0));
-    if (newQty === 0) {
-      if (existingItem) {
-        const { error: delErr } = await supabaseAdmin.from("basket_items").delete().eq("id", existingItem.id);
-        if (delErr) return res.status(500).json({ error: delErr.message });
-      }
-    } else {
-      if (existingItem) {
-        const { error: updErr } = await supabaseAdmin.from("basket_items").update({ quantity: newQty, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existingItem.id);
-        if (updErr) return res.status(500).json({ error: updErr.message });
-      } else {
-        const insertPayload = {
-          basket_id: basketId,
-          quantity: newQty,
-          configuration: p_configuration || {},
-          created_by_device: p_device_info || null
-        };
-        let useMenuItemId = false;
-        if (items && items.length > 0 && "menu_item_id" in items[0]) {
-          useMenuItemId = true;
-        }
-        if (useMenuItemId) {
-          insertPayload.menu_item_id = p_product_id;
-        } else {
-          insertPayload.product_id = p_product_id;
-        }
-        const { error: insErr } = await supabaseAdmin.from("basket_items").insert(insertPayload);
-        if (insErr) {
-          if (useMenuItemId) {
-            delete insertPayload.menu_item_id;
-            insertPayload.product_id = p_product_id;
-          } else {
-            delete insertPayload.product_id;
-            insertPayload.menu_item_id = p_product_id;
-          }
-          const { error: insErr2 } = await supabaseAdmin.from("basket_items").insert(insertPayload);
-          if (insErr2) return res.status(500).json({ error: insErr2.message });
-        }
-      }
-    }
-    await supabaseAdmin.from("baskets").update({ basket_version: basketVersion + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId);
-    res.json({ basket_id: basketId, new_quantity: newQty });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/public/place-order", async (req, res) => {
-  const parsed = PlaceOrderSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0].message });
-  }
-  const { data, error } = await supabaseAdmin.rpc("place_order_v3", parsed.data);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/orders/:id", async (req, res) => {
-  const { sessionId } = req.query;
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
-  let query = supabaseAdmin.from("orders").select("*").eq("id", req.params.id);
-  if (isUuid) {
-    query = query.eq("session_id", sessionId);
-  }
-  const { data, error } = await query.single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/public/dining-sessions/:sessionId/orders", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("orders").select("*").eq("session_id", req.params.sessionId).neq("status", "cancelled");
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/public/orders/:id/mark-paid", async (req, res) => {
-  const { sessionToken } = req.body;
-  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
-  if (!session) return res.status(401).json({ error: "Invalid session token" });
-  const { data: existingOrder } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).eq("session_id", session.id).single();
-  if (existingOrder && existingOrder.paid_at) {
-    return res.json(existingOrder);
-  }
-  const { data, error } = await supabaseAdmin.from("orders").update({
-    paid_at: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "confirmed",
-    payment_method: "online"
-  }).eq("id", req.params.id).eq("session_id", session.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/public/dining-sessions/:id/mark-paid", async (req, res) => {
-  const { sessionToken } = req.body;
-  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id, status").eq("id", req.params.id).eq("token", sessionToken).single();
-  if (!session) return res.status(401).json({ error: "Invalid session token" });
-  if (session.status === "paid") {
-    const { data: fullSession } = await supabaseAdmin.from("dining_sessions").select("*").eq("id", session.id).single();
-    return res.json(fullSession || session);
-  }
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  await supabaseAdmin.from("orders").update({
-    paid_at: now,
-    status: "confirmed",
-    payment_method: "online"
-  }).eq("session_id", session.id).is("paid_at", null).neq("status", "cancelled");
-  const { data, error } = await supabaseAdmin.from("dining_sessions").update({
-    status: "paid",
-    closed_at: now
-  }).eq("id", session.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/translate", authenticateJWT, async (req, res) => {
-  const { text, targetLang, restaurantContext } = req.body;
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
-  }
-  try {
-    const ai = new import_genai.GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
-    });
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `
-      You are a professional culinary translator specializing in multi-tenant restaurant systems.
-      Translate the following food term or description from English to ${targetLang}.
-      
-      Term: "${text}"
-      Restaurant Type: ${restaurantContext || "General"}
-      
-      Context Guidelines:
-      - For Bubble Tea: Use established tea culture terms.
-      - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
-      - Aim for appetite appeal and accuracy.
-      
-      Return ONLY the translated text, no explanation or quotes.
-      `
-    });
-    const translatedText = response.text.trim();
-    res.json({ translatedText });
-  } catch (error) {
-    console.error("AI Translation failed:", error);
-    res.status(500).json({ error: `Translation failed: ${error?.message || error}` });
-  }
-});
-app.post("/api/login", async (req, res) => {
-  const parsed = LoginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0].message });
-  }
-  const { email, password } = parsed.data;
-  const envAdminEmail = process.env.ADMIN_USER_EMAIL;
-  const envAdminPass = process.env.ADMIN_USER_PASSWORD;
-  const isAdminEnvMatch = envAdminEmail && email === envAdminEmail && password === envAdminPass;
-  const isDevAdminMatch = email === "admin@saas.com" && password === "admin123" || email === "test@example.com" && password === "password123" || email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123";
-  if (isAdminEnvMatch || isDevAdminMatch) {
-    const token = import_jsonwebtoken.default.sign({ id: "admin", email, role: "admin" }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, user: { id: "admin", email, role: "admin" } });
-  }
-  try {
-    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
-      email,
-      password
-    });
-    if (authData && authData.user) {
-      const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("*").eq("id", authData.user.id).maybeSingle();
-      if (profile) {
-        const token = import_jsonwebtoken.default.sign({
-          id: profile.id,
-          email: profile.email,
-          role: profile.role,
-          restaurantId: profile.restaurant_id
-        }, JWT_SECRET, { expiresIn: "7d" });
-        return res.json({ token, user: profile });
-      }
-    }
-    const { data: legacyProfile, error: legacyError } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
-    if (legacyProfile && (password === "staff123" || envAdminPass && password === envAdminPass)) {
-      const token = import_jsonwebtoken.default.sign({
-        id: legacyProfile.id,
-        email: legacyProfile.email,
-        role: legacyProfile.role,
-        restaurantId: legacyProfile.restaurant_id
-      }, JWT_SECRET, { expiresIn: "7d" });
-      return res.json({ token, user: legacyProfile });
-    }
-    res.status(401).json({ error: "Invalid credentials" });
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/register", async (req, res) => {
-  const parsed = RegisterSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0].message });
-  }
-  const { email, password } = parsed.data;
-  try {
-    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true
-    });
-    if (authError) {
-      return res.status(400).json({ error: authError.message });
-    }
-    if (!authUser.user) {
-      throw new Error("User creation failed: No user returned");
-    }
-    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
-      id: authUser.user.id,
-      email,
-      role: "staff"
-      // Default role for new registrations
-    }).select().single();
-    if (profileError) {
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
-      throw profileError;
-    }
-    const token = import_jsonwebtoken.default.sign({
-      id: profile.id,
-      email: profile.email,
-      role: profile.role,
-      restaurantId: profile.restaurant_id
-    }, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: profile });
-  } catch (err) {
-    console.error("Registration error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/google-login", async (req, res) => {
-  const { idToken } = req.body;
-  console.log("Google Login request received. idToken length:", idToken?.length);
-  if (!idToken) {
-    console.log("Missing idToken");
-    return res.status(400).json({ error: "Missing token" });
-  }
-  try {
-    const audience = GOOGLE_CLIENT_ID;
-    if (!audience) {
-      console.error("GOOGLE_CLIENT_ID is not configured on the server");
-      return res.status(500).json({ error: "Server misconfiguration: Google Client ID not found" });
-    }
-    console.log("Verifying token with audience:", audience);
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience
-    });
-    const payload = ticket.getPayload();
-    console.log("Payload received for email:", payload?.email);
-    if (!payload || !payload.email) {
-      console.log("Invalid Google payload or missing email");
-      throw new Error("Invalid Google payload");
-    }
-    const email = payload.email;
-    let userPayload = null;
-    const isSuperAdminEmail = process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL || email === "admin@saas.com" || email === "test@example.com" || email && email.toLowerCase() === "kiap93.kmj@gmail.com";
-    if (isSuperAdminEmail) {
-      console.log("Admin email match:", email);
-      userPayload = { id: "admin", email, role: "admin" };
-    } else {
-      console.log("Checking profiles for email:", email);
-      const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
-      if (error) {
-        console.error("Supabase profile error:", error);
-        throw error;
-      }
-      if (profile) {
-        console.log("Profile found:", profile.id);
-        userPayload = {
-          id: profile.id,
-          email: profile.email,
-          role: profile.role,
-          restaurantId: profile.restaurant_id
-        };
-      } else {
-        console.log("No profile found for email:", email);
-      }
-    }
-    if (!userPayload) {
-      console.log("Unauthorized: User not found in authorized profiles");
-      return res.status(403).json({ error: "User not authorized for staff access" });
-    }
-    console.log("Generating JWT for user:", userPayload.id);
-    const token = import_jsonwebtoken.default.sign(userPayload, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: userPayload });
-  } catch (err) {
-    console.error("Google verify failed internally:", err);
-    res.status(401).json({ error: "Google authentication failed: " + err.message });
-  }
-});
-app.get("/api/me", authenticateJWT, (req, res) => {
-  const user = req.user;
-  if (user && user.id !== "admin") {
-    const settings = getStaffSettings(user.id, user.role);
-    if (settings.status === "suspended") {
-      return res.status(403).json({ error: "Your staff account has been suspended by the administrator." });
-    }
-    return res.json({
-      ...user,
-      status: settings.status,
-      permissions: settings.permissions
-    });
-  }
-  res.json(user);
-});
-app.get("/api/debug-restaurants", async (req, res) => {
-  try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
-    if (!supabaseUrl) {
-      return res.status(500).json({ error: "Missing VITE_SUPABASE_URL" });
-    }
-    const headers = {
-      "apikey": supabaseAnonKey
-    };
-    const response = await fetch(`${supabaseUrl}/rest/v1/`, { headers });
-    const spec = await response.json();
-    if (spec && spec.definitions && spec.definitions.restaurants) {
-      return res.json({
-        message: "Found schema definition",
-        columns: Object.keys(spec.definitions.restaurants.properties || {}),
-        properties: spec.definitions.restaurants.properties
-      });
-    }
-    return res.json({
-      message: "Could not find definition for restaurants",
-      definitions: spec?.definitions ? Object.keys(spec.definitions) : null
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
 var FALLBACK_DB_FILE = "./db_fallbacks.json";
 function loadFallbackDB() {
   try {
@@ -622,959 +73,6 @@ function saveFallbackDB(db) {
     console.warn("Fallback DB write error:", e);
   }
 }
-app.get("/api/my-workspaces", authenticateJWT, async (req, res) => {
-  const user = req.user;
-  if (user.id === "admin") {
-    try {
-      const { data: orgs } = await supabaseAdmin.from("organizations").select("*");
-      const { data: rests } = await supabaseAdmin.from("restaurants").select("*");
-      return res.json({
-        organizations: orgs || [],
-        restaurants: (rests || []).map((r) => ({
-          ...r,
-          role: "admin",
-          status: "active",
-          permissions: {
-            can_refund: true,
-            can_edit_menu: true,
-            can_cancel_order: true,
-            can_view_analytics: true,
-            can_manage_staff: true
-          }
-        }))
-      });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-  try {
-    const db = loadFallbackDB();
-    let mappedUsers = [];
-    try {
-      const { data } = await supabaseAdmin.from("restaurant_users").select("*, restaurants:restaurant_id(*)").eq("user_id", user.id);
-      mappedUsers = data || [];
-    } catch (e) {
-      console.warn("Supabase restaurant_users fetch failed:", e);
-    }
-    let profile = null;
-    try {
-      const { data } = await supabaseAdmin.from("profiles").select("*, restaurants:restaurant_id(*)").eq("id", user.id).maybeSingle();
-      profile = data;
-    } catch (e) {
-      console.warn("Supabase profiles fetch failed:", e);
-    }
-    const workspacesMap = /* @__PURE__ */ new Map();
-    const userFallbackRUs = db.restaurant_users.filter((ru) => ru.user_id === user.id);
-    for (const ru of userFallbackRUs) {
-      const relatedRest = db.restaurants.find((r) => r.id === ru.restaurant_id);
-      if (relatedRest) {
-        workspacesMap.set(ru.restaurant_id, {
-          ...relatedRest,
-          role: ru.role,
-          status: ru.status,
-          permissions: ru.custom_permissions || {},
-          last_entry_at: ru.last_entry_at || ru.custom_permissions?.last_entry_at || null
-        });
-      }
-    }
-    const userFallbackProfile = db.profiles.find((p) => p.id === user.id);
-    if (userFallbackProfile && userFallbackProfile.restaurant_id) {
-      const relatedRest = db.restaurants.find((r) => r.id === userFallbackProfile.restaurant_id);
-      if (relatedRest && !workspacesMap.has(userFallbackProfile.restaurant_id)) {
-        workspacesMap.set(userFallbackProfile.restaurant_id, {
-          ...relatedRest,
-          role: userFallbackProfile.role,
-          status: userFallbackProfile.status || "active",
-          permissions: userFallbackProfile.custom_permissions || {},
-          last_entry_at: userFallbackProfile.last_entry_at || userFallbackProfile.custom_permissions?.last_entry_at || null
-        });
-      }
-    }
-    if (mappedUsers) {
-      for (const m of mappedUsers) {
-        if (m.restaurants) {
-          const entryTime = m.last_entry_at || m.custom_permissions?.last_entry_at || null;
-          const existing = workspacesMap.get(m.restaurant_id);
-          workspacesMap.set(m.restaurant_id, {
-            ...m.restaurants,
-            role: m.role,
-            status: m.status,
-            permissions: m.custom_permissions || {},
-            last_entry_at: entryTime || existing?.last_entry_at || null
-          });
-        }
-      }
-    }
-    if (profile && profile.restaurant_id && profile.restaurants) {
-      const existing = workspacesMap.get(profile.restaurant_id);
-      if (!workspacesMap.has(profile.restaurant_id)) {
-        workspacesMap.set(profile.restaurant_id, {
-          ...profile.restaurants,
-          role: profile.role,
-          status: profile.status || "active",
-          permissions: profile.custom_permissions || {},
-          last_entry_at: profile.last_entry_at || profile.custom_permissions?.last_entry_at || existing?.last_entry_at || null
-        });
-      }
-    }
-    const restaurantsList = Array.from(workspacesMap.values());
-    const orgIds = restaurantsList.map((r) => r.organization_id).filter(Boolean);
-    let userDirectOrgIds = [];
-    const fallbackOUs = db.organization_users.filter((ou) => ou.user_id === user.id);
-    userDirectOrgIds = fallbackOUs.map((ou) => ou.organization_id);
-    try {
-      const { data: directMemberships } = await supabaseAdmin.from("organization_users").select("organization_id").eq("user_id", user.id);
-      if (directMemberships) {
-        userDirectOrgIds = Array.from(/* @__PURE__ */ new Set([...userDirectOrgIds, ...directMemberships.map((m) => m.organization_id)]));
-      }
-    } catch (mErr) {
-      console.warn("Could not query organization_users table (may not exist or permission issues):", mErr);
-    }
-    const allOrgIds = Array.from(/* @__PURE__ */ new Set([...orgIds, ...userDirectOrgIds]));
-    let organizationsList = [];
-    organizationsList = db.organizations.filter((o) => allOrgIds.includes(o.id));
-    if (allOrgIds.length > 0) {
-      try {
-        const { data: orgs } = await supabaseAdmin.from("organizations").select("*").in("id", allOrgIds);
-        if (orgs) {
-          for (const o of orgs) {
-            if (!organizationsList.some((ex) => ex.id === o.id)) {
-              organizationsList.push(o);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Could not query organizations from live DB:", err);
-      }
-    }
-    const enrichedOrgs = await Promise.all(organizationsList.map(async (org) => {
-      const settings = await getOrganizationSettings(supabaseAdmin, org.id);
-      return {
-        ...org,
-        max_outlets: settings.max_outlets,
-        multi_outlet_enabled: settings.multi_outlet_enabled,
-        subscription_plan: settings.subscription_plan
-      };
-    }));
-    return res.json({
-      organizations: enrichedOrgs,
-      restaurants: restaurantsList
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/switch-workspace/:restaurantId", authenticateJWT, async (req, res) => {
-  const user = req.user;
-  const restaurantId = req.params.restaurantId;
-  const db = loadFallbackDB();
-  if (user.id === "admin") {
-    try {
-      let r = db.restaurants.find((item) => item.id === restaurantId);
-      if (!r) {
-        const { data } = await supabaseAdmin.from("restaurants").select("*").eq("id", restaurantId).maybeSingle();
-        r = data;
-      }
-      if (!r) return res.status(404).json({ error: "Restaurant not found." });
-      const guestPay = {
-        id: "admin",
-        email: user.email,
-        role: "admin",
-        restaurantId: r.id
-      };
-      const token = import_jsonwebtoken.default.sign(guestPay, JWT_SECRET, { expiresIn: "7d" });
-      return res.json({ token, user: guestPay });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-  try {
-    let role = "";
-    let status = "active";
-    let customPerms = {};
-    const fallbackRU = db.restaurant_users.find((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
-    if (fallbackRU) {
-      role = fallbackRU.role;
-      status = fallbackRU.status;
-      customPerms = fallbackRU.custom_permissions;
-    } else {
-      const fallbackProfile = db.profiles.find((p) => p.id === user.id && p.restaurant_id === restaurantId);
-      if (fallbackProfile) {
-        role = fallbackProfile.role;
-        status = fallbackProfile.status || "active";
-        customPerms = fallbackProfile.custom_permissions;
-      }
-    }
-    if (!role) {
-      try {
-        const { data: mapping } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
-        if (mapping) {
-          role = mapping.role;
-          status = mapping.status;
-          customPerms = mapping.custom_permissions;
-        } else {
-          const { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
-          if (profile) {
-            role = profile.role;
-            status = profile.status || "active";
-            customPerms = profile.custom_permissions;
-          }
-        }
-      } catch (dbErr) {
-        console.warn("Supabase lookup in switch-workspace failed, ignoring:", dbErr);
-      }
-    }
-    if (!role) {
-      return res.status(403).json({ error: "Forbidden: You do not have access to this workspace." });
-    }
-    if (status === "suspended") {
-      return res.status(403).json({ error: "Your account is suspended in this workspace." });
-    }
-    let organizationId = null;
-    const fallbackRest = db.restaurants.find((r) => r.id === restaurantId);
-    if (fallbackRest) {
-      organizationId = fallbackRest.organization_id || null;
-    }
-    if (!organizationId) {
-      try {
-        const { data: dbRest } = await supabaseAdmin.from("restaurants").select("organization_id").eq("id", restaurantId).maybeSingle();
-        if (dbRest) {
-          organizationId = dbRest.organization_id || null;
-        }
-      } catch (err) {
-        console.warn("Could not load organization_id from supabaseAdmin in switch-workspace:", err);
-      }
-    }
-    const lowerRole = role ? role.toLowerCase() : "";
-    const isOwnerOrAdmin = lowerRole === "owner" || lowerRole === "admin" || lowerRole === "superadmin";
-    const isManager = lowerRole === "manager";
-    const isCashier = lowerRole === "cashier";
-    const isKitchen = lowerRole === "kitchen";
-    const isRunner = lowerRole === "runner";
-    const permissions = {
-      can_refund: isOwnerOrAdmin || isManager,
-      can_edit_menu: isOwnerOrAdmin || isManager,
-      can_cancel_order: isOwnerOrAdmin || isManager || isCashier,
-      can_view_analytics: isOwnerOrAdmin || isManager,
-      can_manage_staff: isOwnerOrAdmin,
-      can_access_pos: isOwnerOrAdmin || isManager || isCashier,
-      can_access_kds: isOwnerOrAdmin || isManager || isKitchen || isCashier,
-      can_view_reports: isOwnerOrAdmin || isManager,
-      ...customPerms || {}
-    };
-    const enriched = {
-      id: user.id,
-      email: user.email,
-      role,
-      restaurantId,
-      organizationId,
-      status,
-      permissions
-    };
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const fallbackRUIndex = db.restaurant_users.findIndex((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
-    if (fallbackRUIndex > -1) {
-      db.restaurant_users[fallbackRUIndex].last_entry_at = now;
-    } else {
-      db.restaurant_users.push({
-        restaurant_id: restaurantId,
-        user_id: user.id,
-        role: role || "waiter",
-        status: status || "active",
-        last_entry_at: now
-      });
-    }
-    const fallbackProfileIndex = db.profiles.findIndex((p) => p.id === user.id);
-    if (fallbackProfileIndex > -1) {
-      db.profiles[fallbackProfileIndex].last_entry_at = now;
-    }
-    saveFallbackDB(db);
-    try {
-      const { error: directErr } = await supabaseAdmin.from("restaurant_users").update({ last_entry_at: now }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
-      if (directErr) {
-        console.warn("[DB] last_entry_at column update failed in restaurant_users, trying custom_permissions fallback:", directErr);
-        const { data: currentRU } = await supabaseAdmin.from("restaurant_users").select("custom_permissions").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
-        const updatedPerms = {
-          ...currentRU?.custom_permissions || {},
-          last_entry_at: now
-        };
-        await supabaseAdmin.from("restaurant_users").update({ custom_permissions: updatedPerms }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
-      }
-    } catch (e) {
-      console.warn("[DB] Failed to save entry timestamp in restaurant_users:", e);
-    }
-    try {
-      const { error: profileErr } = await supabaseAdmin.from("profiles").update({ last_entry_at: now }).eq("id", user.id);
-      if (profileErr) {
-        console.warn("[DB] profiles.last_entry_at column update failed, trying custom_permissions:", profileErr);
-        const { data: currentProf } = await supabaseAdmin.from("profiles").select("custom_permissions").eq("id", user.id).maybeSingle();
-        const updatedPerms = {
-          ...currentProf?.custom_permissions || {},
-          last_entry_at: now
-        };
-        await supabaseAdmin.from("profiles").update({ custom_permissions: updatedPerms }).eq("id", user.id);
-      }
-    } catch (e) {
-      console.warn("[DB] Failed to save profile entry timestamp:", e);
-    }
-    const token = import_jsonwebtoken.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, user: enriched });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-app.patch("/api/organizations/:id", authenticateJWT, async (req, res) => {
-  const user = req.user;
-  const { id } = req.params;
-  const { name, company_register_number } = req.body;
-  try {
-    if (user.id !== "admin") {
-      const { data: member, error: memberErr } = await supabaseAdmin.from("organization_users").select("*").eq("organization_id", id).eq("user_id", user.id).maybeSingle();
-      if (!member || member.role !== "owner" && member.role !== "manager") {
-        return res.status(403).json({ error: "Forbidden: You do not have owner/manager access to this organization." });
-      }
-    }
-    const updatePayload = { name };
-    if (company_register_number !== void 0) {
-      updatePayload.company_register_number = company_register_number;
-    }
-    const { data: updatedOrg, error: updateErr } = await supabaseAdmin.from("organizations").update(updatePayload).eq("id", id).select().maybeSingle();
-    if (updateErr) {
-      if (updateErr.code === "42703" || updateErr.message && updateErr.message.includes("column") && updateErr.message.includes("does not exist")) {
-        console.warn(`company_register_number column doesn't exist yet, updating name only.`);
-        const { data: updatedOrg2, error: updateErr2 } = await supabaseAdmin.from("organizations").update({ name }).eq("id", id).select().maybeSingle();
-        if (updateErr2) throw updateErr2;
-        return res.json({
-          ...updatedOrg2,
-          company_register_number,
-          // local value passed back
-          warn: "Column company_register_number missing. Please execute: ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS company_register_number TEXT;"
-        });
-      }
-      throw updateErr;
-    }
-    return res.json(updatedOrg);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
-  const user = req.user;
-  const { orgName, workspaceName, orgId: reqOrgId } = req.body;
-  if (!workspaceName) {
-    return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
-  }
-  try {
-    let orgId = reqOrgId || null;
-    const db = loadFallbackDB();
-    if (!orgId && orgName && orgName.trim()) {
-      let org = null;
-      try {
-        const { data, error: orgErr } = await supabaseAdmin.from("organizations").insert({ name: orgName.trim() }).select().single();
-        if (orgErr) throw orgErr;
-        org = data;
-        orgId = org.id;
-      } catch (err) {
-        console.warn("Using fallback for organization insertion:", err);
-        orgId = `org_${Date.now()}`;
-        org = {
-          id: orgId,
-          name: orgName.trim(),
-          created_at: (/* @__PURE__ */ new Date()).toISOString()
-        };
-      }
-      if (!db.organizations.some((o) => o.id === orgId)) {
-        db.organizations.push(org);
-      }
-      if (!db.organization_users.some((ou) => ou.organization_id === orgId && ou.user_id === user.id)) {
-        db.organization_users.push({
-          organization_id: orgId,
-          user_id: user.id,
-          role: "owner"
-        });
-      }
-      saveFallbackDB(db);
-      try {
-        await supabaseAdmin.from("organization_users").insert({
-          organization_id: orgId,
-          user_id: user.id,
-          role: "owner"
-        });
-      } catch (e) {
-      }
-    }
-    let insertData = {
-      name: workspaceName.trim(),
-      currency: "MYR",
-      service_charge: 6,
-      sst: 10,
-      owner_id: user.id
-    };
-    if (orgId) {
-      insertData.organization_id = orgId;
-    }
-    let restaurant = null;
-    let restErr = null;
-    try {
-      const attempt1 = await supabaseAdmin.from("restaurants").insert(insertData).select().single();
-      if (attempt1.error) {
-        if (insertData.organization_id) {
-          delete insertData.organization_id;
-          const attempt2 = await supabaseAdmin.from("restaurants").insert(insertData).select().single();
-          if (attempt2.error) {
-            restErr = attempt2.error;
-          } else {
-            restaurant = attempt2.data;
-          }
-        } else {
-          restErr = attempt1.error;
-        }
-      } else {
-        restaurant = attempt1.data;
-      }
-    } catch (e) {
-      restErr = e;
-    }
-    if (restErr || !restaurant) {
-      console.warn("Using fallback for restaurant insertion:", restErr);
-      restaurant = {
-        id: `rest_${Date.now()}`,
-        name: workspaceName.trim(),
-        currency: "MYR",
-        service_charge: 6,
-        sst: 10,
-        owner_id: user.id,
-        organization_id: orgId
-      };
-    }
-    const db2 = loadFallbackDB();
-    if (!db2.restaurants.some((r) => r.id === restaurant.id)) {
-      db2.restaurants.push(restaurant);
-    }
-    saveFallbackDB(db2);
-    try {
-      await supabaseAdmin.from("profiles").upsert({
-        id: user.id,
-        email: user.email,
-        restaurant_id: restaurant.id,
-        role: "owner",
-        updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    } catch (e) {
-    }
-    try {
-      await supabaseAdmin.from("restaurant_users").insert({
-        restaurant_id: restaurant.id,
-        user_id: user.id,
-        role: "owner",
-        status: "active",
-        custom_permissions: {
-          can_refund: true,
-          can_edit_menu: true,
-          can_cancel_order: true,
-          can_view_analytics: true,
-          can_manage_staff: true
-        }
-      });
-    } catch (mErr) {
-      console.warn("Could not insert to restaurant_users - table may not be migrated yet:", mErr);
-    }
-    const db3 = loadFallbackDB();
-    if (!db3.profiles.some((p) => p.id === user.id)) {
-      db3.profiles.push({
-        id: user.id,
-        email: user.email,
-        restaurant_id: restaurant.id,
-        role: "owner",
-        updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    } else {
-      const existing = db3.profiles.find((p) => p.id === user.id);
-      existing.restaurant_id = restaurant.id;
-      existing.role = "owner";
-    }
-    if (!db3.restaurant_users.some((ru) => ru.restaurant_id === restaurant.id && ru.user_id === user.id)) {
-      db3.restaurant_users.push({
-        restaurant_id: restaurant.id,
-        user_id: user.id,
-        role: "owner",
-        status: "active",
-        custom_permissions: {
-          can_refund: true,
-          can_edit_menu: true,
-          can_cancel_order: true,
-          can_view_analytics: true,
-          can_manage_staff: true
-        }
-      });
-    }
-    saveFallbackDB(db3);
-    const enriched = {
-      id: user.id,
-      email: user.email,
-      role: "owner",
-      restaurantId: restaurant.id,
-      status: "active",
-      permissions: {
-        can_refund: true,
-        can_edit_menu: true,
-        can_cancel_order: true,
-        can_view_analytics: true,
-        can_manage_staff: true
-      }
-    };
-    const token = import_jsonwebtoken.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, user: enriched });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/translation-jobs", authenticateJWT, async (req, res) => {
-  const { filter } = req.query;
-  let query = supabaseAdmin.from("translation_jobs").select("*").order("created_at", { ascending: false });
-  if (filter && filter !== "all") {
-    query = query.eq("review_status", filter);
-  } else {
-    query = query.neq("review_status", "approved");
-  }
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.patch("/api/translation-jobs/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("translation_jobs").update(req.body).eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.patch("/api/tenant-translations", authenticateJWT, async (req, res) => {
-  const { restaurantId, entityId, fieldName, languageCode, translatedText } = req.body;
-  const { data, error } = await supabaseAdmin.from("tenant_translations").update({ translated_text: translatedText }).eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("field_name", fieldName).eq("language_code", languageCode).select();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.post("/api/categories", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("categories").insert(req.body).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.delete("/api/categories/:id", authenticateJWT, async (req, res) => {
-  const { error } = await supabaseAdmin.from("categories").delete().eq("id", req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true });
-});
-app.get("/api/restaurants/:restId/menu-items", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("menu_items").select(`
-      *,
-      display_behavior,
-      combo_groups (
-        *,
-        combo_group_items (
-          *,
-          child_product:menu_items (
-            id,
-            name,
-            base_price,
-            product_type
-          )
-        )
-      ),
-      modifier_groups (
-        *,
-        modifiers!modifiers_group_id_fkey (*)
-      )
-    `).eq("restaurant_id", req.params.restId);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.post("/api/menu-items", authenticateJWT, async (req, res) => {
-  const caller = req.user;
-  if (caller && caller.id !== "admin") {
-    const settings = getStaffSettings(caller.id, caller.role);
-    if (!settings.permissions.can_edit_menu) {
-      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
-    }
-  }
-  const { data, error } = await supabaseAdmin.from("menu_items").insert(req.body).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  if (caller && caller.email) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
-  }
-  res.json(data);
-});
-app.patch("/api/menu-items/:id", authenticateJWT, async (req, res) => {
-  const caller = req.user;
-  if (caller && caller.id !== "admin") {
-    const settings = getStaffSettings(caller.id, caller.role);
-    if (!settings.permissions.can_edit_menu) {
-      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
-    }
-  }
-  const { data, error } = await supabaseAdmin.from("menu_items").update(req.body).eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  if (caller && caller.email) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
-  }
-  res.json(data);
-});
-app.delete("/api/menu-items/:id", authenticateJWT, async (req, res) => {
-  const caller = req.user;
-  if (caller && caller.id !== "admin") {
-    const settings = getStaffSettings(caller.id, caller.role);
-    if (!settings.permissions.can_edit_menu) {
-      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
-    }
-  }
-  const { data: item } = await supabaseAdmin.from("menu_items").select("name, restaurant_id").eq("id", req.params.id).maybeSingle();
-  const { error } = await supabaseAdmin.from("menu_items").delete().eq("id", req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  if (caller && caller.email && item) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
-  }
-  res.json({ success: true });
-});
-app.get("/api/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.post("/api/tables", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.patch("/api/tables/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.delete("/api/tables/:id", authenticateJWT, async (req, res) => {
-  const { error } = await supabaseAdmin.from("tables").delete().eq("id", req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true });
-});
-app.get("/api/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
-  const { restId } = req.params;
-  const limit = parseInt(req.query.limit) || 100;
-  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
-  const { data, error } = await supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", restId).order("created_at", { ascending: false }).limit(limit);
-  if (error) {
-    console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
-    return res.status(500).json({ error: error.message });
-  }
-  return res.json(data || []);
-});
-app.patch("/api/orders/:id", authenticateJWT, async (req, res) => {
-  const caller = req.user;
-  const orderId = req.params.id;
-  try {
-    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("restaurant_id, status").eq("id", orderId).maybeSingle();
-    if (orderErr) throw orderErr;
-    if (!order) return res.status(404).json({ error: "Order not found." });
-    const restId = order.restaurant_id || caller?.restaurantId || "default";
-    if (caller && caller.id !== "admin") {
-      const settings = getStaffSettings(caller.id, caller.role);
-      if (req.body.status === "cancelled" && !settings.permissions.can_cancel_order) {
-        return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
-      }
-      if (req.body.status === "confirmed" && caller.role === "runner") {
-        return res.status(403).json({ error: "Forbidden: Runners cannot confirm orders." });
-      }
-    }
-    const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", orderId).select().single();
-    if (error) return res.status(500).json({ error: error.message });
-    if (caller && caller.email) {
-      let action = `Updated Order ${orderId}`;
-      if (req.body.status && req.body.status !== order.status) {
-        action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
-      }
-      logToAudit(caller.id || "admin", caller.email, caller.role, action, restId);
-    }
-    res.json(data);
-  } catch (err) {
-    console.error("Error updating order:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/restaurants/:restId/dining-sessions", authenticateJWT, async (req, res) => {
-  const status = req.query.status;
-  let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
-  if (status === "active") {
-    query = query.neq("status", "paid").neq("status", "expired");
-  }
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.get("/api/dining-sessions/:id/orders", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.post("/api/dining-sessions/:id/settle", authenticateJWT, async (req, res) => {
-  const { orderIds, paidAmount } = req.body;
-  try {
-    const { error: orderError } = await supabaseAdmin.from("orders").update({
-      paid_at: (/* @__PURE__ */ new Date()).toISOString(),
-      payment_method: "counter"
-    }).in("id", orderIds);
-    if (orderError) throw orderError;
-    const { error: sessionError } = await supabaseAdmin.from("dining_sessions").update({
-      status: "paid",
-      paid_amount: paidAmount
-    }).eq("id", req.params.id);
-    if (sessionError) throw sessionError;
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.patch("/api/dining-sessions/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.patch("/api/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").update(req.body).eq("id", req.params.id).select().maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.get("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
-  const { sessionId } = req.query;
-  let query;
-  if (sessionId) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
-    if (!isUuid) return res.json([]);
-    const { data: orders } = await supabaseAdmin.from("orders").select("id").eq("session_id", sessionId);
-    const orderIds = (orders || []).map((o) => o.id);
-    if (orderIds.length === 0) return res.json([]);
-    query = supabaseAdmin.from("payments").select("*").in("order_id", orderIds);
-  } else {
-    query = supabaseAdmin.from("payments").select("*").eq("order_id", req.params.orderId);
-  }
-  const { data, error } = await query.order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
-});
-app.post("/api/orders/:orderId/payments", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("payments").insert({
-    ...req.body,
-    order_id: req.params.orderId
-  }).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/cash-transactions", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/batch-sync", authenticateJWT, async (req, res) => {
-  const { entity, productId, data } = req.body;
-  try {
-    if (entity === "combo_groups") {
-      await supabaseAdmin.from("combo_groups").delete().eq("combo_product_id", productId);
-      if (data && data.length > 0) {
-        for (const group of data) {
-          const { data: newGroup, error: groupError } = await supabaseAdmin.from("combo_groups").insert({
-            combo_product_id: productId,
-            name: group.name,
-            description: group.description,
-            required: group.required,
-            min_select: group.min_select,
-            max_select: group.max_select,
-            display_behavior: group.display_behavior,
-            importance: group.importance,
-            sort_order: group.sort_order
-          }).select().single();
-          if (groupError) throw groupError;
-          if (group.items && group.items.length > 0) {
-            const items = group.items.map((i) => ({ ...i, group_id: newGroup.id }));
-            await supabaseAdmin.from("combo_group_items").insert(items);
-          }
-        }
-      }
-    } else if (entity === "modifier_groups") {
-      await supabaseAdmin.from("modifier_groups").delete().eq("product_id", productId);
-      if (data && data.length > 0) {
-        for (const group of data) {
-          const { data: newGroup, error: groupError } = await supabaseAdmin.from("modifier_groups").insert({
-            product_id: productId,
-            parent_modifier_id: group.parent_modifier_id,
-            name: group.name,
-            required: group.required,
-            min_select: group.min_select,
-            max_select: group.max_select,
-            display_behavior: group.display_behavior,
-            sort_order: group.sort_order
-          }).select().single();
-          if (groupError) throw groupError;
-          if (group.modifiers && group.modifiers.length > 0) {
-            const modifiers = group.modifiers.map((m) => ({ ...m, group_id: newGroup.id }));
-            await supabaseAdmin.from("modifiers").insert(modifiers);
-          }
-        }
-      }
-    }
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/public/payments", async (req, res) => {
-  try {
-    const parsed = PaymentsSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.issues[0].message });
-    }
-    const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
-    const idempotencyKeyResolved = idempotency_key || idempotencyKey;
-    if (idempotencyKeyResolved) {
-      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
-      if (existing) {
-        return res.json(existing);
-      }
-    }
-    const newMetadata = {
-      ...metadata || {},
-      idempotency_key: idempotencyKeyResolved
-    };
-    const insertPayload = {
-      restaurant_id: restaurantId,
-      order_id: orderId,
-      amount,
-      payment_method: method,
-      provider,
-      status: "pending",
-      metadata: newMetadata,
-      idempotency_key: idempotencyKeyResolved
-    };
-    const { data, error } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
-    if (error) {
-      if (error.message?.includes("idempotency_key") || error.code === "PGRST204") {
-        const fallbackPayload = {
-          restaurant_id: restaurantId,
-          order_id: orderId,
-          amount,
-          payment_method: method,
-          provider,
-          status: "pending",
-          metadata: newMetadata
-        };
-        const { data: fallbackData, error: fallbackError } = await supabaseAdmin.from("payments").insert(fallbackPayload).select().single();
-        if (fallbackError) return res.status(500).json({ error: fallbackError.message });
-        return res.json(fallbackData);
-      }
-      return res.status(500).json({ error: error.message });
-    }
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.post("/api/public/payments/:id/initialize", async (req, res) => {
-  const { id } = req.params;
-  const { data: payment, error: pError } = await supabaseAdmin.from("payments").select("*").eq("id", id).single();
-  if (pError) return res.status(500).json({ error: pError.message });
-  await supabaseAdmin.from("payment_attempts").insert({
-    payment_id: id,
-    status: "initiated"
-  });
-  switch (payment.payment_method) {
-    case "duitnow":
-    case "tng":
-      return res.json({
-        paymentId: payment.id,
-        provider: payment.provider,
-        paymentMethod: payment.payment_method,
-        qrData: `00020101021126600010com.paynet.qr0111MY123456780211MY123456780303001520400005303458540${payment.amount.toFixed(2)}5802MY5907POS_SAAS6008Lumpur6105500006304`
-      });
-    case "fpx":
-    case "card":
-      return res.json({
-        paymentId: payment.id,
-        provider: payment.provider,
-        paymentMethod: payment.payment_method,
-        redirectUrl: "/simulated-gateway"
-      });
-    default:
-      res.status(400).json({ error: "Unsupported method" });
-  }
-});
-app.get("/api/public/payments/:id/status", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("payments").select("status").eq("id", req.params.id).single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-app.post("/api/public/payments/:id/simulate-success", async (req, res) => {
-  const { id } = req.params;
-  const { data: payment, error: fetchError } = await supabaseAdmin.from("payments").select("order_id").eq("id", id).single();
-  if (fetchError) return res.status(500).json({ error: fetchError.message });
-  const paidAt = (/* @__PURE__ */ new Date()).toISOString();
-  await supabaseAdmin.from("payments").update({
-    status: "paid",
-    paid_at: paidAt,
-    external_id: `SIM_${Math.random().toString(36).substring(7).toUpperCase()}`
-  }).eq("id", id);
-  await supabaseAdmin.from("orders").update({
-    paid_at: paidAt,
-    status: "confirmed"
-  }).eq("id", payment.order_id);
-  await supabaseAdmin.from("payment_attempts").insert({
-    payment_id: id,
-    status: "success",
-    provider_response: { mode: "simulation", timestamp: paidAt }
-  });
-  res.json({ success: true });
-});
-app.post("/api/public/batch-translate", async (req, res) => {
-  const { items, categories, context } = req.body;
-  const { restaurantId, franchiseId, targetLanguage } = context;
-  if (targetLanguage === "en") {
-    return res.json({ items, categories });
-  }
-  try {
-    const resolveSingle = async (entityId, entityType, fieldName, defaultText) => {
-      const { data: branchData } = await supabaseAdmin.from("branch_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
-      if (branchData?.translated_text) return branchData.translated_text;
-      if (franchiseId) {
-        const { data: franchiseData } = await supabaseAdmin.from("franchise_translations").select("translated_text").eq("franchise_id", franchiseId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
-        if (franchiseData?.translated_text) return franchiseData.translated_text;
-      }
-      const { data: tenantData } = await supabaseAdmin.from("tenant_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("entity_type", entityType).eq("field_name", fieldName).eq("language_code", targetLanguage).maybeSingle();
-      if (tenantData?.translated_text) return tenantData.translated_text;
-      const { data: globalData } = await supabaseAdmin.from("global_translations").select("translated_text").eq("term_key", fieldName === "name" || fieldName === "description" ? defaultText ? defaultText.trim() : "" : `${entityType}_${fieldName}`).eq("language_code", targetLanguage).maybeSingle();
-      if (globalData?.translated_text) return globalData.translated_text;
-      return defaultText;
-    };
-    const translatedItems = items ? await Promise.all(items.map(async (item) => {
-      const name = await resolveSingle(item.id, "menu_item", "name", item.name);
-      const description = item.description ? await resolveSingle(item.id, "menu_item", "description", item.description) : item.description;
-      return { ...item, name, description };
-    })) : null;
-    const translatedCats = categories ? await Promise.all(categories.map(async (cat) => {
-      const name = await resolveSingle(cat.id, "category", "name", cat.name);
-      return { ...cat, name };
-    })) : null;
-    res.json({ items: translatedItems, categories: translatedCats });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/public/kitchen-canonical/:id", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("kitchen_canonical_names").select("canonical_name").eq("menu_item_id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
 var REGISTRY_FILE = import_path.default.join(process.cwd(), "tenant_registry.json");
 function readRegistry() {
   try {
@@ -1703,7 +201,6 @@ function getTenantRegistry(tenantId) {
   return registry[tenantId];
 }
 var STAFF_REGISTRY_FILE = import_path.default.join(process.cwd(), "staff_registry.json");
-var AUDIT_LOGS_FILE = import_path.default.join(process.cwd(), "audit_logs.json");
 function readStaffRegistry() {
   try {
     if (!import_fs.default.existsSync(STAFF_REGISTRY_FILE)) {
@@ -1742,12 +239,442 @@ function getStaffSettings(userId, role) {
   }
   return registry[userId];
 }
+
+// src/server/services/translationService.ts
+var import_genai = require("@google/genai");
+async function detectLanguageAndTranslate(text, apiKey) {
+  const finalApiKey = apiKey || process.env.GEMINI_API_KEY;
+  if (!finalApiKey) {
+    return null;
+  }
+  try {
+    const ai = new import_genai.GoogleGenAI({
+      apiKey: finalApiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `
+      You are an expert language detector and culinary translator for a multi-tenant restaurant system.
+      Analyze the following text (which is a food menu item name or description):
+      "${text}"
+      
+      Determine:
+      1. Is this text primarily in English? (Answer true if it's already in English or standard Latin name with no clear translation, false if it's in another language. For terms like "Nasi Lemak" or "Ayam Goreng" which are Malay, return false with languageCode "ms" and englishTranslation as a clean English/standard culinary spelling).
+      2. If not English, detect its language code. Supported language codes are:
+         - "zh" (Chinese)
+         - "ms" (Malay/Bahasa Melayu)
+         - "th" (Thai)
+         - "ja" (Japanese)
+         - "ko" (Korean)
+         If the language is not one of these, but is non-English, use the closest ISO 2-letter code.
+      3. Translate the text from its original language to natural, appealing English.
+      
+      Return ONLY a JSON object (no markdown formatting, no code blocks, just raw JSON) with the following structure:
+      {
+        "isEnglish": boolean,
+        "languageCode": "zh" | "ms" | "th" | "ja" | "ko" | null,
+        "englishTranslation": "translated text in English" | null
+      }
+      `
+    });
+    const rawText = response.text.trim();
+    const cleanText = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    const result = JSON.parse(cleanText);
+    return {
+      isEnglish: !!result.isEnglish,
+      languageCode: result.languageCode || null,
+      englishTranslation: result.englishTranslation ? result.englishTranslation.trim() : null
+    };
+  } catch (error) {
+    console.error(`[Language Detection] Gemini language detection/translation failed for "${text}":`, error);
+    return null;
+  }
+}
+async function translateTextWithGemini(text, targetLang) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+  try {
+    const ai = new import_genai.GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+    const targetLangFull = targetLang === "zh" ? "Chinese (Simplified)" : targetLang === "en" ? "English" : targetLang === "ms" ? "Bahasa Melayu" : targetLang;
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `
+      You are a professional culinary translator specializing in multi-tenant restaurant systems.
+      Translate the following food term or description to the target language: ${targetLangFull}.
+      
+      Term: "${text}"
+      Restaurant Type: General
+      
+      Context Guidelines:
+      - For Bubble Tea: Use established tea culture terms.
+      - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
+      - Aim for appetite appeal and accuracy.
+      
+      Return ONLY the translated text, no explanation or quotes.
+      `
+    });
+    return response.text.trim();
+  } catch (error) {
+    console.error(`[Gemini Translation] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
+    return null;
+  }
+}
+
+// src/server/routes/index.ts
+var import_express12 = require("express");
+
+// src/server/routes/auth.routes.ts
+var import_express = require("express");
+var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
+
+// src/lib/validation.ts
+var import_zod = require("zod");
+var LoginSchema = import_zod.z.object({
+  email: import_zod.z.string().email({ message: "Invalid email structure" }),
+  password: import_zod.z.string().min(1, { message: "Password is required" })
+});
+var RegisterSchema = import_zod.z.object({
+  email: import_zod.z.string().email({ message: "Invalid email structure" }),
+  password: import_zod.z.string().min(6, { message: "Password must be at least 6 characters" })
+});
+var ResolveSessionSchema = import_zod.z.object({
+  restaurantId: import_zod.z.string().uuid({ message: "Restaurant ID must be a valid UUID" }),
+  tableId: import_zod.z.string().nullable().optional(),
+  deviceInfo: import_zod.z.string().nullable().optional(),
+  clientToken: import_zod.z.string().nullable().optional(),
+  fulfillment: import_zod.z.string().nullable().optional()
+});
+var SyncBasketItemSchema = import_zod.z.object({
+  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }),
+  p_session_token: import_zod.z.string().min(1, { message: "p_session_token is required" }),
+  p_product_id: import_zod.z.string().min(1, { message: "p_product_id is required" }),
+  p_delta: import_zod.z.number().int({ message: "p_delta must be an integer" }),
+  p_configuration: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  p_device_info: import_zod.z.string().nullable().optional()
+});
+var OrderItemSchema = import_zod.z.object({
+  id: import_zod.z.string().optional(),
+  menuItemId: import_zod.z.string().uuid({ message: "menuItemId must be a valid UUID" }),
+  quantity: import_zod.z.number().int().positive({ message: "quantity must be a positive integer" }),
+  price: import_zod.z.number().nonnegative({ message: "price cannot be negative" }),
+  name: import_zod.z.string().optional(),
+  selection: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  notes: import_zod.z.string().nullable().optional(),
+  kitchenName: import_zod.z.string().nullable().optional(),
+  smartRenderedLines: import_zod.z.object({
+    kds: import_zod.z.array(import_zod.z.string()).optional(),
+    customer: import_zod.z.array(import_zod.z.string()).optional(),
+    receipt: import_zod.z.array(import_zod.z.string()).optional()
+  }).optional()
+});
+var PlaceOrderSchema = import_zod.z.object({
+  p_restaurant_id: import_zod.z.string().uuid({ message: "p_restaurant_id must be a valid UUID" }),
+  p_table_id: import_zod.z.string().nullable().optional(),
+  p_session_id: import_zod.z.string().uuid({ message: "p_session_id must be a valid UUID" }).nullable().optional(),
+  p_session_token: import_zod.z.string().nullable().optional(),
+  p_order_type: import_zod.z.enum(["dine_in", "takeaway"]),
+  p_items: import_zod.z.array(OrderItemSchema).min(1, { message: "Order must contain at least one item" }),
+  p_total_price: import_zod.z.number().nonnegative({ message: "p_total_price cannot be negative" }),
+  p_payment_method: import_zod.z.string().optional(),
+  p_idempotency_key: import_zod.z.string().nullable().optional()
+});
+var PaymentsSchema = import_zod.z.object({
+  restaurantId: import_zod.z.string().uuid({ message: "restaurantId must be a valid UUID" }),
+  orderId: import_zod.z.string().uuid({ message: "orderId must be a valid UUID" }),
+  amount: import_zod.z.number().positive({ message: "amount must be a positive number" }),
+  method: import_zod.z.string().min(1, { message: "method is required" }),
+  provider: import_zod.z.string().min(1, { message: "provider is required" }),
+  metadata: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
+  idempotency_key: import_zod.z.string().nullable().optional(),
+  idempotencyKey: import_zod.z.string().nullable().optional()
+});
+
+// src/server/middleware/authMiddleware.ts
+var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
+var getSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is required but was not defined in environment variables");
+  }
+  return secret;
+};
+var authenticateJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(" ")[1];
+  if (!token) {
+    console.warn(`[AUTH FAIL] No token for ${req.path}`);
+    return res.status(401).json({ error: "Unauthorized: No token provided" });
+  }
+  try {
+    const secret = getSecret();
+    const decoded = import_jsonwebtoken.default.verify(token, secret);
+    req.user = decoded;
+    console.log(`[AUTH SUCCESS] User: ${decoded.email}, Path: ${req.path}`);
+    next();
+  } catch (err) {
+    console.warn(`[AUTH FAIL] Invalid token for ${req.path}:`, err.message);
+    return res.status(401).json({ error: "Unauthorized: Invalid token" });
+  }
+};
+var requireSuperAdmin = (req, res, next) => {
+  const user = req.user;
+  const isSuperAdminEmail = user && (user.email === process.env.ADMIN_USER_EMAIL || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
+  if (!user || user.role !== "admin" && !isSuperAdminEmail) {
+    return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
+  }
+  next();
+};
+
+// src/server/routes/auth.routes.ts
+var router = (0, import_express.Router)();
+router.post("/login", async (req, res) => {
+  const parsed = LoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { email, password } = parsed.data;
+  const envAdminEmail = process.env.ADMIN_USER_EMAIL;
+  const envAdminPass = process.env.ADMIN_USER_PASSWORD;
+  const isAdminEnvMatch = envAdminEmail && email === envAdminEmail && password === envAdminPass;
+  const isDevAdminMatch = email === "admin@saas.com" && password === "admin123" || email === "test@example.com" && password === "password123" || email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123";
+  if (isAdminEnvMatch || isDevAdminMatch) {
+    const token = import_jsonwebtoken2.default.sign({ id: "admin", email, role: "admin" }, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ token, user: { id: "admin", email, role: "admin" } });
+  }
+  try {
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (authData && authData.user) {
+      const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("*").eq("id", authData.user.id).maybeSingle();
+      if (profile) {
+        const token = import_jsonwebtoken2.default.sign({
+          id: profile.id,
+          email: profile.email,
+          role: profile.role,
+          restaurantId: profile.restaurant_id
+        }, JWT_SECRET, { expiresIn: "7d" });
+        return res.json({ token, user: profile });
+      }
+    }
+    const { data: legacyProfile, error: legacyError } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    if (legacyProfile && (password === "staff123" || envAdminPass && password === envAdminPass)) {
+      const token = import_jsonwebtoken2.default.sign({
+        id: legacyProfile.id,
+        email: legacyProfile.email,
+        role: legacyProfile.role,
+        restaurantId: legacyProfile.restaurant_id
+      }, JWT_SECRET, { expiresIn: "7d" });
+      return res.json({ token, user: legacyProfile });
+    }
+    res.status(401).json({ error: "Invalid credentials" });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/register", async (req, res) => {
+  const parsed = RegisterSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { email, password } = parsed.data;
+  try {
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true
+    });
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
+    }
+    if (!authUser.user) {
+      throw new Error("User creation failed: No user returned");
+    }
+    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
+      id: authUser.user.id,
+      email,
+      role: "staff"
+      // Default role for new registrations
+    }).select().single();
+    if (profileError) {
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+      throw profileError;
+    }
+    const token = import_jsonwebtoken2.default.sign({
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      restaurantId: profile.restaurant_id
+    }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: profile });
+  } catch (err) {
+    console.error("Registration error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/google-login", async (req, res) => {
+  const { idToken } = req.body;
+  console.log("Google Login request received. idToken length:", idToken?.length);
+  if (!idToken) {
+    console.log("Missing idToken");
+    return res.status(400).json({ error: "Missing token" });
+  }
+  try {
+    const GOOGLE_CLIENT_ID2 = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+    const audience = GOOGLE_CLIENT_ID2;
+    if (!audience) {
+      console.error("GOOGLE_CLIENT_ID is not configured on the server");
+      return res.status(500).json({ error: "Server misconfiguration: Google Client ID not found" });
+    }
+    console.log("Verifying token with audience:", audience);
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience
+    });
+    const payload = ticket.getPayload();
+    console.log("Payload received for email:", payload?.email);
+    if (!payload || !payload.email) {
+      console.log("Invalid Google payload or missing email");
+      throw new Error("Invalid Google payload");
+    }
+    const email = payload.email;
+    let userPayload = null;
+    const isSuperAdminEmail = process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL || email === "admin@saas.com" || email === "test@example.com" || email && email.toLowerCase() === "kiap93.kmj@gmail.com";
+    if (isSuperAdminEmail) {
+      console.log("Admin email match:", email);
+      userPayload = { id: "admin", email, role: "admin" };
+    } else {
+      console.log("Checking profiles for email:", email);
+      const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+      if (error) {
+        console.error("Supabase profile error:", error);
+        throw error;
+      }
+      if (profile) {
+        console.log("Profile found:", profile.id);
+        userPayload = {
+          id: profile.id,
+          email: profile.email,
+          role: profile.role,
+          restaurantId: profile.restaurant_id
+        };
+      } else {
+        console.log("No profile found for email:", email);
+      }
+    }
+    if (!userPayload) {
+      console.log("Unauthorized: User not found in authorized profiles");
+      return res.status(403).json({ error: "User not authorized for staff access" });
+    }
+    console.log("Generating JWT for user:", userPayload.id);
+    const token = import_jsonwebtoken2.default.sign(userPayload, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: userPayload });
+  } catch (err) {
+    console.error("Google verify failed internally:", err);
+    res.status(401).json({ error: "Google authentication failed: " + err.message });
+  }
+});
+router.get("/me", authenticateJWT, (req, res) => {
+  const user = req.user;
+  if (user && user.id !== "admin") {
+    const settings = getStaffSettings(user.id, user.role);
+    if (settings.status === "suspended") {
+      return res.status(403).json({ error: "Your staff account has been suspended by the administrator." });
+    }
+    return res.json({
+      ...user,
+      status: settings.status,
+      permissions: settings.permissions
+    });
+  }
+  res.json(user);
+});
+var auth_routes_default = router;
+
+// src/server/routes/translation.routes.ts
+var import_express2 = require("express");
+var import_genai2 = require("@google/genai");
+var router2 = (0, import_express2.Router)();
+router2.post("/translate", authenticateJWT, async (req, res) => {
+  const { text, targetLang, restaurantContext } = req.body;
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
+  }
+  try {
+    const ai = new import_genai2.GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `
+      You are a professional culinary translator specializing in multi-tenant restaurant systems.
+      Translate the following food term or description from English to ${targetLang}.
+      
+      Term: "${text}"
+      Restaurant Type: ${restaurantContext || "General"}
+      
+      Context Guidelines:
+      - For Bubble Tea: Use established tea culture terms.
+      - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
+      - Aim for appetite appeal and accuracy.
+      
+      Return ONLY the translated text, no explanation or quotes.
+      `
+    });
+    const translatedText = response.text.trim();
+    res.json({ translatedText });
+  } catch (error) {
+    console.error("AI Translation failed:", error);
+    res.status(500).json({ error: `Translation failed: ${error?.message || error}` });
+  }
+});
+router2.get("/translation-jobs", authenticateJWT, async (req, res) => {
+  const { filter } = req.query;
+  let query = supabaseAdmin.from("translation_jobs").select("*").order("created_at", { ascending: false });
+  if (filter && filter !== "all") {
+    query = query.eq("review_status", filter);
+  } else {
+    query = query.neq("review_status", "approved");
+  }
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router2.patch("/translation-jobs/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("translation_jobs").update(req.body).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router2.patch("/tenant-translations", authenticateJWT, async (req, res) => {
+  const { restaurantId, entityId, fieldName, languageCode, translatedText } = req.body;
+  const { data, error } = await supabaseAdmin.from("tenant_translations").update({ translated_text: translatedText }).eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("field_name", fieldName).eq("language_code", languageCode).select();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+var translation_routes_default = router2;
+
+// src/server/routes/menu.routes.ts
+var import_express3 = require("express");
+
+// src/server/services/auditService.ts
+var import_fs2 = __toESM(require("fs"), 1);
+var import_path2 = __toESM(require("path"), 1);
+var AUDIT_LOGS_FILE = import_path2.default.join(process.cwd(), "audit_logs.json");
 function readAuditLogs() {
   try {
-    if (!import_fs.default.existsSync(AUDIT_LOGS_FILE)) {
-      import_fs.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify([]));
+    if (!import_fs2.default.existsSync(AUDIT_LOGS_FILE)) {
+      import_fs2.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify([]));
     }
-    return JSON.parse(import_fs.default.readFileSync(AUDIT_LOGS_FILE, "utf-8"));
+    return JSON.parse(import_fs2.default.readFileSync(AUDIT_LOGS_FILE, "utf-8"));
   } catch (err) {
     console.error("Failed to read audit_logs.json", err);
     return [];
@@ -1755,7 +682,7 @@ function readAuditLogs() {
 }
 function writeAuditLogs(logs) {
   try {
-    import_fs.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(logs, null, 2));
+    import_fs2.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(logs, null, 2));
   } catch (err) {
     console.error("Failed to write audit_logs.json", err);
   }
@@ -1777,7 +704,234 @@ function logToAudit(userId, userEmail, role, action, restaurantId) {
   }
   writeAuditLogs(logs);
 }
-app.get("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+
+// src/server/routes/menu.routes.ts
+var router3 = (0, import_express3.Router)();
+router3.get("/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router3.post("/categories", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("categories").insert(req.body).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router3.delete("/categories/:id", authenticateJWT, async (req, res) => {
+  const { error } = await supabaseAdmin.from("categories").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+router3.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("menu_items").select(`
+      *,
+      display_behavior,
+      combo_groups (
+        *,
+        combo_group_items (
+          *,
+          child_product:menu_items (
+            id,
+            name,
+            base_price,
+            product_type
+          )
+        )
+      ),
+      modifier_groups (
+        *,
+        modifiers!modifiers_group_id_fkey (*)
+      )
+    `).eq("restaurant_id", req.params.restId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router3.post("/menu-items", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
+  const body = req.body;
+  const originalNames = [];
+  const originalDescs = [];
+  if (body.name && body.name.trim()) {
+    const result = await detectLanguageAndTranslate(body.name.trim());
+    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
+      body.name = result.englishTranslation;
+    }
+  }
+  if (body.description && body.description.trim()) {
+    const result = await detectLanguageAndTranslate(body.description.trim());
+    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
+      body.description = result.englishTranslation;
+    }
+  }
+  const { data, error } = await supabaseAdmin.from("menu_items").insert(body).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  if (data && data.id) {
+    for (const item of originalNames) {
+      await supabaseAdmin.from("tenant_translations").upsert({
+        restaurant_id: data.restaurant_id || caller.restaurantId,
+        entity_type: "menu_item",
+        entity_id: data.id,
+        field_name: "name",
+        language_code: item.lang,
+        translated_text: item.text,
+        override_global: true
+      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+    }
+    for (const item of originalDescs) {
+      await supabaseAdmin.from("tenant_translations").upsert({
+        restaurant_id: data.restaurant_id || caller.restaurantId,
+        entity_type: "menu_item",
+        entity_id: data.id,
+        field_name: "description",
+        language_code: item.lang,
+        translated_text: item.text,
+        override_global: true
+      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+    }
+  }
+  if (caller && caller.email) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
+  }
+  res.json(data);
+});
+router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
+  const body = req.body;
+  const originalNames = [];
+  const originalDescs = [];
+  if (body.name && body.name.trim()) {
+    const result = await detectLanguageAndTranslate(body.name.trim());
+    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
+      body.name = result.englishTranslation;
+    }
+  }
+  if (body.description && body.description.trim()) {
+    const result = await detectLanguageAndTranslate(body.description.trim());
+    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
+      body.description = result.englishTranslation;
+    }
+  }
+  const { data, error } = await supabaseAdmin.from("menu_items").update(body).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  if (data && data.id) {
+    for (const item of originalNames) {
+      await supabaseAdmin.from("tenant_translations").upsert({
+        restaurant_id: data.restaurant_id || caller.restaurantId,
+        entity_type: "menu_item",
+        entity_id: data.id,
+        field_name: "name",
+        language_code: item.lang,
+        translated_text: item.text,
+        override_global: true
+      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+    }
+    for (const item of originalDescs) {
+      await supabaseAdmin.from("tenant_translations").upsert({
+        restaurant_id: data.restaurant_id || caller.restaurantId,
+        entity_type: "menu_item",
+        entity_id: data.id,
+        field_name: "description",
+        language_code: item.lang,
+        translated_text: item.text,
+        override_global: true
+      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+    }
+  }
+  if (caller && caller.email) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
+  }
+  res.json(data);
+});
+router3.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  if (caller && caller.id !== "admin") {
+    const settings = getStaffSettings(caller.id, caller.role);
+    if (!settings.permissions.can_edit_menu) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
+    }
+  }
+  const { data: item } = await supabaseAdmin.from("menu_items").select("name, restaurant_id").eq("id", req.params.id).maybeSingle();
+  const { error } = await supabaseAdmin.from("menu_items").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  if (caller && caller.email && item) {
+    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
+  }
+  res.json({ success: true });
+});
+router3.post("/batch-sync", authenticateJWT, async (req, res) => {
+  const { entity, productId, data } = req.body;
+  try {
+    if (entity === "combo_groups") {
+      await supabaseAdmin.from("combo_groups").delete().eq("combo_product_id", productId);
+      if (data && data.length > 0) {
+        for (const group of data) {
+          const { data: newGroup, error: groupError } = await supabaseAdmin.from("combo_groups").insert({
+            combo_product_id: productId,
+            name: group.name,
+            description: group.description,
+            required: group.required,
+            min_select: group.min_select,
+            max_select: group.max_select,
+            display_behavior: group.display_behavior,
+            importance: group.importance,
+            sort_order: group.sort_order
+          }).select().single();
+          if (groupError) throw groupError;
+          if (group.items && group.items.length > 0) {
+            const items = group.items.map((i) => ({ ...i, group_id: newGroup.id }));
+            await supabaseAdmin.from("combo_group_items").insert(items);
+          }
+        }
+      }
+    } else if (entity === "modifier_groups") {
+      await supabaseAdmin.from("modifier_groups").delete().eq("product_id", productId);
+      if (data && data.length > 0) {
+        for (const group of data) {
+          const { data: newGroup, error: groupError } = await supabaseAdmin.from("modifier_groups").insert({
+            product_id: productId,
+            parent_modifier_id: group.parent_modifier_id,
+            name: group.name,
+            required: group.required,
+            min_select: group.min_select,
+            max_select: group.max_select,
+            display_behavior: group.display_behavior,
+            sort_order: group.sort_order
+          }).select().single();
+          if (groupError) throw groupError;
+          if (group.modifiers && group.modifiers.length > 0) {
+            const modifiers = group.modifiers.map((m) => ({ ...m, group_id: newGroup.id }));
+            await supabaseAdmin.from("modifiers").insert(modifiers);
+          }
+        }
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+var menu_routes_default = router3;
+
+// src/server/routes/staff.routes.ts
+var import_express4 = require("express");
+var router4 = (0, import_express4.Router)();
+router4.get("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -1865,7 +1019,7 @@ app.get("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+router4.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
@@ -2038,7 +1192,7 @@ app.post("/api/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
     res.status(500).json({ error: err.message });
   }
 });
-app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
@@ -2133,7 +1287,7 @@ app.put("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
     res.status(500).json({ error: err.message });
   }
 });
-app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
   const callerSettings = getStaffSettings(caller.id, caller.role);
@@ -2184,7 +1338,7 @@ app.delete("/api/restaurants/:restId/staff/:staffId", authenticateJWT, async (re
     res.status(500).json({ error: err.message });
   }
 });
-app.get("/api/restaurants/:restId/audit-logs", authenticateJWT, async (req, res) => {
+router4.get("/restaurants/:restId/audit-logs", authenticateJWT, async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -2194,16 +1348,559 @@ app.get("/api/restaurants/:restId/audit-logs", authenticateJWT, async (req, res)
   const restLogs = logs.filter((l) => l.restaurant_id === restId);
   res.json(restLogs);
 });
-var INVESTIGATING_ORDERS = /* @__PURE__ */ new Set();
-var requireSuperAdmin = (req, res, next) => {
-  const user = req.user;
-  const isSuperAdminEmail = user && (user.email === process.env.ADMIN_USER_EMAIL || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
-  if (!user || user.role !== "admin" && !isSuperAdminEmail) {
-    return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
+var staff_routes_default = router4;
+
+// src/server/routes/workspace.routes.ts
+var import_express5 = require("express");
+var import_jsonwebtoken3 = __toESM(require("jsonwebtoken"), 1);
+var router5 = (0, import_express5.Router)();
+router5.get("/debug-restaurants", async (req, res) => {
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+    if (!supabaseUrl) {
+      return res.status(500).json({ error: "Missing VITE_SUPABASE_URL" });
+    }
+    const headers = {
+      "apikey": supabaseAnonKey
+    };
+    const response = await fetch(`${supabaseUrl}/rest/v1/`, { headers });
+    const spec = await response.json();
+    if (spec && spec.definitions && spec.definitions.restaurants) {
+      return res.json({
+        message: "Found schema definition",
+        columns: Object.keys(spec.definitions.restaurants.properties || {}),
+        properties: spec.definitions.restaurants.properties
+      });
+    }
+    return res.status(404).json({ error: "Restaurants definition not found" });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-  next();
-};
-app.get("/api/superadmin/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) => {
+});
+router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  if (user.id === "admin") {
+    try {
+      const { data: orgs } = await supabaseAdmin.from("organizations").select("*");
+      const { data: rests } = await supabaseAdmin.from("restaurants").select("*");
+      return res.json({
+        organizations: orgs || [],
+        restaurants: (rests || []).map((r) => ({
+          ...r,
+          role: "admin",
+          status: "active",
+          permissions: {
+            can_refund: true,
+            can_edit_menu: true,
+            can_cancel_order: true,
+            can_view_analytics: true,
+            can_manage_staff: true
+          }
+        }))
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  try {
+    const db = loadFallbackDB();
+    let mappedUsers = [];
+    try {
+      const { data } = await supabaseAdmin.from("restaurant_users").select("*, restaurants:restaurant_id(*)").eq("user_id", user.id);
+      mappedUsers = data || [];
+    } catch (e) {
+      console.warn("Supabase restaurant_users fetch failed:", e);
+    }
+    let profile = null;
+    try {
+      const { data } = await supabaseAdmin.from("profiles").select("*, restaurants:restaurant_id(*)").eq("id", user.id).maybeSingle();
+      profile = data;
+    } catch (e) {
+      console.warn("Supabase profiles fetch failed:", e);
+    }
+    const workspacesMap = /* @__PURE__ */ new Map();
+    const userFallbackRUs = db.restaurant_users.filter((ru) => ru.user_id === user.id);
+    for (const ru of userFallbackRUs) {
+      const relatedRest = db.restaurants.find((r) => r.id === ru.restaurant_id);
+      if (relatedRest) {
+        workspacesMap.set(ru.restaurant_id, {
+          ...relatedRest,
+          role: ru.role,
+          status: ru.status,
+          permissions: ru.custom_permissions || {},
+          last_entry_at: ru.last_entry_at || ru.custom_permissions?.last_entry_at || null
+        });
+      }
+    }
+    const userFallbackProfile = db.profiles.find((p) => p.id === user.id);
+    if (userFallbackProfile && userFallbackProfile.restaurant_id) {
+      const relatedRest = db.restaurants.find((r) => r.id === userFallbackProfile.restaurant_id);
+      if (relatedRest && !workspacesMap.has(userFallbackProfile.restaurant_id)) {
+        workspacesMap.set(userFallbackProfile.restaurant_id, {
+          ...relatedRest,
+          role: userFallbackProfile.role,
+          status: userFallbackProfile.status || "active",
+          permissions: userFallbackProfile.custom_permissions || {},
+          last_entry_at: userFallbackProfile.last_entry_at || userFallbackProfile.custom_permissions?.last_entry_at || null
+        });
+      }
+    }
+    if (mappedUsers) {
+      for (const m of mappedUsers) {
+        if (m.restaurants) {
+          const entryTime = m.last_entry_at || m.custom_permissions?.last_entry_at || null;
+          const existing = workspacesMap.get(m.restaurant_id);
+          workspacesMap.set(m.restaurant_id, {
+            ...m.restaurants,
+            role: m.role,
+            status: m.status,
+            permissions: m.custom_permissions || {},
+            last_entry_at: entryTime || existing?.last_entry_at || null
+          });
+        }
+      }
+    }
+    if (profile && profile.restaurant_id && profile.restaurants) {
+      const existing = workspacesMap.get(profile.restaurant_id);
+      if (!workspacesMap.has(profile.restaurant_id)) {
+        workspacesMap.set(profile.restaurant_id, {
+          ...profile.restaurants,
+          role: profile.role,
+          status: profile.status || "active",
+          permissions: profile.custom_permissions || {},
+          last_entry_at: profile.last_entry_at || profile.custom_permissions?.last_entry_at || existing?.last_entry_at || null
+        });
+      }
+    }
+    const restaurantsList = Array.from(workspacesMap.values());
+    const orgIds = restaurantsList.map((r) => r.organization_id).filter(Boolean);
+    let userDirectOrgIds = [];
+    const fallbackOUs = db.organization_users.filter((ou) => ou.user_id === user.id);
+    userDirectOrgIds = fallbackOUs.map((ou) => ou.organization_id);
+    try {
+      const { data: directMemberships } = await supabaseAdmin.from("organization_users").select("organization_id").eq("user_id", user.id);
+      if (directMemberships) {
+        userDirectOrgIds = Array.from(/* @__PURE__ */ new Set([...userDirectOrgIds, ...directMemberships.map((m) => m.organization_id)]));
+      }
+    } catch (mErr) {
+      console.warn("Could not query organization_users table (may not exist or permission issues):", mErr);
+    }
+    const allOrgIds = Array.from(/* @__PURE__ */ new Set([...orgIds, ...userDirectOrgIds]));
+    let organizationsList = [];
+    organizationsList = db.organizations.filter((o) => allOrgIds.includes(o.id));
+    if (allOrgIds.length > 0) {
+      try {
+        const { data: orgs } = await supabaseAdmin.from("organizations").select("*").in("id", allOrgIds);
+        if (orgs) {
+          for (const o of orgs) {
+            if (!organizationsList.some((ex) => ex.id === o.id)) {
+              organizationsList.push(o);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not query organizations from live DB:", err);
+      }
+    }
+    const enrichedOrgs = await Promise.all(organizationsList.map(async (org) => {
+      const settings = await getOrganizationSettings(supabaseAdmin, org.id);
+      return {
+        ...org,
+        max_outlets: settings.max_outlets,
+        multi_outlet_enabled: settings.multi_outlet_enabled,
+        subscription_plan: settings.subscription_plan
+      };
+    }));
+    return res.json({
+      organizations: enrichedOrgs,
+      restaurants: restaurantsList
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const restaurantId = req.params.restaurantId;
+  const db = loadFallbackDB();
+  if (user.id === "admin") {
+    try {
+      let r = db.restaurants.find((item) => item.id === restaurantId);
+      if (!r) {
+        const { data } = await supabaseAdmin.from("restaurants").select("*").eq("id", restaurantId).maybeSingle();
+        r = data;
+      }
+      if (!r) return res.status(404).json({ error: "Restaurant not found." });
+      const guestPay = {
+        id: "admin",
+        email: user.email,
+        role: "admin",
+        restaurantId: r.id
+      };
+      const token = import_jsonwebtoken3.default.sign(guestPay, JWT_SECRET, { expiresIn: "7d" });
+      return res.json({ token, user: guestPay });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  try {
+    let role = "";
+    let status = "active";
+    let customPerms = {};
+    const fallbackRU = db.restaurant_users.find((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    if (fallbackRU) {
+      role = fallbackRU.role;
+      status = fallbackRU.status;
+      customPerms = fallbackRU.custom_permissions;
+    } else {
+      const fallbackProfile = db.profiles.find((p) => p.id === user.id && p.restaurant_id === restaurantId);
+      if (fallbackProfile) {
+        role = fallbackProfile.role;
+        status = fallbackProfile.status || "active";
+        customPerms = fallbackProfile.custom_permissions;
+      }
+    }
+    if (!role) {
+      try {
+        const { data: mapping } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+        if (mapping) {
+          role = mapping.role;
+          status = mapping.status;
+          customPerms = mapping.custom_permissions;
+        } else {
+          const { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+          if (profile) {
+            role = profile.role;
+            status = profile.status || "active";
+            customPerms = profile.custom_permissions;
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Supabase lookup in switch-workspace failed, ignoring:", dbErr);
+      }
+    }
+    if (!role) {
+      return res.status(403).json({ error: "Forbidden: You do not have access to this workspace." });
+    }
+    if (status === "suspended") {
+      return res.status(403).json({ error: "Your account is suspended in this workspace." });
+    }
+    let organizationId = null;
+    const fallbackRest = db.restaurants.find((r) => r.id === restaurantId);
+    if (fallbackRest) {
+      organizationId = fallbackRest.organization_id || null;
+    }
+    if (!organizationId) {
+      try {
+        const { data: dbRest } = await supabaseAdmin.from("restaurants").select("organization_id").eq("id", restaurantId).maybeSingle();
+        if (dbRest) {
+          organizationId = dbRest.organization_id || null;
+        }
+      } catch (err) {
+        console.warn("Could not load organization_id from supabaseAdmin in switch-workspace:", err);
+      }
+    }
+    const lowerRole = role ? role.toLowerCase() : "";
+    const isOwnerOrAdmin = lowerRole === "owner" || lowerRole === "admin" || lowerRole === "superadmin";
+    const isManager = lowerRole === "manager";
+    const isCashier = lowerRole === "cashier";
+    const isKitchen = lowerRole === "kitchen";
+    const isRunner = lowerRole === "runner";
+    const permissions = {
+      can_refund: isOwnerOrAdmin || isManager,
+      can_edit_menu: isOwnerOrAdmin || isManager,
+      can_cancel_order: isOwnerOrAdmin || isManager || isCashier,
+      can_view_analytics: isOwnerOrAdmin || isManager,
+      can_manage_staff: isOwnerOrAdmin,
+      can_access_pos: isOwnerOrAdmin || isManager || isCashier,
+      can_access_kds: isOwnerOrAdmin || isManager || isKitchen || isCashier,
+      can_view_reports: isOwnerOrAdmin || isManager,
+      ...customPerms || {}
+    };
+    const enriched = {
+      id: user.id,
+      email: user.email,
+      role,
+      restaurantId,
+      organizationId,
+      status,
+      permissions
+    };
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const fallbackRUIndex = db.restaurant_users.findIndex((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    if (fallbackRUIndex > -1) {
+      db.restaurant_users[fallbackRUIndex].last_entry_at = now;
+    } else {
+      db.restaurant_users.push({
+        restaurant_id: restaurantId,
+        user_id: user.id,
+        role: role || "waiter",
+        status: status || "active",
+        last_entry_at: now
+      });
+    }
+    const fallbackProfileIndex = db.profiles.findIndex((p) => p.id === user.id);
+    if (fallbackProfileIndex > -1) {
+      db.profiles[fallbackProfileIndex].last_entry_at = now;
+    }
+    saveFallbackDB(db);
+    try {
+      const { error: directErr } = await supabaseAdmin.from("restaurant_users").update({ last_entry_at: now }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
+      if (directErr) {
+        console.warn("[DB] last_entry_at column update failed in restaurant_users, trying custom_permissions fallback:", directErr);
+        const { data: currentRU } = await supabaseAdmin.from("restaurant_users").select("custom_permissions").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+        const updatedPerms = {
+          ...currentRU?.custom_permissions || {},
+          last_entry_at: now
+        };
+        await supabaseAdmin.from("restaurant_users").update({ custom_permissions: updatedPerms }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
+      }
+    } catch (e) {
+      console.warn("[DB] Failed to save entry timestamp in restaurant_users:", e);
+    }
+    try {
+      const { error: profileErr } = await supabaseAdmin.from("profiles").update({ last_entry_at: now }).eq("id", user.id);
+      if (profileErr) {
+        console.warn("[DB] profiles.last_entry_at column update failed, trying custom_permissions:", profileErr);
+        const { data: currentProf } = await supabaseAdmin.from("profiles").select("custom_permissions").eq("id", user.id).maybeSingle();
+        const updatedPerms = {
+          ...currentProf?.custom_permissions || {},
+          last_entry_at: now
+        };
+        await supabaseAdmin.from("profiles").update({ custom_permissions: updatedPerms }).eq("id", user.id);
+      }
+    } catch (e) {
+      console.warn("[DB] Failed to save profile entry timestamp:", e);
+    }
+    const token = import_jsonwebtoken3.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ token, user: enriched });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const { id } = req.params;
+  const { name, company_register_number } = req.body;
+  try {
+    if (user.id !== "admin") {
+      const { data: member, error: memberErr } = await supabaseAdmin.from("organization_users").select("*").eq("organization_id", id).eq("user_id", user.id).maybeSingle();
+      if (!member || member.role !== "owner" && member.role !== "manager") {
+        return res.status(403).json({ error: "Forbidden: You do not have owner/manager access to this organization." });
+      }
+    }
+    const updatePayload = { name };
+    if (company_register_number !== void 0) {
+      updatePayload.company_register_number = company_register_number;
+    }
+    const { data: updatedOrg, error: updateErr } = await supabaseAdmin.from("organizations").update(updatePayload).eq("id", id).select().maybeSingle();
+    if (updateErr) {
+      if (updateErr.code === "42703" || updateErr.message && updateErr.message.includes("column") && updateErr.message.includes("does not exist")) {
+        console.warn(`company_register_number column doesn't exist yet, updating name only.`);
+        const { data: updatedOrg2, error: updateErr2 } = await supabaseAdmin.from("organizations").update({ name }).eq("id", id).select().maybeSingle();
+        if (updateErr2) throw updateErr2;
+        return res.json({
+          ...updatedOrg2,
+          company_register_number,
+          warn: "Column company_register_number missing. Please execute: ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS company_register_number TEXT;"
+        });
+      }
+      throw updateErr;
+    }
+    return res.json(updatedOrg);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const { orgName, workspaceName, orgId: reqOrgId } = req.body;
+  if (!workspaceName) {
+    return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
+  }
+  try {
+    let orgId = reqOrgId || null;
+    const db = loadFallbackDB();
+    if (!orgId && orgName && orgName.trim()) {
+      let org = null;
+      try {
+        const { data, error: orgErr } = await supabaseAdmin.from("organizations").insert({ name: orgName.trim() }).select().single();
+        if (orgErr) throw orgErr;
+        org = data;
+        orgId = org.id;
+      } catch (err) {
+        console.warn("Using fallback for organization insertion:", err);
+        orgId = `org_${Date.now()}`;
+        org = {
+          id: orgId,
+          name: orgName.trim(),
+          created_at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      if (!db.organizations.some((o) => o.id === orgId)) {
+        db.organizations.push(org);
+      }
+      if (!db.organization_users.some((ou) => ou.organization_id === orgId && ou.user_id === user.id)) {
+        db.organization_users.push({
+          organization_id: orgId,
+          user_id: user.id,
+          role: "owner"
+        });
+      }
+      saveFallbackDB(db);
+      try {
+        await supabaseAdmin.from("organization_users").insert({
+          organization_id: orgId,
+          user_id: user.id,
+          role: "owner"
+        });
+      } catch (e) {
+      }
+    }
+    let insertData = {
+      name: workspaceName.trim(),
+      currency: "MYR",
+      service_charge: 6,
+      sst: 10,
+      owner_id: user.id
+    };
+    if (orgId) {
+      insertData.organization_id = orgId;
+    }
+    let restaurant = null;
+    let restErr = null;
+    try {
+      const attempt1 = await supabaseAdmin.from("restaurants").insert(insertData).select().single();
+      if (attempt1.error) {
+        if (insertData.organization_id) {
+          delete insertData.organization_id;
+          const attempt2 = await supabaseAdmin.from("restaurants").insert(insertData).select().single();
+          if (attempt2.error) {
+            restErr = attempt2.error;
+          } else {
+            restaurant = attempt2.data;
+          }
+        } else {
+          restErr = attempt1.error;
+        }
+      } else {
+        restaurant = attempt1.data;
+      }
+    } catch (e) {
+      restErr = e;
+    }
+    if (restErr || !restaurant) {
+      console.warn("Using fallback for restaurant insertion:", restErr);
+      restaurant = {
+        id: `rest_${Date.now()}`,
+        name: workspaceName.trim(),
+        currency: "MYR",
+        service_charge: 6,
+        sst: 10,
+        owner_id: user.id,
+        organization_id: orgId
+      };
+    }
+    const db2 = loadFallbackDB();
+    if (!db2.restaurants.some((r) => r.id === restaurant.id)) {
+      db2.restaurants.push(restaurant);
+    }
+    saveFallbackDB(db2);
+    try {
+      await supabaseAdmin.from("profiles").upsert({
+        id: user.id,
+        email: user.email,
+        restaurant_id: restaurant.id,
+        role: "owner",
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (e) {
+    }
+    try {
+      await supabaseAdmin.from("restaurant_users").insert({
+        restaurant_id: restaurant.id,
+        user_id: user.id,
+        role: "owner",
+        status: "active",
+        custom_permissions: {
+          can_refund: true,
+          can_edit_menu: true,
+          can_cancel_order: true,
+          can_view_analytics: true,
+          can_manage_staff: true
+        }
+      });
+    } catch (mErr) {
+      console.warn("Could not insert to restaurant_users - table may not be migrated yet:", mErr);
+    }
+    const db3 = loadFallbackDB();
+    if (!db3.profiles.some((p) => p.id === user.id)) {
+      db3.profiles.push({
+        id: user.id,
+        email: user.email,
+        restaurant_id: restaurant.id,
+        role: "owner",
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } else {
+      const existing = db3.profiles.find((p) => p.id === user.id);
+      existing.restaurant_id = restaurant.id;
+      existing.role = "owner";
+    }
+    if (!db3.restaurant_users.some((ru) => ru.restaurant_id === restaurant.id && ru.user_id === user.id)) {
+      db3.restaurant_users.push({
+        restaurant_id: restaurant.id,
+        user_id: user.id,
+        role: "owner",
+        status: "active",
+        custom_permissions: {
+          can_refund: true,
+          can_edit_menu: true,
+          can_cancel_order: true,
+          can_view_analytics: true,
+          can_manage_staff: true
+        }
+      });
+    }
+    saveFallbackDB(db3);
+    const enriched = {
+      id: user.id,
+      email: user.email,
+      role: "owner",
+      restaurantId: restaurant.id,
+      status: "active",
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+    const token = import_jsonwebtoken3.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ token, user: enriched });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router5.get("/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router5.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("restaurants").update(req.body).eq("id", req.params.id).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+var workspace_routes_default = router5;
+
+// src/server/routes/superadmin.routes.ts
+var import_express6 = require("express");
+var router6 = (0, import_express6.Router)();
+var INVESTIGATING_ORDERS = /* @__PURE__ */ new Set();
+router6.get("/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: restaurants, error: restError } = await supabaseAdmin.from("restaurants").select("id");
     if (restError) {
@@ -2237,7 +1934,6 @@ app.get("/api/superadmin/dashboard", authenticateJWT, requireSuperAdmin, async (
       activeTenants,
       activeOrdersCount,
       totalRevenue: revenueToday > 0 ? revenueToday : 485.6,
-      // Simulate RM 485.60 revenue if empty DB
       systemHealth: "Healthy",
       paymentSuccessRate: 94.6,
       webhookFailureRate: 0.8,
@@ -2251,7 +1947,7 @@ app.get("/api/superadmin/dashboard", authenticateJWT, requireSuperAdmin, async (
     res.status(500).json({ error: err.message });
   }
 });
-app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.get("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: restaurants, error } = await supabaseAdmin.from("restaurants").select("*");
     if (error) throw error;
@@ -2373,7 +2069,7 @@ app.get("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (re
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.post("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { name, currency, serviceCharge, sst, subscriptionPlan } = req.body;
   if (!name) return res.status(400).json({ error: "Restaurant name is required" });
   try {
@@ -2406,7 +2102,7 @@ app.post("/api/superadmin/tenants", authenticateJWT, requireSuperAdmin, async (r
     res.status(500).json({ error: err.message });
   }
 });
-app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.put("/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   const { name, currency, serviceCharge, sst, subscriptionPlan, status, features, max_outlets, multi_outlet_enabled, franchise_mode } = req.body;
   try {
@@ -2483,7 +2179,7 @@ app.put("/api/superadmin/tenants/:id", authenticateJWT, requireSuperAdmin, async
     res.status(500).json({ error: err.message });
   }
 });
-app.get("/api/superadmin/orders", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.get("/orders", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: orders, error } = await supabaseAdmin.from("orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
@@ -2499,7 +2195,6 @@ app.get("/api/superadmin/orders", authenticateJWT, requireSuperAdmin, async (req
           paymentStatus: "PENDING",
           totalAmount: 48.5,
           createdAt: new Date(Date.now() - 25 * 60 * 1e3).toISOString(),
-          // 25 min ago
           isStuck: true,
           isInvestigating: INVESTIGATING_ORDERS.has("ord-sim-stuck-1")
         },
@@ -2513,7 +2208,6 @@ app.get("/api/superadmin/orders", authenticateJWT, requireSuperAdmin, async (req
           paymentStatus: "PAID",
           totalAmount: 32,
           createdAt: new Date(Date.now() - 8 * 60 * 1e3).toISOString(),
-          // 8 min ago
           isStuck: false,
           isInvestigating: INVESTIGATING_ORDERS.has("ord-sim-paid-2")
         },
@@ -2527,7 +2221,6 @@ app.get("/api/superadmin/orders", authenticateJWT, requireSuperAdmin, async (req
           paymentStatus: "PAID",
           totalAmount: 112.9,
           createdAt: new Date(Date.now() - 35 * 60 * 1e3).toISOString(),
-          // 35 min ago
           isStuck: true,
           isInvestigating: INVESTIGATING_ORDERS.has("ord-sim-kettle-3")
         }
@@ -2560,7 +2253,7 @@ app.get("/api/superadmin/orders", authenticateJWT, requireSuperAdmin, async (req
     res.status(500).json({ error: err.message });
   }
 });
-app.get("/api/superadmin/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     if (id.startsWith("ord-sim-")) {
@@ -2705,7 +2398,7 @@ app.get("/api/superadmin/orders/:id/debug", authenticateJWT, requireSuperAdmin, 
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/superadmin/orders/:id/retry-webhook", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router6.post("/orders/:id/retry-webhook", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     if (id.startsWith("ord-sim-")) {
@@ -2725,7 +2418,7 @@ app.post("/api/superadmin/orders/:id/retry-webhook", authenticateJWT, requireSup
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/superadmin/orders/:id/investigate", authenticateJWT, requireSuperAdmin, (req, res) => {
+router6.post("/orders/:id/investigate", authenticateJWT, requireSuperAdmin, (req, res) => {
   const { id } = req.params;
   if (INVESTIGATING_ORDERS.has(id)) {
     INVESTIGATING_ORDERS.delete(id);
@@ -2734,7 +2427,7 @@ app.post("/api/superadmin/orders/:id/investigate", authenticateJWT, requireSuper
   }
   res.json({ success: true, isInvestigating: INVESTIGATING_ORDERS.has(id) });
 });
-app.get("/api/superadmin/system/metrics", authenticateJWT, requireSuperAdmin, (req, res) => {
+router6.get("/system/metrics", authenticateJWT, requireSuperAdmin, (req, res) => {
   const serverLatency = `${18 + Math.floor(Math.random() * 8)}ms`;
   const socketCounts = 40 + Math.floor(Math.random() * 10);
   const systemLogs = [
@@ -2754,6 +2447,628 @@ app.get("/api/superadmin/system/metrics", authenticateJWT, requireSuperAdmin, (r
     }
   });
 });
+var superadmin_routes_default = router6;
+
+// src/server/routes/tables.routes.ts
+var import_express7 = require("express");
+var router7 = (0, import_express7.Router)();
+router7.get("/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router7.post("/tables", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router7.patch("/tables/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router7.delete("/tables/:id", authenticateJWT, async (req, res) => {
+  const { error } = await supabaseAdmin.from("tables").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+var tables_routes_default = router7;
+
+// src/server/routes/orders.routes.ts
+var import_express8 = require("express");
+var router8 = (0, import_express8.Router)();
+router8.get("/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
+  const { restId } = req.params;
+  const limit = parseInt(req.query.limit) || 100;
+  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
+  const { data, error } = await supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", restId).order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
+    return res.status(500).json({ error: error.message });
+  }
+  return res.json(data || []);
+});
+router8.patch("/orders/:id", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  const orderId = req.params.id;
+  try {
+    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("restaurant_id, status").eq("id", orderId).maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    const restId = order.restaurant_id || caller?.restaurantId || "default";
+    if (caller && caller.id !== "admin") {
+      const settings = getStaffSettings(caller.id, caller.role);
+      if (req.body.status === "cancelled" && !settings.permissions.can_cancel_order) {
+        return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
+      }
+      if (req.body.status === "confirmed" && caller.role === "runner") {
+        return res.status(403).json({ error: "Forbidden: Runners cannot confirm orders." });
+      }
+    }
+    const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", orderId).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    if (caller && caller.email) {
+      let action = `Updated Order ${orderId}`;
+      if (req.body.status && req.body.status !== order.status) {
+        action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
+      }
+      logToAudit(caller.id || "admin", caller.email, caller.role, action, restId);
+    }
+    res.json(data);
+  } catch (err) {
+    console.error("Error updating order:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+var orders_routes_default = router8;
+
+// src/server/routes/sessions.routes.ts
+var import_express9 = require("express");
+var router9 = (0, import_express9.Router)();
+router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, async (req, res) => {
+  const status = req.query.status;
+  let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
+  if (status === "active") {
+    query = query.neq("status", "paid").neq("status", "expired");
+  }
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router9.get("/dining-sessions/:id/orders", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router9.post("/dining-sessions/:id/settle", authenticateJWT, async (req, res) => {
+  const { orderIds, paidAmount } = req.body;
+  try {
+    const { error: orderError } = await supabaseAdmin.from("orders").update({
+      paid_at: (/* @__PURE__ */ new Date()).toISOString(),
+      payment_method: "counter"
+    }).in("id", orderIds);
+    if (orderError) throw orderError;
+    const { error: sessionError } = await supabaseAdmin.from("dining_sessions").update({
+      status: "paid",
+      paid_amount: paidAmount
+    }).eq("id", req.params.id);
+    if (sessionError) throw sessionError;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router9.patch("/dining-sessions/:id", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+var sessions_routes_default = router9;
+
+// src/server/routes/payments.routes.ts
+var import_express10 = require("express");
+var router10 = (0, import_express10.Router)();
+router10.get("/orders/:orderId/payments", authenticateJWT, async (req, res) => {
+  const { sessionId } = req.query;
+  let query;
+  if (sessionId) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+    if (!isUuid) return res.json([]);
+    const { data: orders } = await supabaseAdmin.from("orders").select("id").eq("session_id", sessionId);
+    const orderIds = (orders || []).map((o) => o.id);
+    if (orderIds.length === 0) return res.json([]);
+    query = supabaseAdmin.from("payments").select("*").in("order_id", orderIds);
+  } else {
+    query = supabaseAdmin.from("payments").select("*").eq("order_id", req.params.orderId);
+  }
+  const { data, error } = await query.order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+router10.post("/orders/:orderId/payments", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("payments").insert({
+    ...req.body,
+    order_id: req.params.orderId
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router10.post("/cash-transactions", authenticateJWT, async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+var payments_routes_default = router10;
+
+// src/server/routes/public.routes.ts
+var import_express11 = require("express");
+var router11 = (0, import_express11.Router)();
+router11.get("/restaurants/:id", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Restaurant not found" });
+  return res.json(data || {});
+});
+router11.get("/restaurants/:restId/categories", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/restaurants/:restId/menu-items", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("menu_items").select(`
+      *,
+      combo_groups (*, items:combo_group_items (*, child_product:menu_items (*, combo_groups (*, items:combo_group_items (*)), modifier_groups (*, modifiers!modifiers_group_id_fkey (*))))),
+      modifier_groups (*, modifiers!modifiers_group_id_fkey (*))
+    `).eq("restaurant_id", req.params.restId).eq("is_active", true);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/tables/:tableId", async (req, res) => {
+  const { restId } = req.query;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.tableId);
+  let query = supabaseAdmin.from("tables").select("*");
+  if (isUuid) {
+    query = query.eq("id", req.params.tableId);
+  } else {
+    query = query.eq("restaurant_id", restId).eq("name", req.params.tableId);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data || {});
+});
+router11.post("/resolve-session", async (req, res) => {
+  const parsed = ResolveSessionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { restaurantId, tableId, deviceInfo, clientToken, fulfillment } = parsed.data;
+  const { data, error } = await supabaseAdmin.rpc("resolve_dining_session_v2", {
+    p_restaurant_id: restaurantId,
+    p_table_id: tableId,
+    p_device_info: deviceInfo,
+    p_client_token: clientToken,
+    p_fulfillment: fulfillment
+  });
+  if (error && (error.code === "PGRST202" || error.message.includes("p_fulfillment"))) {
+    const retry = await supabaseAdmin.rpc("resolve_dining_session_v2", {
+      p_restaurant_id: restaurantId,
+      p_table_id: tableId,
+      p_device_info: deviceInfo,
+      p_client_token: clientToken
+    });
+    if (retry.error) return res.status(500).json({ error: retry.error.message });
+    return res.json(retry.data);
+  }
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/orders/check", async (req, res) => {
+  const { sessionId } = req.query;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+  const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
+  const { data, error, count } = await supabaseAdmin.from("orders").select("id", { count: "exact" }).eq("session_id", cleanSessionId).order("created_at", { ascending: false }).limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ orders: data, count });
+});
+router11.get("/baskets", async (req, res) => {
+  const { sessionId } = req.query;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+  const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
+  const { data, error } = await supabaseAdmin.from("baskets").select("id, basket_version").eq("session_id", cleanSessionId).eq("status", "active").maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/baskets/:basketId/items", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", req.params.basketId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.post("/sync-basket-item", async (req, res) => {
+  try {
+    const parsed = SyncBasketItemSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+    const { p_session_id, p_session_token, p_product_id, p_delta, p_configuration, p_device_info } = parsed.data;
+    const { data: sessionData, error: sessionErr } = await supabaseAdmin.from("dining_sessions").select("id, restaurant_id").eq("id", p_session_id).eq("session_token", p_session_token).in("status", ["active", "awaiting_payment", "paid"]).maybeSingle();
+    if (sessionErr || !sessionData) {
+      return res.status(400).json({ error: "Invalid dining session token or inactive session" });
+    }
+    const restaurantId = sessionData.restaurant_id;
+    const { data: basket, error: basketErr } = await supabaseAdmin.from("baskets").select("id, basket_version").eq("session_id", p_session_id).eq("status", "active").maybeSingle();
+    if (basketErr) return res.status(500).json({ error: basketErr.message });
+    let basketId = basket?.id;
+    let basketVersion = basket?.basket_version || 1;
+    if (!basketId) {
+      const { data: newBasket, error: newBasketErr } = await supabaseAdmin.from("baskets").insert({
+        restaurant_id: restaurantId,
+        session_id: p_session_id,
+        status: "active",
+        basket_version: 1
+      }).select("id").single();
+      if (newBasketErr) return res.status(500).json({ error: newBasketErr.message });
+      basketId = newBasket.id;
+      basketVersion = 1;
+    }
+    const { data: items, error: itemsErr } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", basketId);
+    if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+    const existingItem = items?.find((item) => {
+      const matchId = item.product_id === p_product_id || item.menu_item_id === p_product_id;
+      const matchConfig = JSON.stringify(item.configuration || {}) === JSON.stringify(p_configuration || {});
+      return matchId && matchConfig;
+    });
+    const currentQty = existingItem ? existingItem.quantity : 0;
+    const newQty = Math.max(0, currentQty + (p_delta || 0));
+    if (newQty === 0) {
+      if (existingItem) {
+        const { error: delErr } = await supabaseAdmin.from("basket_items").delete().eq("id", existingItem.id);
+        if (delErr) return res.status(500).json({ error: delErr.message });
+      }
+    } else {
+      if (existingItem) {
+        const { error: updErr } = await supabaseAdmin.from("basket_items").update({ quantity: newQty, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existingItem.id);
+        if (updErr) return res.status(500).json({ error: updErr.message });
+      } else {
+        const insertPayload = {
+          basket_id: basketId,
+          quantity: newQty,
+          configuration: p_configuration || {},
+          created_by_device: p_device_info || null
+        };
+        let useMenuItemId = false;
+        if (items && items.length > 0 && "menu_item_id" in items[0]) {
+          useMenuItemId = true;
+        }
+        if (useMenuItemId) {
+          insertPayload.menu_item_id = p_product_id;
+        } else {
+          insertPayload.product_id = p_product_id;
+        }
+        const { error: insErr } = await supabaseAdmin.from("basket_items").insert(insertPayload);
+        if (insErr) {
+          if (useMenuItemId) {
+            delete insertPayload.menu_item_id;
+            insertPayload.product_id = p_product_id;
+          } else {
+            delete insertPayload.product_id;
+            insertPayload.menu_item_id = p_product_id;
+          }
+          const { error: insErr2 } = await supabaseAdmin.from("basket_items").insert(insertPayload);
+          if (insErr2) return res.status(500).json({ error: insErr2.message });
+        }
+      }
+    }
+    await supabaseAdmin.from("baskets").update({ basket_version: basketVersion + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId);
+    res.json({ basket_id: basketId, new_quantity: newQty });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router11.post("/place-order", async (req, res) => {
+  const parsed = PlaceOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  const { data, error } = await supabaseAdmin.rpc("place_order_v3", parsed.data);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/orders/:id", async (req, res) => {
+  const { sessionId } = req.query;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
+  let query = supabaseAdmin.from("orders").select("*").eq("id", req.params.id);
+  if (isUuid) {
+    query = query.eq("session_id", sessionId);
+  }
+  const { data, error } = await query.single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.get("/dining-sessions/:sessionId/orders", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("orders").select("*").eq("session_id", req.params.sessionId).neq("status", "cancelled");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.post("/orders/:id/mark-paid", async (req, res) => {
+  const { sessionToken } = req.body;
+  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
+  if (!session) return res.status(401).json({ error: "Invalid session token" });
+  const { data: existingOrder } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).eq("session_id", session.id).single();
+  if (existingOrder && existingOrder.paid_at) {
+    return res.json(existingOrder);
+  }
+  const { data, error } = await supabaseAdmin.from("orders").update({
+    paid_at: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "confirmed",
+    payment_method: "online"
+  }).eq("id", req.params.id).eq("session_id", session.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
+  const { sessionToken } = req.body;
+  const { data: session } = await supabaseAdmin.from("dining_sessions").select("id, status").eq("id", req.params.id).eq("token", sessionToken).single();
+  if (!session) return res.status(401).json({ error: "Invalid session token" });
+  if (session.status === "paid") {
+    const { data: fullSession } = await supabaseAdmin.from("dining_sessions").select("*").eq("id", session.id).single();
+    return res.json(fullSession || session);
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  await supabaseAdmin.from("orders").update({
+    paid_at: now,
+    status: "confirmed",
+    payment_method: "online"
+  }).eq("session_id", session.id).is("paid_at", null).neq("status", "cancelled");
+  const { data, error } = await supabaseAdmin.from("dining_sessions").update({
+    status: "paid",
+    closed_at: now
+  }).eq("id", session.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.post("/payments", async (req, res) => {
+  try {
+    const parsed = PaymentsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0].message });
+    }
+    const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
+    const idempotencyKeyResolved = idempotency_key || idempotencyKey;
+    if (idempotencyKeyResolved) {
+      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
+      if (existing) {
+        return res.json(existing);
+      }
+    }
+    const newMetadata = {
+      ...metadata || {},
+      idempotency_key: idempotencyKeyResolved
+    };
+    const insertPayload = {
+      restaurant_id: restaurantId,
+      order_id: orderId,
+      amount,
+      payment_method: method,
+      provider,
+      status: "pending",
+      metadata: newMetadata,
+      idempotency_key: idempotencyKeyResolved
+    };
+    const { data, error } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
+    if (error) {
+      if (error.message?.includes("idempotency_key") || error.code === "PGRST204") {
+        const fallbackPayload = {
+          restaurant_id: restaurantId,
+          order_id: orderId,
+          amount,
+          payment_method: method,
+          provider,
+          status: "pending",
+          metadata: newMetadata
+        };
+        const { data: fallbackData, error: fallbackError } = await supabaseAdmin.from("payments").insert(fallbackPayload).select().single();
+        if (fallbackError) return res.status(500).json({ error: fallbackError.message });
+        return res.json(fallbackData);
+      }
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router11.post("/payments/:id/initialize", async (req, res) => {
+  const { id } = req.params;
+  const { data: payment, error: pError } = await supabaseAdmin.from("payments").select("*").eq("id", id).single();
+  if (pError) return res.status(500).json({ error: pError.message });
+  await supabaseAdmin.from("payment_attempts").insert({
+    payment_id: id,
+    status: "initiated"
+  });
+  switch (payment.payment_method) {
+    case "duitnow":
+    case "tng":
+      return res.json({
+        paymentId: payment.id,
+        provider: payment.provider,
+        paymentMethod: payment.payment_method,
+        qrData: `00020101021126600010com.paynet.qr0111MY123456780211MY123456780303001520400005303458540${payment.amount.toFixed(2)}5802MY5907POS_SAAS6008Lumpur6105500006304`
+      });
+    case "fpx":
+    case "card":
+      return res.json({
+        paymentId: payment.id,
+        provider: payment.provider,
+        paymentMethod: payment.payment_method,
+        redirectUrl: "/simulated-gateway"
+      });
+    default:
+      res.status(400).json({ error: "Unsupported method" });
+  }
+});
+router11.get("/payments/:id/status", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("payments").select("status").eq("id", req.params.id).single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+router11.post("/payments/:id/simulate-success", async (req, res) => {
+  const { id } = req.params;
+  const { data: payment, error: fetchError } = await supabaseAdmin.from("payments").select("order_id").eq("id", id).single();
+  if (fetchError) return res.status(500).json({ error: fetchError.message });
+  const paidAt = (/* @__PURE__ */ new Date()).toISOString();
+  await supabaseAdmin.from("payments").update({
+    status: "paid",
+    paid_at: paidAt,
+    external_id: `SIM_${Math.random().toString(36).substring(7).toUpperCase()}`
+  }).eq("id", id);
+  await supabaseAdmin.from("orders").update({
+    paid_at: paidAt,
+    status: "confirmed"
+  }).eq("id", payment.order_id);
+  await supabaseAdmin.from("payment_attempts").insert({
+    payment_id: id,
+    status: "success",
+    provider_response: { mode: "simulation", timestamp: paidAt }
+  });
+  res.json({ success: true });
+});
+router11.post("/batch-translate", async (req, res) => {
+  const { items, categories, context } = req.body;
+  const { restaurantId, franchiseId, targetLanguage } = context;
+  if (targetLanguage === "en") {
+    return res.json({ items, categories });
+  }
+  try {
+    const resolveSingle = async (entityId, entityType, fieldName, defaultText) => {
+      const { data: branchData } = await supabaseAdmin.from("branch_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
+      if (branchData?.translated_text) return branchData.translated_text;
+      if (franchiseId) {
+        const { data: franchiseData } = await supabaseAdmin.from("franchise_translations").select("translated_text").eq("franchise_id", franchiseId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
+        if (franchiseData?.translated_text) return franchiseData.translated_text;
+      }
+      const { data: tenantData } = await supabaseAdmin.from("tenant_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("entity_type", entityType).eq("field_name", fieldName).eq("language_code", targetLanguage).maybeSingle();
+      if (tenantData?.translated_text) return tenantData.translated_text;
+      const { data: globalData } = await supabaseAdmin.from("global_translations").select("translated_text").eq("term_key", fieldName === "name" || fieldName === "description" ? defaultText ? defaultText.trim() : "" : `${entityType}_${fieldName}`).eq("language_code", targetLanguage).maybeSingle();
+      if (globalData?.translated_text) return globalData.translated_text;
+      return defaultText;
+    };
+    const translatedItems = items ? await Promise.all(items.map(async (item) => {
+      const name = await resolveSingle(item.id, "menu_item", "name", item.name);
+      const description = item.description ? await resolveSingle(item.id, "menu_item", "description", item.description) : item.description;
+      return { ...item, name, description };
+    })) : null;
+    const translatedCats = categories ? await Promise.all(categories.map(async (cat) => {
+      const name = await resolveSingle(cat.id, "category", "name", cat.name);
+      return { ...cat, name };
+    })) : null;
+    res.json({ items: translatedItems, categories: translatedCats });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router11.get("/kitchen-canonical/:id", async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("kitchen_canonical_names").select("canonical_name").eq("menu_item_id", req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+var public_routes_default = router11;
+
+// src/server/routes/index.ts
+var router12 = (0, import_express12.Router)();
+router12.use("/api", auth_routes_default);
+router12.use("/api", translation_routes_default);
+router12.use("/api", menu_routes_default);
+router12.use("/api", staff_routes_default);
+router12.use("/api", workspace_routes_default);
+router12.use("/api/superadmin", superadmin_routes_default);
+router12.use("/api", tables_routes_default);
+router12.use("/api", orders_routes_default);
+router12.use("/api", sessions_routes_default);
+router12.use("/api", payments_routes_default);
+router12.use("/api/public", public_routes_default);
+var routes_default = router12;
+
+// server.ts
+import_dotenv2.default.config();
+var app = (0, import_express13.default)();
+var PORT = 3e3;
+app.use((0, import_cors.default)());
+app.use(import_express13.default.json());
+app.use((0, import_cookie_parser.default)());
+app.use((req, res, next) => {
+  console.log(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+app.use((req, res, next) => {
+  const host = req.headers.host || "";
+  if (host.includes("double-tax")) {
+    req.doubleTaxSimulation = true;
+  }
+  next();
+});
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+});
+app.use(routes_default);
+async function runBackgroundTranslationJob() {
+  try {
+    const { data: items, error: fetchErr } = await supabaseAdmin.from("menu_items").select("name, description");
+    if (fetchErr || !items) {
+      return;
+    }
+    const terms = /* @__PURE__ */ new Set();
+    items.forEach((it) => {
+      if (it.name && it.name.trim()) terms.add(it.name.trim());
+      if (it.description && it.description.trim()) terms.add(it.description.trim());
+    });
+    const termList = Array.from(terms);
+    const targetLangs = ["zh", "ms", "th", "ja", "ko"];
+    let translationCount = 0;
+    const maxTranslationsPerRun = 5;
+    for (const term of termList) {
+      if (translationCount >= maxTranslationsPerRun) break;
+      for (const lang of targetLangs) {
+        if (translationCount >= maxTranslationsPerRun) break;
+        const { data: existing, error: existingErr } = await supabaseAdmin.from("global_translations").select("id").eq("term_key", term).eq("language_code", lang).maybeSingle();
+        if (existingErr) continue;
+        if (!existing) {
+          console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
+          const translated = await translateTextWithGemini(term, lang);
+          if (translated) {
+            const { error: insertErr } = await supabaseAdmin.from("global_translations").upsert({
+              term_key: term,
+              language_code: lang,
+              translated_text: translated,
+              confidence_score: 1,
+              approved: true
+            }, { onConflict: "term_key,language_code" });
+            if (insertErr) {
+              console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
+            } else {
+              console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
+              translationCount++;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[Background Translation Job] Error in translation loop:", err);
+  }
+}
+var translationJobStarted = false;
+function startBackgroundTranslationJob() {
+  if (translationJobStarted) return;
+  translationJobStarted = true;
+  console.log("[Background Translation Job] Initializing background translation runner...");
+  setTimeout(() => {
+    runBackgroundTranslationJob();
+  }, 1e4);
+  setInterval(() => {
+    runBackgroundTranslationJob();
+  }, 45e3);
+}
 async function start() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await (0, import_vite.createServer)({
@@ -2762,8 +3077,8 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = import_path.default.join(process.cwd(), "dist");
-    app.use(import_express.default.static(distPath));
+    const distPath = import_path3.default.join(process.cwd(), "dist");
+    app.use(import_express13.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
     console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);
@@ -2774,9 +3089,9 @@ async function start() {
     });
   });
   if (process.env.NODE_ENV === "production") {
-    const distPath = import_path.default.join(process.cwd(), "dist");
+    const distPath = import_path3.default.join(process.cwd(), "dist");
     app.get("*", (req, res) => {
-      res.sendFile(import_path.default.join(distPath, "index.html"));
+      res.sendFile(import_path3.default.join(distPath, "index.html"));
     });
   }
   app.listen(PORT, "0.0.0.0", () => {
@@ -2784,98 +3099,6 @@ async function start() {
     console.log(`[SERVER] Env: ${process.env.NODE_ENV || "development"}`);
     startBackgroundTranslationJob();
   });
-  async function translateTextWithGemini(text, targetLang) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return null;
-    }
-    try {
-      const ai = new import_genai.GoogleGenAI({
-        apiKey,
-        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
-      });
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: `
-        You are a professional culinary translator specializing in multi-tenant restaurant systems.
-        Translate the following food term or description from English to ${targetLang}.
-        
-        Term: "${text}"
-        Restaurant Type: General
-        
-        Context Guidelines:
-        - For Bubble Tea: Use established tea culture terms.
-        - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
-        - Aim for appetite appeal and accuracy.
-        
-        Return ONLY the translated text, no explanation or quotes.
-        `
-      });
-      return response.text.trim();
-    } catch (error) {
-      console.error(`[Background Translation Job] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
-      return null;
-    }
-  }
-  async function runBackgroundTranslationJob() {
-    try {
-      const { data: items, error: fetchErr } = await supabaseAdmin.from("menu_items").select("name, description");
-      if (fetchErr || !items) {
-        return;
-      }
-      const terms = /* @__PURE__ */ new Set();
-      items.forEach((it) => {
-        if (it.name && it.name.trim()) terms.add(it.name.trim());
-        if (it.description && it.description.trim()) terms.add(it.description.trim());
-      });
-      const termList = Array.from(terms);
-      const targetLangs = ["zh", "ms", "th", "ja", "ko"];
-      let translationCount = 0;
-      const maxTranslationsPerRun = 5;
-      for (const term of termList) {
-        if (translationCount >= maxTranslationsPerRun) break;
-        for (const lang of targetLangs) {
-          if (translationCount >= maxTranslationsPerRun) break;
-          const { data: existing, error: existingErr } = await supabaseAdmin.from("global_translations").select("id").eq("term_key", term).eq("language_code", lang).maybeSingle();
-          if (existingErr) continue;
-          if (!existing) {
-            console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
-            const translated = await translateTextWithGemini(term, lang);
-            if (translated) {
-              const { error: insertErr } = await supabaseAdmin.from("global_translations").upsert({
-                term_key: term,
-                language_code: lang,
-                translated_text: translated,
-                confidence_score: 1,
-                approved: true
-              }, { onConflict: "term_key,language_code" });
-              if (insertErr) {
-                console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
-              } else {
-                console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
-                translationCount++;
-              }
-            }
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[Background Translation Job] Error in translation loop:", err);
-    }
-  }
-  let translationJobStarted = false;
-  function startBackgroundTranslationJob() {
-    if (translationJobStarted) return;
-    translationJobStarted = true;
-    console.log("[Background Translation Job] Initializing background translation runner...");
-    setTimeout(() => {
-      runBackgroundTranslationJob();
-    }, 1e4);
-    setInterval(() => {
-      runBackgroundTranslationJob();
-    }, 45e3);
-  }
   app.use((req, res) => {
     console.warn(`[FINAL 404] ${req.method} ${req.url}`);
     if (req.accepts("html")) {
@@ -2885,10 +3108,10 @@ async function start() {
     }
   });
 }
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error("Global Error Handler:", err);
   if (res.headersSent) {
-    return next(err);
+    return _next(err);
   }
   res.status(500).json({ error: err.message || "Internal Server Error" });
 });
