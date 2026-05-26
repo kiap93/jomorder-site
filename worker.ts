@@ -2258,6 +2258,29 @@ app.post("/api/public/batch-translate", async (c) => {
 
   try {
     const resolveSingle = async (entityId: string, entityType: string, fieldName: string, defaultText: string) => {
+      // 1. Branch Override
+      const { data: branchData } = await supabase
+        .from('branch_translations')
+        .select('translated_text')
+        .eq('restaurant_id', restaurantId)
+        .eq('entity_id', entityId)
+        .eq('language_code', targetLanguage)
+        .maybeSingle();
+      if (branchData?.translated_text) return branchData.translated_text;
+
+      // 2. Franchise
+      if (franchiseId) {
+        const { data: franchiseData } = await supabase
+          .from('franchise_translations')
+          .select('translated_text')
+          .eq('franchise_id', franchiseId)
+          .eq('entity_id', entityId)
+          .eq('language_code', targetLanguage)
+          .maybeSingle();
+        if (franchiseData?.translated_text) return franchiseData.translated_text;
+      }
+
+      // 3. Tenant
       const { data: tenantData } = await supabase
         .from('tenant_translations')
         .select('translated_text')
@@ -2267,16 +2290,32 @@ app.post("/api/public/batch-translate", async (c) => {
         .eq('field_name', fieldName)
         .eq('language_code', targetLanguage)
         .maybeSingle();
+      if (tenantData?.translated_text) return tenantData.translated_text;
 
-      return tenantData?.translated_text || defaultText;
+      // 4. Global
+      const { data: globalData } = await supabase
+        .from('global_translations')
+        .select('translated_text')
+        .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? (defaultText ? defaultText.trim() : '') : `${entityType}_${fieldName}`)
+        .eq('language_code', targetLanguage)
+        .maybeSingle();
+      if (globalData?.translated_text) return globalData.translated_text;
+
+      return defaultText;
     };
 
     const translatedItems = items ? await Promise.all(items.map(async (item: any) => {
       const name = await resolveSingle(item.id, 'menu_item', 'name', item.name);
-      return { ...item, name };
+      const description = item.description ? await resolveSingle(item.id, 'menu_item', 'description', item.description) : item.description;
+      return { ...item, name, description };
     })) : null;
 
-    return c.json({ items: translatedItems, categories });
+    const translatedCats = categories ? await Promise.all(categories.map(async (cat: any) => {
+      const name = await resolveSingle(cat.id, 'category', 'name', cat.name);
+      return { ...cat, name };
+    })) : null;
+
+    return c.json({ items: translatedItems, categories: translatedCats });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

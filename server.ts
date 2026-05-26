@@ -2216,7 +2216,7 @@ app.post("/api/public/batch-translate", async (req, res) => {
       const { data: globalData } = await supabaseAdmin
         .from('global_translations')
         .select('translated_text')
-        .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? defaultText : `${entityType}_${fieldName}`)
+        .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? (defaultText ? defaultText.trim() : '') : `${entityType}_${fieldName}`)
         .eq('language_code', targetLanguage)
         .maybeSingle();
       if (globalData?.translated_text) return globalData.translated_text;
