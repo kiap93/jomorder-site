@@ -47,8 +47,7 @@ export function Navbar() {
   );
 
   const isWorkspaceSwitcherVisible = !isLoading && (
-    profile?.role?.toLowerCase() === 'admin' || 
-    (activeOrg ? activeOrg.max_outlets !== 1 : true)
+    activeOrg ? activeOrg.max_outlets !== 1 : true
   );
 
   useEffect(() => {

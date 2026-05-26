@@ -314,13 +314,32 @@ class PrinterService {
         routeMap.set(r.categoryId, r.printerId);
       });
 
+      // Fetch menu items map from DB for precise menuItemId -> category_id resolution
+      const itemCategoryMap = new Map<string, string>();
+      try {
+        const { data: dbItems, error: dbErr } = await supabase
+          .from('menu_items')
+          .select('id, category_id')
+          .eq('restaurant_id', restaurantId);
+        
+        if (dbItems && !dbErr) {
+          dbItems.forEach((it: any) => {
+            if (it.id && it.category_id) {
+              itemCategoryMap.set(it.id, it.category_id);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('[PrinterService] Dynamic menu items map resolution failed, routing will use fallback selectors:', err);
+      }
+
       // 2. Classify items by active printer
       const itemsByPrinter = new Map<string, OrderItem[]>();
       const unroutedItems: OrderItem[] = [];
 
       (order.items || []).forEach(item => {
         const itemAny = item as any;
-        const catId = itemAny.product?.categoryId || itemAny.menuItemId; // use product categorization
+        const catId = itemCategoryMap.get(item.menuItemId) || itemAny.product?.categoryId || itemAny.categoryId || item.menuItemId;
         const mappedPrinterId = routeMap.get(catId);
         
         if (mappedPrinterId && activePrinters.some(p => p.id === mappedPrinterId)) {

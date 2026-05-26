@@ -1989,6 +1989,12 @@ app.patch("/api/menu-items/:id", authenticate, async (c) => {
     await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Updated menu item: ${data?.name || c.req.param('id')}`, data?.restaurant_id || caller.restaurantId);
   }
 
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(runBackgroundTranslationJob(c.env));
+  } else {
+    runBackgroundTranslationJob(c.env).catch(err => console.error('[Worker] Local background sync failed:', err));
+  }
+
   return c.json(data);
 });
 
@@ -2014,6 +2020,12 @@ app.post("/api/menu-items", authenticate, async (c) => {
 
   if (caller && caller.email) {
     await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Added menu item: ${data?.name || 'Dish'}`, data?.restaurant_id || caller.restaurantId);
+  }
+
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(runBackgroundTranslationJob(c.env));
+  } else {
+    runBackgroundTranslationJob(c.env).catch(err => console.error('[Worker] Local background sync failed:', err));
   }
 
   return c.json(data);
@@ -3395,5 +3407,117 @@ app.get("/api/superadmin/system/metrics", authenticate, requireSuperAdmin, async
     }
   });
 });
+
+app.post("/api/public/run-background-translation", async (c) => {
+  const env = c.env;
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(runBackgroundTranslationJob(env));
+    return c.json({ success: true, message: "Background translation job queued." });
+  } else {
+    await runBackgroundTranslationJob(env);
+    return c.json({ success: true, message: "Translation job executed synchronously." });
+  }
+});
+
+async function translateTextWithGemini(text: string, targetLang: string, apiKey?: string): Promise<string | null> {
+  if (!apiKey) {
+    return null;
+  }
+  try {
+    const ai = new GoogleGenAI({ 
+      apiKey,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `
+      You are a professional culinary translator specializing in multi-tenant restaurant systems.
+      Translate the following food term or description from English to ${targetLang}.
+      
+      Term: "${text}"
+      Restaurant Type: General
+      
+      Context Guidelines:
+      - For Bubble Tea: Use established tea culture terms.
+      - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
+      - Aim for appetite appeal and accuracy.
+      
+      Return ONLY the translated text, no explanation or quotes.
+      `
+    });
+    return response.text.trim();
+  } catch (error) {
+    console.error(`[Background Translation Job] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
+    return null;
+  }
+}
+
+async function runBackgroundTranslationJob(env: Bindings) {
+  try {
+    const supabaseAdmin = getSupabase(env);
+    const { data: items, error: fetchErr } = await supabaseAdmin
+      .from('menu_items')
+      .select('name, description');
+    
+    if (fetchErr || !items) {
+      return;
+    }
+
+    const terms = new Set<string>();
+    items.forEach(it => {
+      if (it.name && it.name.trim()) terms.add(it.name.trim());
+      if (it.description && it.description.trim()) terms.add(it.description.trim());
+    });
+
+    const termList = Array.from(terms);
+    const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+
+    let translationCount = 0;
+    const maxTranslationsPerRun = 5;
+
+    for (const term of termList) {
+      if (translationCount >= maxTranslationsPerRun) break;
+
+      for (const lang of targetLangs) {
+        if (translationCount >= maxTranslationsPerRun) break;
+
+        const { data: existing, error: existingErr } = await supabaseAdmin
+          .from('global_translations')
+          .select('id')
+          .eq('term_key', term)
+          .eq('language_code', lang)
+          .maybeSingle();
+
+        if (existingErr) continue;
+
+        if (!existing) {
+          console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
+          const translated = await translateTextWithGemini(term, lang, env.GEMINI_API_KEY);
+          if (translated) {
+            const { error: insertErr } = await supabaseAdmin
+              .from('global_translations')
+              .upsert({
+                term_key: term,
+                language_code: lang,
+                translated_text: translated,
+                confidence_score: 1.00,
+                approved: true
+              }, { onConflict: 'term_key,language_code' });
+
+            if (insertErr) {
+              console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
+            } else {
+              console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
+              translationCount++;
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Background Translation Job] Error in translation loop:', err);
+  }
+}
 
 export default app;

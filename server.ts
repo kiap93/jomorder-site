@@ -2216,7 +2216,7 @@ app.post("/api/public/batch-translate", async (req, res) => {
       const { data: globalData } = await supabaseAdmin
         .from('global_translations')
         .select('translated_text')
-        .eq('term_key', fieldName === 'name' ? defaultText : `${entityType}_${fieldName}`)
+        .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? defaultText : `${entityType}_${fieldName}`)
         .eq('language_code', targetLanguage)
         .maybeSingle();
       if (globalData?.translated_text) return globalData.translated_text;
@@ -3803,7 +3803,125 @@ async function start() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[SERVER] Ready at http://0.0.0.0:${PORT}`);
     console.log(`[SERVER] Env: ${process.env.NODE_ENV || 'development'}`);
+    startBackgroundTranslationJob();
   });
+
+  // Background translation job definitions
+  async function translateTextWithGemini(text: string, targetLang: string): Promise<string | null> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return null;
+    }
+    try {
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: `
+        You are a professional culinary translator specializing in multi-tenant restaurant systems.
+        Translate the following food term or description from English to ${targetLang}.
+        
+        Term: "${text}"
+        Restaurant Type: General
+        
+        Context Guidelines:
+        - For Bubble Tea: Use established tea culture terms.
+        - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
+        - Aim for appetite appeal and accuracy.
+        
+        Return ONLY the translated text, no explanation or quotes.
+        `
+      });
+      return response.text.trim();
+    } catch (error) {
+      console.error(`[Background Translation Job] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
+      return null;
+    }
+  }
+
+  async function runBackgroundTranslationJob() {
+    try {
+      const { data: items, error: fetchErr } = await supabaseAdmin
+        .from('menu_items')
+        .select('name, description');
+      
+      if (fetchErr || !items) {
+        return;
+      }
+
+      const terms = new Set<string>();
+      items.forEach(it => {
+        if (it.name && it.name.trim()) terms.add(it.name.trim());
+        if (it.description && it.description.trim()) terms.add(it.description.trim());
+      });
+
+      const termList = Array.from(terms);
+      const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+
+      let translationCount = 0;
+      const maxTranslationsPerRun = 5;
+
+      for (const term of termList) {
+        if (translationCount >= maxTranslationsPerRun) break;
+
+        for (const lang of targetLangs) {
+          if (translationCount >= maxTranslationsPerRun) break;
+
+          const { data: existing, error: existingErr } = await supabaseAdmin
+            .from('global_translations')
+            .select('id')
+            .eq('term_key', term)
+            .eq('language_code', lang)
+            .maybeSingle();
+
+          if (existingErr) continue;
+
+          if (!existing) {
+            console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
+            const translated = await translateTextWithGemini(term, lang);
+            if (translated) {
+              const { error: insertErr } = await supabaseAdmin
+                .from('global_translations')
+                .upsert({
+                  term_key: term,
+                  language_code: lang,
+                  translated_text: translated,
+                  confidence_score: 1.00,
+                  approved: true
+                }, { onConflict: 'term_key,language_code' });
+
+              if (insertErr) {
+                console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
+              } else {
+                console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
+                translationCount++;
+              }
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Background Translation Job] Error in translation loop:', err);
+    }
+  }
+
+  let translationJobStarted = false;
+  function startBackgroundTranslationJob() {
+    if (translationJobStarted) return;
+    translationJobStarted = true;
+
+    console.log('[Background Translation Job] Initializing background translation runner...');
+    setTimeout(() => {
+      runBackgroundTranslationJob();
+    }, 10000);
+
+    setInterval(() => {
+      runBackgroundTranslationJob();
+    }, 45000);
+  }
 
   // Final fallback 404 for anything not caught by Vite or API
   app.use((req, res) => {

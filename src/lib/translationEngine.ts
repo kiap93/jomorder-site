@@ -69,7 +69,7 @@ export async function resolveTranslation(
     const { data: globalData } = await supabase
       .from('global_translations')
       .select('translated_text')
-      .eq('term_key', fieldName === 'name' ? defaultText : `${entityType}_${fieldName}`)
+      .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? defaultText : `${entityType}_${fieldName}`)
       .eq('language_code', targetLanguage)
       .maybeSingle();
 

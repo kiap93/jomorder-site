@@ -91,12 +91,30 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 4. DATABASE ROW LEVEL SECURITY (RLS) POLICIES FOR TENANTS ISOLATION
 -- ====================================================================
 
+-- ----------------- NON-RECURSIVE SECURITY DEFINER HELPERS -----------------
+-- This function retrieves the user's restaurant_id without checking RLS policies,
+-- which successfully breaks the infinite recursion on profiles / audit_logs / etc.
+CREATE OR REPLACE FUNCTION public.get_user_restaurant_id(user_uuid UUID)
+RETURNS UUID
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_restaurant_id UUID;
+BEGIN
+    SELECT restaurant_id INTO v_restaurant_id FROM public.profiles WHERE id = user_uuid;
+    RETURN v_restaurant_id;
+END;
+$$;
+
+
 -- ----------------- PROFILES RLS RULES -----------------
 -- Ensure a customer/QR guest never views confidential staff data, and staff only access their tenant
 DROP POLICY IF EXISTS "Staff can read profile list of their organization" ON public.profiles;
 CREATE POLICY "Staff can read profile list of their organization" 
 ON public.profiles FOR SELECT USING (
-    (restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid()))
+    (restaurant_id = public.get_user_restaurant_id(auth.uid()))
     OR 
     (id = auth.uid()) -- Allow self-read initially on onboarding/login
 );
@@ -107,7 +125,7 @@ ON public.profiles FOR ALL USING (
     id = auth.uid() 
     OR 
     (
-      restaurant_id = (SELECT r.restaurant_id FROM public.profiles r WHERE r.id = auth.uid())
+      restaurant_id = public.get_user_restaurant_id(auth.uid())
       AND 
       public.has_staff_permission(auth.uid(), 'can_manage_staff')
     )
@@ -118,14 +136,14 @@ ON public.profiles FOR ALL USING (
 DROP POLICY IF EXISTS "Only staff can view organization audit logs" ON public.audit_logs;
 CREATE POLICY "Only staff can view organization audit logs"
 ON public.audit_logs FOR SELECT USING (
-    restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    restaurant_id = public.get_user_restaurant_id(auth.uid())
 );
 
 DROP POLICY IF EXISTS "Only authenticated staff can insert audit logs" ON public.audit_logs;
 CREATE POLICY "Only authenticated staff can insert audit logs"
 ON public.audit_logs FOR INSERT WITH CHECK (
     auth.uid() IS NOT NULL AND 
-    restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    restaurant_id = public.get_user_restaurant_id(auth.uid())
 );
 
 
@@ -133,11 +151,11 @@ ON public.audit_logs FOR INSERT WITH CHECK (
 DROP POLICY IF EXISTS "Staff with menu permission can modify menu" ON public.menu_items;
 CREATE POLICY "Staff with menu permission can modify menu"
 ON public.menu_items FOR ALL USING (
-    (restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    (restaurant_id = public.get_user_restaurant_id(auth.uid())
     AND 
     public.has_staff_permission(auth.uid(), 'can_edit_menu'))
 ) WITH CHECK (
-    (restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    (restaurant_id = public.get_user_restaurant_id(auth.uid())
     AND 
     public.has_staff_permission(auth.uid(), 'can_edit_menu'))
 );
@@ -150,9 +168,9 @@ ON public.menu_items FOR ALL USING (
 DROP POLICY IF EXISTS "Staff can manage orders inside their restaurant" ON public.orders;
 CREATE POLICY "Staff can manage orders inside their restaurant"
 ON public.orders FOR ALL USING (
-    restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    restaurant_id = public.get_user_restaurant_id(auth.uid())
 ) WITH CHECK (
-    restaurant_id = (SELECT restaurant_id FROM public.profiles WHERE id = auth.uid())
+    restaurant_id = public.get_user_restaurant_id(auth.uid())
 );
 
 
