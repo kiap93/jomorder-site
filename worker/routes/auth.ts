@@ -27,8 +27,56 @@ authRoutes.post('/api/login', async (c) => {
                          (email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123");
 
   if (isAdminEnvMatch || isDevAdminMatch) {
-    const token = await signJWT({ id: 'admin', email, role: 'admin' }, c.env.JWT_SECRET);
-    return c.json({ token, user: { id: 'admin', email, role: 'admin' } });
+    let { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (!profile) {
+      const newAdminId = crypto.randomUUID();
+      const { data: inserted, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        })
+        .select()
+        .single();
+      
+      if (!insertError && inserted) {
+        profile = inserted;
+      } else {
+        profile = {
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        };
+      }
+    }
+
+    const enrichedUser = {
+      id: profile.id,
+      email: profile.email,
+      role: profile.role || 'admin',
+      platform_role: 'superadmin',
+      is_platform_admin: true,
+      restaurantId: profile.restaurant_id || null,
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+
+    const token = await signJWT(enrichedUser, c.env.JWT_SECRET);
+    return c.json({ token, user: enrichedUser });
   }
 
   try {
@@ -136,7 +184,53 @@ authRoutes.post('/api/google-login', async (c) => {
                        (email && email.toLowerCase() === "kiap93.kmj@gmail.com");
 
   if (isAdminEmail) {
-    userPayload = { id: 'admin', email, role: 'admin' };
+    let { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (!profile) {
+      const newAdminId = crypto.randomUUID();
+      const { data: inserted, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        })
+        .select()
+        .single();
+      
+      if (!insertError && inserted) {
+        profile = inserted;
+      } else {
+        profile = {
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        };
+      }
+    }
+
+    userPayload = {
+      id: profile.id,
+      email: profile.email,
+      role: profile.role || 'admin',
+      platform_role: 'superadmin',
+      is_platform_admin: true,
+      restaurantId: profile.restaurant_id || null,
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
   } else {
     let { data: profile } = await supabase
       .from('profiles')
@@ -214,7 +308,7 @@ authRoutes.post('/api/google-login', async (c) => {
 // GET /api/me
 authRoutes.get('/api/me', authenticate, async (c) => {
   const user = c.get('user');
-  if (user && user.id !== 'admin') {
+  if (user && user.is_platform_admin !== true) {
     const supabase = getSupabase(c.env);
     const settings = await getStaffSettingsFromDb(supabase, user.id, user.role, user.restaurantId);
     if (settings.status === 'suspended') {
@@ -234,7 +328,7 @@ authRoutes.get('/api/my-workspaces', authenticate, async (c) => {
   const user = c.get('user');
   const supabase = getSupabase(c.env);
 
-  if (user.id === 'admin') {
+  if (user.is_platform_admin === true) {
     try {
       const { data: orgs } = await supabase.from('organizations').select('*');
       const { data: rests } = await supabase.from('restaurants').select('*');
@@ -350,14 +444,16 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
   const restaurantId = c.req.param('restaurantId');
   const supabase = getSupabase(c.env);
 
-  if (user.id === 'admin') {
+  if (user.is_platform_admin === true) {
     try {
       const { data: r } = await supabase.from('restaurants').select('*').eq('id', restaurantId).maybeSingle();
       if (!r) return c.json({ error: "Restaurant not found." }, 404);
       const guestPay = {
-        id: 'admin',
+        id: user.id,
         email: user.email,
         role: 'admin',
+        platform_role: 'superadmin',
+        is_platform_admin: true,
         restaurantId: r.id
       };
       const token = await signJWT(guestPay, c.env.JWT_SECRET);
@@ -441,7 +537,7 @@ authRoutes.patch('/api/organizations/:id', authenticate, async (c) => {
   const supabase = getSupabase(c.env);
 
   try {
-    if (user.id !== 'admin') {
+    if (user.is_platform_admin !== true) {
       const { data: member, error: memberErr } = await supabase
         .from('organization_users')
         .select('*')
@@ -496,6 +592,7 @@ authRoutes.patch('/api/organizations/:id', authenticate, async (c) => {
 // POST /api/onboarding/create-org-workspace
 authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
   const user = c.get('user');
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = await c.req.json();
   const supabase = getSupabase(c.env);
 
@@ -518,7 +615,7 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
 
       await supabase.from('organization_users').insert({
         organization_id: orgId,
-        user_id: user.id,
+        user_id: dbUserId,
         role: 'owner'
       });
     }
@@ -528,7 +625,7 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
       currency: 'MYR',
       service_charge: 6.0,
       sst: 10.0,
-      owner_id: user.id
+      owner_id: dbUserId
     };
 
     if (orgId) {
@@ -603,7 +700,7 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
     await supabase
       .from('profiles')
       .upsert({
-        id: user.id,
+        id: dbUserId,
         email: user.email,
         restaurant_id: restaurant.id,
         role: 'owner',
@@ -613,7 +710,7 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
     try {
       await supabase.from('restaurant_users').insert({
         restaurant_id: restaurant.id,
-        user_id: user.id,
+        user_id: dbUserId,
         role: 'owner',
         status: 'active',
         custom_permissions: {

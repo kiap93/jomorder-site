@@ -204,7 +204,7 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
         console.warn("Could not insert mapping in live DB:", err);
       }
 
-      await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
+      await logToAuditDb(supabase, caller.id, caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
 
       return c.json({
         id: userId,
@@ -274,7 +274,7 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
       throw profileError;
     }
 
-    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+    await logToAuditDb(supabase, caller.id, caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
 
     const finalSettings = await getStaffSettingsFromDb(supabase, profile.id, role, restId);
 
@@ -389,7 +389,7 @@ staffRoutes.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (
       existingMapping = data;
     }
 
-    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || profile.status})`, restId);
+    await logToAuditDb(supabase, caller.id, caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || profile.status})`, restId);
 
     const finalSettings = await getStaffSettingsFromDb(supabase, staffId, role || profile.role, restId);
 
@@ -470,7 +470,7 @@ staffRoutes.delete("/api/restaurants/:restId/staff/:staffId", authenticate, asyn
         .eq('restaurant_id', restId);
     }
 
-    await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
+    await logToAuditDb(supabase, caller.id, caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
 
     return c.json({ success: true, message: "Staff member deleted successfully." });
   } catch (err: any) {

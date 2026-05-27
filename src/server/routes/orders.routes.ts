@@ -42,7 +42,7 @@ router.patch("/orders/:id", authenticateJWT, async (req, res) => {
 
     const restId = order.restaurant_id || caller?.restaurantId || "default";
 
-    if (caller && caller.id !== 'admin') {
+    if (caller && caller.is_platform_admin !== true) {
       const settings = getStaffSettings(caller.id, caller.role);
       
       if (req.body.status === 'cancelled' && !settings.permissions.can_cancel_order) {
@@ -68,7 +68,7 @@ router.patch("/orders/:id", authenticateJWT, async (req, res) => {
       if (req.body.status && req.body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
       }
-      logToAudit(caller.id || 'admin', caller.email, caller.role, action, restId);
+      logToAudit(caller.id, caller.email, caller.role, action, restId);
     }
 
     res.json(data);

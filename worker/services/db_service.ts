@@ -122,7 +122,7 @@ export async function logToAuditDb(supabase: any, userId: string, userEmail: str
   try {
     await supabase.from('audit_logs').insert({
       restaurant_id: restaurantId,
-      user_id: userId === 'admin' ? null : userId,
+      user_id: userId || null,
       user_email: userEmail,
       user_role: role,
       action: action,

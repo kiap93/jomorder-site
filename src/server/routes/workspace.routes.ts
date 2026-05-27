@@ -46,7 +46,7 @@ router.get('/debug-restaurants', async (req, res) => {
 router.get('/my-workspaces', authenticateJWT, async (req, res) => {
   const user = (req as any).user;
 
-  if (user.id === 'admin') {
+  if (user.is_platform_admin === true) {
     try {
       const { data: orgs } = await supabaseAdmin.from('organizations').select('*');
       const { data: rests } = await supabaseAdmin.from('restaurants').select('*');
@@ -229,7 +229,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
 
   const db = loadFallbackDB();
 
-  if (user.id === 'admin') {
+  if (user.is_platform_admin === true) {
     try {
       let r = db.restaurants.find(item => item.id === restaurantId);
       if (!r) {
@@ -238,9 +238,11 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
       }
       if (!r) return res.status(404).json({ error: "Restaurant not found." });
       const guestPay = {
-        id: 'admin',
+        id: user.id,
         email: user.email,
         role: 'admin',
+        platform_role: 'superadmin',
+        is_platform_admin: true,
         restaurantId: r.id
       };
       const token = jwt.sign(guestPay, JWT_SECRET, { expiresIn: '7d' });
@@ -457,7 +459,7 @@ router.patch('/organizations/:id', authenticateJWT, async (req, res) => {
   const { name, company_register_number } = req.body;
 
   try {
-    if (user.id !== 'admin') {
+    if (user.is_platform_admin !== true) {
       const { data: member, error: memberErr } = await supabaseAdmin
         .from('organization_users')
         .select('*')
@@ -511,6 +513,7 @@ router.patch('/organizations/:id', authenticateJWT, async (req, res) => {
 // Complete onboarding combo for Multi-Organization / Restaurant
 router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res) => {
   const user = (req as any).user;
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
 
   if (!workspaceName) {
@@ -558,7 +561,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       try {
         await supabaseAdmin.from('organization_users').insert({
           organization_id: orgId,
-          user_id: user.id,
+          user_id: dbUserId,
           role: 'owner'
         });
       } catch (e) {}
@@ -569,7 +572,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       currency: 'MYR',
       service_charge: 6.0,
       sst: 10.0,
-      owner_id: user.id
+      owner_id: dbUserId
     };
 
     if (orgId) {
@@ -633,7 +636,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       await supabaseAdmin
         .from('profiles')
         .upsert({
-          id: user.id,
+          id: dbUserId,
           email: user.email,
           restaurant_id: restaurant.id,
           role: 'owner',
@@ -644,7 +647,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
     try {
       await supabaseAdmin.from('restaurant_users').insert({
         restaurant_id: restaurant.id,
-        user_id: user.id,
+        user_id: dbUserId,
         role: 'owner',
         status: 'active',
         custom_permissions: {

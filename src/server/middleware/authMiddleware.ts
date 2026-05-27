@@ -49,7 +49,7 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
     }
 
     // super admins have absolute access
-    if (user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
       next();
       return;
     }
@@ -84,7 +84,7 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
     }
 
     // Super Admin validation bypass
-    if (user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
       next();
       return;
     }
@@ -144,7 +144,7 @@ export const requireSuperAdmin = (req: express.Request, res: express.Response, n
                        user.email === "test@example.com" ||
                        (user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
 
-  const isSuperRole = user.role === 'superadmin' || user.role === 'admin' || user.role === 'ADMIN';
+  const isSuperRole = user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'superadmin' || user.role === 'admin' || user.role === 'ADMIN';
 
   if (!isSuperRole && !isSuperEmail) {
     console.warn(`[SECURITY WARN] Blocked Express superadmin gateway access for: ${user.email}`);

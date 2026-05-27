@@ -459,7 +459,7 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
 
     const restId = order.restaurant_id || caller?.restaurantId || "default";
 
-    if (caller && caller.id !== 'admin') {
+    if (caller && caller.is_platform_admin !== true) {
       const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
       
       if (body.status === 'cancelled' && !settings.permissions.can_cancel_order) {
@@ -485,7 +485,7 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
       if (body.status && body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${body.status}]`;
       }
-      await logToAuditDb(supabase, caller.id || 'admin', caller.email, caller.role, action, restId);
+      await logToAuditDb(supabase, caller.id, caller.email, caller.role, action, restId);
     }
 
     return c.json(data);

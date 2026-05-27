@@ -332,6 +332,7 @@ var import_express12 = require("express");
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
 var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
+var import_crypto = __toESM(require("crypto"), 1);
 
 // src/lib/validation.ts
 var import_zod = require("zod");
@@ -433,7 +434,7 @@ var requireSuperAdmin = (req, res, next) => {
   }
   const matchesEmailConfig = process.env.ADMIN_USER_EMAIL && user.email === process.env.ADMIN_USER_EMAIL;
   const isSuperEmail = matchesEmailConfig || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com";
-  const isSuperRole = user.role === "superadmin" || user.role === "admin" || user.role === "ADMIN";
+  const isSuperRole = user.is_platform_admin === true || user.platform_role === "superadmin" || user.role === "superadmin" || user.role === "admin" || user.role === "ADMIN";
   if (!isSuperRole && !isSuperEmail) {
     console.warn(`[SECURITY WARN] Blocked Express superadmin gateway access for: ${user.email}`);
     return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
@@ -454,8 +455,44 @@ router.post("/login", async (req, res) => {
   const isAdminEnvMatch = envAdminEmail && email === envAdminEmail && password === envAdminPass;
   const isDevAdminMatch = email === "admin@saas.com" && password === "admin123" || email === "test@example.com" && password === "password123" || email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123";
   if (isAdminEnvMatch || isDevAdminMatch) {
-    const token = import_jsonwebtoken2.default.sign({ id: "admin", email, role: "admin" }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, user: { id: "admin", email, role: "admin" } });
+    let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    if (!profile) {
+      const newAdminId = import_crypto.default.randomUUID();
+      const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
+        id: newAdminId,
+        email,
+        role: "admin",
+        status: "active"
+      }).select().single();
+      if (!insertError && inserted) {
+        profile = inserted;
+      } else {
+        profile = {
+          id: newAdminId,
+          email,
+          role: "admin",
+          status: "active"
+        };
+      }
+    }
+    const enrichedUser = {
+      id: profile.id,
+      email: profile.email,
+      role: profile.role || "admin",
+      platform_role: "superadmin",
+      is_platform_admin: true,
+      restaurantId: profile.restaurant_id || null,
+      status: "active",
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+    const token = import_jsonwebtoken2.default.sign(enrichedUser, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ token, user: enrichedUser });
   }
   try {
     const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
@@ -560,7 +597,42 @@ router.post("/google-login", async (req, res) => {
     const isSuperAdminEmail = process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL || email === "admin@saas.com" || email === "test@example.com" || email && email.toLowerCase() === "kiap93.kmj@gmail.com";
     if (isSuperAdminEmail) {
       console.log("Admin email match:", email);
-      userPayload = { id: "admin", email, role: "admin" };
+      let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+      if (!profile) {
+        const newAdminId = import_crypto.default.randomUUID();
+        const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
+          id: newAdminId,
+          email,
+          role: "admin",
+          status: "active"
+        }).select().single();
+        if (!insertError && inserted) {
+          profile = inserted;
+        } else {
+          profile = {
+            id: newAdminId,
+            email,
+            role: "admin",
+            status: "active"
+          };
+        }
+      }
+      userPayload = {
+        id: profile.id,
+        email: profile.email,
+        role: profile.role || "admin",
+        platform_role: "superadmin",
+        is_platform_admin: true,
+        restaurantId: profile.restaurant_id || null,
+        status: "active",
+        permissions: {
+          can_refund: true,
+          can_edit_menu: true,
+          can_cancel_order: true,
+          can_view_analytics: true,
+          can_manage_staff: true
+        }
+      };
     } else {
       console.log("Checking profiles for email:", email);
       const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
@@ -594,7 +666,7 @@ router.post("/google-login", async (req, res) => {
 });
 router.get("/me", authenticateJWT, (req, res) => {
   const user = req.user;
-  if (user && user.id !== "admin") {
+  if (user && user.is_platform_admin !== true) {
     const settings = getStaffSettings(user.id, user.role);
     if (settings.status === "suspended") {
       return res.status(403).json({ error: "Your staff account has been suspended by the administrator." });
@@ -758,7 +830,7 @@ router3.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res)
 });
 router3.post("/menu-items", authenticateJWT, async (req, res) => {
   const caller = req.user;
-  if (caller && caller.id !== "admin") {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -808,13 +880,13 @@ router3.post("/menu-items", authenticateJWT, async (req, res) => {
     }
   }
   if (caller && caller.email) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
   }
   res.json(data);
 });
 router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   const caller = req.user;
-  if (caller && caller.id !== "admin") {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -864,13 +936,13 @@ router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
     }
   }
   if (caller && caller.email) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
   }
   res.json(data);
 });
 router3.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
   const caller = req.user;
-  if (caller && caller.id !== "admin") {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -880,7 +952,7 @@ router3.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
   const { error } = await supabaseAdmin.from("menu_items").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   if (caller && caller.email && item) {
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
   }
   res.json({ success: true });
 });
@@ -1390,7 +1462,7 @@ router5.get("/debug-restaurants", async (req, res) => {
 });
 router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
   const user = req.user;
-  if (user.id === "admin") {
+  if (user.is_platform_admin === true) {
     try {
       const { data: orgs } = await supabaseAdmin.from("organizations").select("*");
       const { data: rests } = await supabaseAdmin.from("restaurants").select("*");
@@ -1534,7 +1606,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
   const user = req.user;
   const restaurantId = req.params.restaurantId;
   const db = loadFallbackDB();
-  if (user.id === "admin") {
+  if (user.is_platform_admin === true) {
     try {
       let r = db.restaurants.find((item) => item.id === restaurantId);
       if (!r) {
@@ -1543,9 +1615,11 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
       }
       if (!r) return res.status(404).json({ error: "Restaurant not found." });
       const guestPay = {
-        id: "admin",
+        id: user.id,
         email: user.email,
         role: "admin",
+        platform_role: "superadmin",
+        is_platform_admin: true,
         restaurantId: r.id
       };
       const token = import_jsonwebtoken3.default.sign(guestPay, JWT_SECRET, { expiresIn: "7d" });
@@ -1694,7 +1768,7 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
   const { id } = req.params;
   const { name, company_register_number } = req.body;
   try {
-    if (user.id !== "admin") {
+    if (user.is_platform_admin !== true) {
       const { data: member, error: memberErr } = await supabaseAdmin.from("organization_users").select("*").eq("organization_id", id).eq("user_id", user.id).maybeSingle();
       if (!member || member.role !== "owner" && member.role !== "manager") {
         return res.status(403).json({ error: "Forbidden: You do not have owner/manager access to this organization." });
@@ -1725,6 +1799,7 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
 });
 router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
   const user = req.user;
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
@@ -1762,7 +1837,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
       try {
         await supabaseAdmin.from("organization_users").insert({
           organization_id: orgId,
-          user_id: user.id,
+          user_id: dbUserId,
           role: "owner"
         });
       } catch (e) {
@@ -1773,7 +1848,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
       currency: "MYR",
       service_charge: 6,
       sst: 10,
-      owner_id: user.id
+      owner_id: dbUserId
     };
     if (orgId) {
       insertData.organization_id = orgId;
@@ -1819,7 +1894,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     saveFallbackDB(db2);
     try {
       await supabaseAdmin.from("profiles").upsert({
-        id: user.id,
+        id: dbUserId,
         email: user.email,
         restaurant_id: restaurant.id,
         role: "owner",
@@ -1830,7 +1905,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     try {
       await supabaseAdmin.from("restaurant_users").insert({
         restaurant_id: restaurant.id,
-        user_id: user.id,
+        user_id: dbUserId,
         role: "owner",
         status: "active",
         custom_permissions: {
@@ -2506,7 +2581,7 @@ router8.patch("/orders/:id", authenticateJWT, async (req, res) => {
     if (orderErr) throw orderErr;
     if (!order) return res.status(404).json({ error: "Order not found." });
     const restId = order.restaurant_id || caller?.restaurantId || "default";
-    if (caller && caller.id !== "admin") {
+    if (caller && caller.is_platform_admin !== true) {
       const settings = getStaffSettings(caller.id, caller.role);
       if (req.body.status === "cancelled" && !settings.permissions.can_cancel_order) {
         return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
@@ -2522,7 +2597,7 @@ router8.patch("/orders/:id", authenticateJWT, async (req, res) => {
       if (req.body.status && req.body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
       }
-      logToAudit(caller.id || "admin", caller.email, caller.role, action, restId);
+      logToAudit(caller.id, caller.email, caller.role, action, restId);
     }
     res.json(data);
   } catch (err) {

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { supabaseAdmin, googleClient, JWT_SECRET, getStaffSettings } from "../services/dbService";
 import { LoginSchema, RegisterSchema } from "../../lib/validation";
 import { authenticateJWT } from "../middleware/authMiddleware";
@@ -24,8 +25,56 @@ router.post("/login", async (req, res) => {
 
   // 1. Check for system admin hardcoded credentials or seed dev fallbacks
   if (isAdminEnvMatch || isDevAdminMatch) {
-    const token = jwt.sign({ id: 'admin', email, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
-    return res.json({ token, user: { id: 'admin', email, role: 'admin' } });
+    let { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (!profile) {
+      const newAdminId = crypto.randomUUID();
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        })
+        .select()
+        .single();
+      
+      if (!insertError && inserted) {
+        profile = inserted;
+      } else {
+        profile = {
+          id: newAdminId,
+          email: email,
+          role: 'admin',
+          status: 'active'
+        };
+      }
+    }
+
+    const enrichedUser = {
+      id: profile.id,
+      email: profile.email,
+      role: profile.role || 'admin',
+      platform_role: 'superadmin',
+      is_platform_admin: true,
+      restaurantId: profile.restaurant_id || null,
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+
+    const token = jwt.sign(enrichedUser, JWT_SECRET, { expiresIn: '7d' });
+    return res.json({ token, user: enrichedUser });
   }
 
   try {
@@ -179,7 +228,53 @@ router.post("/google-login", async (req, res) => {
 
     if (isSuperAdminEmail) {
       console.log("Admin email match:", email);
-      userPayload = { id: 'admin', email, role: 'admin' };
+      let { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (!profile) {
+        const newAdminId = crypto.randomUUID();
+        const { data: inserted, error: insertError } = await supabaseAdmin
+          .from('profiles')
+          .insert({
+            id: newAdminId,
+            email: email,
+            role: 'admin',
+            status: 'active'
+          })
+          .select()
+          .single();
+        
+        if (!insertError && inserted) {
+          profile = inserted;
+        } else {
+          profile = {
+            id: newAdminId,
+            email: email,
+            role: 'admin',
+            status: 'active'
+          };
+        }
+      }
+
+      userPayload = {
+        id: profile.id,
+        email: profile.email,
+        role: profile.role || 'admin',
+        platform_role: 'superadmin',
+        is_platform_admin: true,
+        restaurantId: profile.restaurant_id || null,
+        status: 'active',
+        permissions: {
+          can_refund: true,
+          can_edit_menu: true,
+          can_cancel_order: true,
+          can_view_analytics: true,
+          can_manage_staff: true
+        }
+      };
     } else {
       console.log("Checking profiles for email:", email);
       const { data: profile, error } = await supabaseAdmin
@@ -222,7 +317,7 @@ router.post("/google-login", async (req, res) => {
 
 router.get("/me", authenticateJWT, (req, res) => {
   const user = (req as any).user;
-  if (user && user.id !== 'admin') {
+  if (user && user.is_platform_admin !== true) {
     const settings = getStaffSettings(user.id, user.role);
     if (settings.status === 'suspended') {
       return res.status(403).json({ error: "Your staff account has been suspended by the administrator." });

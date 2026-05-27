@@ -71,7 +71,7 @@ router.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res) 
 
 router.post("/menu-items", authenticateJWT, async (req, res) => {
   const caller = (req as any).user;
-  if (caller && caller.id !== 'admin') {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -132,7 +132,7 @@ router.post("/menu-items", authenticateJWT, async (req, res) => {
   }
 
   if (caller && caller.email) {
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Added menu item: ${data?.name || 'Dish'}`, data?.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Added menu item: ${data?.name || 'Dish'}`, data?.restaurant_id || caller.restaurantId);
   }
 
   res.json(data);
@@ -140,7 +140,7 @@ router.post("/menu-items", authenticateJWT, async (req, res) => {
 
 router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   const caller = (req as any).user;
-  if (caller && caller.id !== 'admin') {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -202,7 +202,7 @@ router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   }
 
   if (caller && caller.email) {
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
   }
 
   res.json(data);
@@ -210,7 +210,7 @@ router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
 
 router.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
   const caller = (req as any).user;
-  if (caller && caller.id !== 'admin') {
+  if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -227,7 +227,7 @@ router.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   if (caller && caller.email && item) {
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
+    logToAudit(caller.id, caller.email, caller.role, `Deleted menu item: ${item.name}`, item.restaurant_id || caller.restaurantId);
   }
 
   res.json({ success: true });
