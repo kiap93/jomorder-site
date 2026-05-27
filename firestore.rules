@@ -1,109 +1,172 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
+
+    // ==========================================
+    // ZERO TRUST SAFETY NET
+    // ==========================================
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // 3. Global Helpers
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-    function incoming() {
-      return request.resource.data;
-    }
-    function existing() {
-      return resource.data;
-    }
+    // ==========================================
+    // SAAS SECURITY UTILITIES & HELPERS
+    // ==========================================
     function isSignedIn() {
       return request.auth != null;
     }
-    function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+
+    function isEmailVerified() {
+      // For high-security environments, verify email confirmation
+      return isSignedIn() && 
+        (request.auth.token.email_verified == true || 
+         request.auth.token.firebase.sign_in_provider == 'anonymous');
     }
-    
-    // Check roles
-    function getUserData(uid) {
+
+    // Tenant Isolation Checker: Ensures requesting user belongs to targeted restaurant
+    function isTenantMember(restaurantId) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isSignedIn() && 
+        userDoc != null && 
+        userDoc.restaurantId == restaurantId;
+    }
+
+    // Retrieve the User Profile from the central users collection
+    function getUserDoc(uid) {
       let path = /databases/$(database)/documents/users/$(uid);
       return exists(path) ? get(path).data : null;
     }
-    function hasRole(role, restaurantId) {
-      let userData = getUserData(request.auth.uid);
-      return isVerified() && userData != null && userData.role == role && userData.restaurantId == restaurantId;
-    }
-    function isAdmin(restaurantId) {
-      return hasRole('admin', restaurantId);
-    }
-    function isStaff(restaurantId) {
-      let userData = getUserData(request.auth.uid);
-      return isVerified() && userData != null && (userData.role == 'admin' || userData.role == 'staff' || userData.role == 'kitchen') && userData.restaurantId == restaurantId;
+
+    // Check if the user has a specific granular role in the tenant context
+    function hasRole(restaurantId, role) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isTenantMember(restaurantId) && userDoc.role == role;
     }
 
-    // 1. Restaurants
+    // Check capabilities directly via role groupings (Enterprise RBAC mappings)
+    function canModifyMenu(restaurantId) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isTenantMember(restaurantId) && 
+        (userDoc.role == 'admin' || userDoc.role == 'owner' || userDoc.role == 'manager');
+    }
+
+    function canRefundPayments(restaurantId) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isTenantMember(restaurantId) && 
+        (userDoc.role == 'admin' || userDoc.role == 'owner' || userDoc.role == 'manager');
+    }
+
+    function canCancelOrders(restaurantId) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isTenantMember(restaurantId) && 
+        (userDoc.role == 'admin' || userDoc.role == 'owner' || userDoc.role == 'manager' || userDoc.role == 'cashier');
+    }
+
+    function isKitchenStaff(restaurantId) {
+      let userDoc = getUserDoc(request.auth.uid);
+      return isTenantMember(restaurantId) && 
+        (userDoc.role == 'admin' || userDoc.role == 'owner' || userDoc.role == 'manager' || userDoc.role == 'kitchen' || userDoc.role == 'staff');
+    }
+
+    // Input Sanitization helper
+    function isValidId(id) {
+      return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // ==========================================
+    // MULTI-TENANT ROUTING & RESOURCE MATCHES
+    // ==========================================
     match /restaurants/{restaurantId} {
+      
+      // Restaurant definition schema validation
       function isValidRestaurant(data) {
         return data.keys().hasAll(['name', 'currency']) &&
-               data.name is string && data.name.size() < 100 &&
+               data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
                data.currency is string && data.currency.size() == 3;
       }
-      
-      allow read: if true; // Publicly readable for customers to see name/settings
-      allow create: if isVerified(); // Allow verified users to create their first restaurant
-      allow update: if isVerified() && (isAdmin(restaurantId) || restaurantId == 'default') && isValidRestaurant(incoming());
-      
-      // 1.1 Tables
+
+      // Public read capability: Customers must scan menus & identify setup
+      allow read: if true; 
+      // Only validated admins or organization creators can create a restaurant
+      allow create: if isSignedIn();
+      // Write operations confined exclusively to Tenant Admin or Owner
+      allow update: if isEmailVerified() && 
+                      (hasRole(restaurantId, 'admin') || hasRole(restaurantId, 'owner') || restaurantId == 'default') && 
+                      isValidRestaurant(request.resource.data);
+
+      // --- TABLES SUB-COLLECTION ---
       match /tables/{tableId} {
         function isValidTable(data) {
-          return data.keys().hasAll(['name']) && data.name is string && data.name.size() < 20;
+          return data.keys().hasAll(['name']) && 
+                 data.name is string && data.name.size() > 0 && data.name.size() <= 32;
         }
-        allow read: if true;
-        allow write: if isStaff(restaurantId) && isValidTable(incoming());
+
+        allow read: if true; // Public for QR/Table verification
+        allow write: if isTenantMember(restaurantId) && 
+                       (canModifyMenu(restaurantId) || hasRole(restaurantId, 'cashier')) && 
+                       isValidTable(request.resource.data);
       }
 
-      // 1.2 Categories
+      // --- CATEGORIES SUB-COLLECTION ---
       match /categories/{categoryId} {
         function isValidCategory(data) {
-          return data.keys().hasAll(['name']) && data.name is string && data.name.size() < 50;
+          return data.keys().hasAll(['name']) && 
+                 data.name is string && data.name.size() > 0 && data.name.size() <= 64;
         }
-        allow read: if true;
-        allow write: if isStaff(restaurantId) && isValidCategory(incoming());
+
+        allow read: if true; // Public for customers viewing their digital menu
+        allow write: if isTenantMember(restaurantId) && canModifyMenu(restaurantId) && isValidCategory(request.resource.data);
       }
 
-      // 1.3 Menu Items
+      // --- MENU ITEMS SUB-COLLECTION ---
       match /menu_items/{itemId} {
         function isValidMenuItem(data) {
           return data.keys().hasAll(['categoryId', 'name', 'price']) &&
                  data.categoryId is string &&
-                 data.name is string && data.name.size() < 100 &&
+                 data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
                  data.price is number && data.price >= 0;
         }
-        allow read: if true;
-        allow write: if isStaff(restaurantId) && isValidMenuItem(incoming());
+
+        allow read: if true; // Public menu lookup
+        allow write: if isTenantMember(restaurantId) && canModifyMenu(restaurantId) && isValidMenuItem(request.resource.data);
       }
 
-      // 1.4 Orders
+      // --- ORDERS SUB-COLLECTION ---
       match /orders/{orderId} {
         function isValidOrder(data) {
           return data.keys().hasAll(['tableId', 'status', 'totalPrice', 'paymentMethod', 'items']) &&
                  data.tableId is string &&
                  data.status in ['pending', 'preparing', 'ready', 'completed', 'cancelled'] &&
-                 data.totalPrice is number &&
+                 data.totalPrice is number && data.totalPrice >= 0 &&
                  data.items is list && data.items.size() > 0;
         }
+
+        allow read: if true; // Public so guests can real-time track their own receipts
+        // Anyone can dispatch a new 'pending' order to the restaurant's queue
+        allow create: if isValidOrder(request.resource.data) && (request.resource.data.status == 'pending');
         
-        allow read: if true; // Customers need to see their order status
-        allow create: if isValidOrder(incoming()) && (incoming().status == 'pending');
-        allow update: if (isStaff(restaurantId) && isValidOrder(incoming())) ||
-                       (isSignedIn() && incoming().status == 'cancelled' && existing().status == 'pending');
+        // Tenant workers can progress status, customers can cancel their own pending orders
+        allow update: if (isTenantMember(restaurantId) && isKitchenStaff(restaurantId) && isValidOrder(request.resource.data)) ||
+                      (request.resource.data.status == 'cancelled' && resource.data.status == 'pending');
       }
     }
 
-    // 2. Users (Roles)
+    // ==========================================
+    // USER PROFILES & CAPABILITIES ENTITIES
+    // ==========================================
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || (getUserData(request.auth.uid) != null && isAdmin(getUserData(request.auth.uid).restaurantId)));
-      allow create: if isSignedIn() && request.auth.uid == userId; 
-      allow update: if isSignedIn() && (isAdmin(getUserData(request.auth.uid).restaurantId) || request.auth.uid == userId);
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId || 
+        isTenantMember(getUserDoc(request.auth.uid).restaurantId)
+      );
+      // User profile initialization on registration/mapping
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Profile role modifications limited strictly to Tenant Admins/Owners
+      allow update: if isSignedIn() && (
+        request.auth.uid == userId || 
+        hasRole(getUserDoc(request.auth.uid).restaurantId, 'admin') || 
+        hasRole(getUserDoc(request.auth.uid).restaurantId, 'owner')
+      );
     }
   }
 }

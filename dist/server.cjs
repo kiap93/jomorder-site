@@ -397,6 +397,11 @@ var PaymentsSchema = import_zod.z.object({
 
 // src/server/middleware/authMiddleware.ts
 var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
+
+// worker/services/db_service.ts
+var import_supabase_js2 = require("@supabase/supabase-js");
+
+// src/server/middleware/authMiddleware.ts
 var getSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -408,24 +413,29 @@ var authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.split(" ")[1];
   if (!token) {
-    console.warn(`[AUTH FAIL] No token for ${req.path}`);
+    console.warn(`[AUTH FAIL] No token provided for path ${req.path}`);
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
   try {
     const secret = getSecret();
     const decoded = import_jsonwebtoken.default.verify(token, secret);
     req.user = decoded;
-    console.log(`[AUTH SUCCESS] User: ${decoded.email}, Path: ${req.path}`);
     next();
   } catch (err) {
-    console.warn(`[AUTH FAIL] Invalid token for ${req.path}:`, err.message);
-    return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    console.warn(`[AUTH FAIL] Invalid token for ${req.path}: ${err.message}`);
+    return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
   }
 };
 var requireSuperAdmin = (req, res, next) => {
   const user = req.user;
-  const isSuperAdminEmail = user && (user.email === process.env.ADMIN_USER_EMAIL || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
-  if (!user || user.role !== "admin" && !isSuperAdminEmail) {
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Session missing" });
+  }
+  const matchesEmailConfig = process.env.ADMIN_USER_EMAIL && user.email === process.env.ADMIN_USER_EMAIL;
+  const isSuperEmail = matchesEmailConfig || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com";
+  const isSuperRole = user.role === "superadmin" || user.role === "admin" || user.role === "ADMIN";
+  if (!isSuperRole && !isSuperEmail) {
+    console.warn(`[SECURITY WARN] Blocked Express superadmin gateway access for: ${user.email}`);
     return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
   }
   next();
