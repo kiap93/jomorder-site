@@ -146,6 +146,13 @@ export function WorkspaceSelect() {
       setOrganizations(orgs);
       setWorkspaces(rests);
 
+      const params = new URLSearchParams(window.location.search);
+      const isFromLoginVal = autoRedirectEnabled || params.get('fromLogin') === 'true' || params.get('fromlogin') === 'true';
+      if (rests.length === 0 && isFromLoginVal) {
+        navigate('/onboarding');
+        return;
+      }
+
       if (orgs.length > 0) {
         const params = new URLSearchParams(window.location.search);
         const queryOrgId = params.get('orgId');
@@ -178,11 +185,11 @@ export function WorkspaceSelect() {
           
           const params = new URLSearchParams(window.location.search);
           const forceSelector = params.get('select') === 'true';
-          if (!forceSelector && !params.get('orgId') && autoRedirectEnabled) {
+          if (!forceSelector && !params.get('orgId') && autoRedirectEnabled && rests.length === 0) {
             setRestoringSession(true);
             return; // let countdown handle it
           }
-        } else if (autoRedirectEnabled && orgs.length === 1) {
+        } else if (autoRedirectEnabled && rests.length === 0 && orgs.length === 1) {
           // If strictly 1 organization and 1 branch, enter automatically
           const singleOrg = orgs[0];
           const outlets = rests.filter((w: any) => w.organization_id === singleOrg.id);
@@ -202,7 +209,7 @@ export function WorkspaceSelect() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const fromLogin = params.get('fromLogin') === 'true';
+    const fromLogin = params.get('fromLogin') === 'true' || params.get('fromlogin') === 'true';
     setIsFromLogin(fromLogin);
     const queryOrgId = params.get('orgId');
     if (queryOrgId) {

@@ -1838,8 +1838,18 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
 });
 router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
   const user = req.user;
-  const dbUserId = user.id;
+  let dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
+  if (!dbUserId || dbUserId === "admin" || typeof dbUserId !== "string" || dbUserId.length < 30) {
+    try {
+      const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("email", user.email).maybeSingle();
+      if (profile?.id) {
+        dbUserId = profile.id;
+      }
+    } catch (e) {
+      console.error("Failed to resolve dbUserId for onboard workspace in Express", e);
+    }
+  }
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
   }

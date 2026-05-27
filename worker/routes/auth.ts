@@ -635,9 +635,20 @@ authRoutes.patch('/api/organizations/:id', authenticate, async (c) => {
 // POST /api/onboarding/create-org-workspace
 authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
   const user = c.get('user');
-  const dbUserId = user.id;
+  let dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = await c.req.json();
   const supabase = getSupabase(c.env);
+
+  if (!dbUserId || dbUserId === 'admin' || typeof dbUserId !== 'string' || dbUserId.length < 30) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', user.email)
+      .maybeSingle();
+    if (profile?.id) {
+      dbUserId = profile.id;
+    }
+  }
 
   if (!workspaceName) {
     return c.json({ error: "Workspace (Restaurant) name is required." }, 400);
