@@ -229,7 +229,9 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
 
   const db = loadFallbackDB();
 
-  if (user.is_platform_admin === true) {
+  const dbUserId = user.id;
+
+  if (user.platform_role === 'superadmin') {
     try {
       let r = db.restaurants.find(item => item.id === restaurantId);
       if (!r) {
@@ -238,7 +240,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
       }
       if (!r) return res.status(404).json({ error: "Restaurant not found." });
       const guestPay = {
-        id: user.id,
+        id: dbUserId,
         email: user.email,
         role: 'admin',
         platform_role: 'superadmin',
@@ -258,13 +260,13 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
     let customPerms: any = {};
 
     // Check fallback DB first
-    const fallbackRU = db.restaurant_users.find(ru => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    const fallbackRU = db.restaurant_users.find(ru => ru.user_id === dbUserId && ru.restaurant_id === restaurantId);
     if (fallbackRU) {
       role = fallbackRU.role;
       status = fallbackRU.status;
       customPerms = fallbackRU.custom_permissions;
     } else {
-      const fallbackProfile = db.profiles.find(p => p.id === user.id && p.restaurant_id === restaurantId);
+      const fallbackProfile = db.profiles.find(p => p.id === dbUserId && p.restaurant_id === restaurantId);
       if (fallbackProfile) {
         role = fallbackProfile.role;
         status = fallbackProfile.status || 'active';
@@ -278,7 +280,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
         const { data: mapping } = await supabaseAdmin
           .from('restaurant_users')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', dbUserId)
           .eq('restaurant_id', restaurantId)
           .maybeSingle();
 
@@ -290,7 +292,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
           const { data: profile } = await supabaseAdmin
             .from('profiles')
             .select('*')
-            .eq('id', user.id)
+            .eq('id', dbUserId)
             .eq('restaurant_id', restaurantId)
             .maybeSingle();
 
@@ -354,7 +356,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
     };
 
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role: role,
       restaurantId: restaurantId,
@@ -366,20 +368,20 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
     const now = new Date().toISOString();
     
     // Save locally
-    const fallbackRUIndex = db.restaurant_users.findIndex(ru => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    const fallbackRUIndex = db.restaurant_users.findIndex(ru => ru.user_id === dbUserId && ru.restaurant_id === restaurantId);
     if (fallbackRUIndex > -1) {
       db.restaurant_users[fallbackRUIndex].last_entry_at = now;
     } else {
       db.restaurant_users.push({
         restaurant_id: restaurantId,
-        user_id: user.id,
+        user_id: dbUserId,
         role: role || 'waiter',
         status: status || 'active',
         last_entry_at: now
       });
     }
 
-    const fallbackProfileIndex = db.profiles.findIndex(p => p.id === user.id);
+    const fallbackProfileIndex = db.profiles.findIndex(p => p.id === dbUserId);
     if (fallbackProfileIndex > -1) {
       db.profiles[fallbackProfileIndex].last_entry_at = now;
     }
@@ -390,7 +392,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
       const { error: directErr } = await supabaseAdmin
         .from('restaurant_users')
         .update({ last_entry_at: now })
-        .eq('user_id', user.id)
+        .eq('user_id', dbUserId)
         .eq('restaurant_id', restaurantId);
 
       if (directErr) {
@@ -398,7 +400,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
         const { data: currentRU } = await supabaseAdmin
           .from('restaurant_users')
           .select('custom_permissions')
-          .eq('user_id', user.id)
+          .eq('user_id', dbUserId)
           .eq('restaurant_id', restaurantId)
           .maybeSingle();
 
@@ -410,7 +412,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
         await supabaseAdmin
           .from('restaurant_users')
           .update({ custom_permissions: updatedPerms })
-          .eq('user_id', user.id)
+          .eq('user_id', dbUserId)
           .eq('restaurant_id', restaurantId);
       }
     } catch (e) {
@@ -421,14 +423,14 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
       const { error: profileErr } = await supabaseAdmin
         .from('profiles')
         .update({ last_entry_at: now })
-        .eq('id', user.id);
+        .eq('id', dbUserId);
 
       if (profileErr) {
         console.warn("[DB] profiles.last_entry_at column update failed, trying custom_permissions:", profileErr);
         const { data: currentProf } = await supabaseAdmin
           .from('profiles')
           .select('custom_permissions')
-          .eq('id', user.id)
+          .eq('id', dbUserId)
           .maybeSingle();
 
         const updatedPerms = {
@@ -439,7 +441,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
         await supabaseAdmin
           .from('profiles')
           .update({ custom_permissions: updatedPerms })
-          .eq('id', user.id);
+          .eq('id', dbUserId);
       }
     } catch (e) {
       console.warn("[DB] Failed to save profile entry timestamp:", e);
@@ -513,23 +515,8 @@ router.patch('/organizations/:id', authenticateJWT, async (req, res) => {
 // Complete onboarding combo for Multi-Organization / Restaurant
 router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res) => {
   const user = (req as any).user;
-  let dbUserId = user.id;
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
-
-  if (!dbUserId || dbUserId === 'admin' || typeof dbUserId !== 'string' || dbUserId.length < 30) {
-    try {
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('id')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (profile?.id) {
-        dbUserId = profile.id;
-      }
-    } catch (e) {
-      console.error("Failed to resolve dbUserId for onboard workspace in Express", e);
-    }
-  }
 
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
@@ -710,7 +697,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
     saveFallbackDB(db3);
 
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role: 'owner',
       restaurantId: restaurant.id,

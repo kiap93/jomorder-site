@@ -270,7 +270,7 @@ router.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
       };
       writeStaffRegistry(registry);
 
-      logToAudit(caller.id || 'admin', caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
+      logToAudit(caller.id, caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
 
       return res.status(201).json({
         id: userId,
@@ -320,7 +320,7 @@ router.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
     };
     writeStaffRegistry(registry);
 
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
 
     const db = loadFallbackDB();
     if (!db.profiles.some(p => p.id === authUser.user.id)) {
@@ -460,7 +460,7 @@ router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, r
     }
     saveFallbackDB(db);
 
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
 
     res.json({
       id: updatedProfile.id,
@@ -549,7 +549,7 @@ router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req
       writeStaffRegistry(registry);
     }
 
-    logToAudit(caller.id || 'admin', caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
 
     res.json({ success: true, message: "Staff member deleted successfully." });
   } catch (err: any) {

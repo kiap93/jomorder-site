@@ -432,10 +432,7 @@ var requireSuperAdmin = (req, res, next) => {
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Session missing" });
   }
-  const matchesEmailConfig = process.env.ADMIN_USER_EMAIL && user.email === process.env.ADMIN_USER_EMAIL;
-  const isSuperEmail = matchesEmailConfig || user.email === "admin@saas.com" || user.email === "test@example.com" || user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com";
-  const isSuperRole = user.is_platform_admin === true || user.platform_role === "superadmin" || user.role === "superadmin" || user.role === "admin" || user.role === "ADMIN";
-  if (!isSuperRole && !isSuperEmail) {
+  if (user.platform_role !== "superadmin") {
     console.warn(`[SECURITY WARN] Blocked Express superadmin gateway access for: ${user.email}`);
     return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
   }
@@ -1249,7 +1246,7 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
         permissions: permissions || defaultPerms2
       };
       writeStaffRegistry(registry2);
-      logToAudit(caller.id || "admin", caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
+      logToAudit(caller.id, caller.email, caller.role, `Mapped existing user ${email} to restaurant ${restId} as role: ${role}`, restId);
       return res.status(201).json({
         id: userId,
         email,
@@ -1287,7 +1284,7 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
       permissions: permissions || defaultPerms
     };
     writeStaffRegistry(registry);
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Created staff account: ${email} with role: ${role}`, restId);
     const db = loadFallbackDB();
     if (!db.profiles.some((p) => p.id === authUser.user.id)) {
       db.profiles.push({
@@ -1394,7 +1391,7 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
       }
     }
     saveFallbackDB(db);
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Updated staff member: ${profile.email} (Role: ${role || profile.role}, Status: ${status || registry[staffId].status})`, restId);
     res.json({
       id: updatedProfile.id,
       email: updatedProfile.email,
@@ -1452,7 +1449,7 @@ router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (re
       delete registry[staffId];
       writeStaffRegistry(registry);
     }
-    logToAudit(caller.id || "admin", caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
+    logToAudit(caller.id, caller.email, caller.role, `Deleted staff account mapping: ${profile.email}`, restId);
     res.json({ success: true, message: "Staff member deleted successfully." });
   } catch (err) {
     console.error("Error deleting staff:", err);
@@ -1645,7 +1642,8 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
   const user = req.user;
   const restaurantId = req.params.restaurantId;
   const db = loadFallbackDB();
-  if (user.is_platform_admin === true) {
+  const dbUserId = user.id;
+  if (user.platform_role === "superadmin") {
     try {
       let r = db.restaurants.find((item) => item.id === restaurantId);
       if (!r) {
@@ -1654,7 +1652,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
       }
       if (!r) return res.status(404).json({ error: "Restaurant not found." });
       const guestPay = {
-        id: user.id,
+        id: dbUserId,
         email: user.email,
         role: "admin",
         platform_role: "superadmin",
@@ -1671,13 +1669,13 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
     let role = "";
     let status = "active";
     let customPerms = {};
-    const fallbackRU = db.restaurant_users.find((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    const fallbackRU = db.restaurant_users.find((ru) => ru.user_id === dbUserId && ru.restaurant_id === restaurantId);
     if (fallbackRU) {
       role = fallbackRU.role;
       status = fallbackRU.status;
       customPerms = fallbackRU.custom_permissions;
     } else {
-      const fallbackProfile = db.profiles.find((p) => p.id === user.id && p.restaurant_id === restaurantId);
+      const fallbackProfile = db.profiles.find((p) => p.id === dbUserId && p.restaurant_id === restaurantId);
       if (fallbackProfile) {
         role = fallbackProfile.role;
         status = fallbackProfile.status || "active";
@@ -1686,13 +1684,13 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
     }
     if (!role) {
       try {
-        const { data: mapping } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+        const { data: mapping } = await supabaseAdmin.from("restaurant_users").select("*").eq("user_id", dbUserId).eq("restaurant_id", restaurantId).maybeSingle();
         if (mapping) {
           role = mapping.role;
           status = mapping.status;
           customPerms = mapping.custom_permissions;
         } else {
-          const { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+          const { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("id", dbUserId).eq("restaurant_id", restaurantId).maybeSingle();
           if (profile) {
             role = profile.role;
             status = profile.status || "active";
@@ -1742,7 +1740,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
       ...customPerms || {}
     };
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role,
       restaurantId,
@@ -1751,47 +1749,47 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
       permissions
     };
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const fallbackRUIndex = db.restaurant_users.findIndex((ru) => ru.user_id === user.id && ru.restaurant_id === restaurantId);
+    const fallbackRUIndex = db.restaurant_users.findIndex((ru) => ru.user_id === dbUserId && ru.restaurant_id === restaurantId);
     if (fallbackRUIndex > -1) {
       db.restaurant_users[fallbackRUIndex].last_entry_at = now;
     } else {
       db.restaurant_users.push({
         restaurant_id: restaurantId,
-        user_id: user.id,
+        user_id: dbUserId,
         role: role || "waiter",
         status: status || "active",
         last_entry_at: now
       });
     }
-    const fallbackProfileIndex = db.profiles.findIndex((p) => p.id === user.id);
+    const fallbackProfileIndex = db.profiles.findIndex((p) => p.id === dbUserId);
     if (fallbackProfileIndex > -1) {
       db.profiles[fallbackProfileIndex].last_entry_at = now;
     }
     saveFallbackDB(db);
     try {
-      const { error: directErr } = await supabaseAdmin.from("restaurant_users").update({ last_entry_at: now }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
+      const { error: directErr } = await supabaseAdmin.from("restaurant_users").update({ last_entry_at: now }).eq("user_id", dbUserId).eq("restaurant_id", restaurantId);
       if (directErr) {
         console.warn("[DB] last_entry_at column update failed in restaurant_users, trying custom_permissions fallback:", directErr);
-        const { data: currentRU } = await supabaseAdmin.from("restaurant_users").select("custom_permissions").eq("user_id", user.id).eq("restaurant_id", restaurantId).maybeSingle();
+        const { data: currentRU } = await supabaseAdmin.from("restaurant_users").select("custom_permissions").eq("user_id", dbUserId).eq("restaurant_id", restaurantId).maybeSingle();
         const updatedPerms = {
           ...currentRU?.custom_permissions || {},
           last_entry_at: now
         };
-        await supabaseAdmin.from("restaurant_users").update({ custom_permissions: updatedPerms }).eq("user_id", user.id).eq("restaurant_id", restaurantId);
+        await supabaseAdmin.from("restaurant_users").update({ custom_permissions: updatedPerms }).eq("user_id", dbUserId).eq("restaurant_id", restaurantId);
       }
     } catch (e) {
       console.warn("[DB] Failed to save entry timestamp in restaurant_users:", e);
     }
     try {
-      const { error: profileErr } = await supabaseAdmin.from("profiles").update({ last_entry_at: now }).eq("id", user.id);
+      const { error: profileErr } = await supabaseAdmin.from("profiles").update({ last_entry_at: now }).eq("id", dbUserId);
       if (profileErr) {
         console.warn("[DB] profiles.last_entry_at column update failed, trying custom_permissions:", profileErr);
-        const { data: currentProf } = await supabaseAdmin.from("profiles").select("custom_permissions").eq("id", user.id).maybeSingle();
+        const { data: currentProf } = await supabaseAdmin.from("profiles").select("custom_permissions").eq("id", dbUserId).maybeSingle();
         const updatedPerms = {
           ...currentProf?.custom_permissions || {},
           last_entry_at: now
         };
-        await supabaseAdmin.from("profiles").update({ custom_permissions: updatedPerms }).eq("id", user.id);
+        await supabaseAdmin.from("profiles").update({ custom_permissions: updatedPerms }).eq("id", dbUserId);
       }
     } catch (e) {
       console.warn("[DB] Failed to save profile entry timestamp:", e);
@@ -1838,18 +1836,8 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
 });
 router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
   const user = req.user;
-  let dbUserId = user.id;
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
-  if (!dbUserId || dbUserId === "admin" || typeof dbUserId !== "string" || dbUserId.length < 30) {
-    try {
-      const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("email", user.email).maybeSingle();
-      if (profile?.id) {
-        dbUserId = profile.id;
-      }
-    } catch (e) {
-      console.error("Failed to resolve dbUserId for onboard workspace in Express", e);
-    }
-  }
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
   }
@@ -1999,7 +1987,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     }
     saveFallbackDB(db3);
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role: "owner",
       restaurantId: restaurant.id,

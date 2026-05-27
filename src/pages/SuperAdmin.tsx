@@ -119,7 +119,7 @@ export function SuperAdmin() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Auth Guard check: Reject non-superadmins immediately
-  const isSuper = profile?.role === 'admin' || profile?.email === 'admin@jomorder.com';
+  const isSuper = profile?.platform_role === 'superadmin';
 
   const triggerToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });

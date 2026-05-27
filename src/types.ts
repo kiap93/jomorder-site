@@ -297,6 +297,7 @@ export interface UserProfile {
   email: string;
   role: 'admin' | 'staff' | 'kitchen' | 'owner' | 'manager' | 'cashier' | 'waiter' | 'runner' | 'OWNER' | 'MANAGER' | 'CASHIER' | 'KITCHEN' | 'WAITER' | 'RUNNER';
   restaurantId: string;
+  platform_role?: string | null;
   organizationId?: string | null;
   status?: 'active' | 'suspended';
   permissions?: Record<string, boolean>;

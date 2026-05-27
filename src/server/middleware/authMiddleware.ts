@@ -49,7 +49,7 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
     }
 
     // super admins have absolute access
-    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.platform_role === 'superadmin') {
       next();
       return;
     }
@@ -84,7 +84,7 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
     }
 
     // Super Admin validation bypass
-    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.platform_role === 'superadmin') {
       next();
       return;
     }
@@ -138,15 +138,7 @@ export const requireSuperAdmin = (req: express.Request, res: express.Response, n
     return res.status(401).json({ error: "Unauthorized: Session missing" });
   }
 
-  const matchesEmailConfig = process.env.ADMIN_USER_EMAIL && user.email === process.env.ADMIN_USER_EMAIL;
-  const isSuperEmail = matchesEmailConfig || 
-                       user.email === "admin@saas.com" || 
-                       user.email === "test@example.com" ||
-                       (user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
-
-  const isSuperRole = user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'superadmin' || user.role === 'admin' || user.role === 'ADMIN';
-
-  if (!isSuperRole && !isSuperEmail) {
+  if (user.platform_role !== 'superadmin') {
     console.warn(`[SECURITY WARN] Blocked Express superadmin gateway access for: ${user.email}`);
     return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
   }

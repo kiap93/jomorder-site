@@ -487,12 +487,14 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
   const restaurantId = c.req.param('restaurantId');
   const supabase = getSupabase(c.env);
 
-  if (user.is_platform_admin === true) {
+  const dbUserId = user.id;
+
+  if (user.platform_role === 'superadmin') {
     try {
       const { data: r } = await supabase.from('restaurants').select('*').eq('id', restaurantId).maybeSingle();
       if (!r) return c.json({ error: "Restaurant not found." }, 404);
       const guestPay = {
-        id: user.id,
+        id: dbUserId,
         email: user.email,
         role: 'admin',
         platform_role: 'superadmin',
@@ -514,7 +516,7 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
     const { data: mapping } = await supabase
       .from('restaurant_users')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', dbUserId)
       .eq('restaurant_id', restaurantId)
       .maybeSingle();
 
@@ -526,7 +528,7 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', user.id)
+        .eq('id', dbUserId)
         .eq('restaurant_id', restaurantId)
         .maybeSingle();
 
@@ -557,7 +559,7 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
     };
 
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role: role,
       restaurantId: restaurantId,
@@ -635,20 +637,9 @@ authRoutes.patch('/api/organizations/:id', authenticate, async (c) => {
 // POST /api/onboarding/create-org-workspace
 authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) => {
   const user = c.get('user');
-  let dbUserId = user.id;
+  const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = await c.req.json();
   const supabase = getSupabase(c.env);
-
-  if (!dbUserId || dbUserId === 'admin' || typeof dbUserId !== 'string' || dbUserId.length < 30) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('email', user.email)
-      .maybeSingle();
-    if (profile?.id) {
-      dbUserId = profile.id;
-    }
-  }
 
   if (!workspaceName) {
     return c.json({ error: "Workspace (Restaurant) name is required." }, 400);
@@ -780,7 +771,7 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
     }
 
     const enriched = {
-      id: user.id,
+      id: dbUserId,
       email: user.email,
       role: 'owner',
       restaurantId: restaurant.id,

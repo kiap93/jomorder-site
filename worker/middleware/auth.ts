@@ -45,7 +45,7 @@ export const requireTenantIsolation = (paramName: string = 'restId'): Middleware
     }
 
     // Direct Bypass for global Super Admins
-    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.platform_role === 'superadmin') {
       await next();
       return;
     }
@@ -83,7 +83,7 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
     }
 
     // Global Super Admin has all capabilities
-    if (user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'admin' || user.isSuperAdmin === true) {
+    if (user.platform_role === 'superadmin') {
       await next();
       return;
     }
@@ -153,15 +153,7 @@ export const requireSuperAdmin: MiddlewareHandler<{ Bindings: Bindings; Variable
     return c.json({ error: 'Unauthorized: Session missing' }, 401);
   }
 
-  const matchesEmailConfig = c.env.ADMIN_USER_EMAIL && user.email === c.env.ADMIN_USER_EMAIL;
-  const isSuperEmail = matchesEmailConfig || 
-                       user.email === "admin@saas.com" || 
-                       user.email === "test@example.com" ||
-                       (user.email && user.email.toLowerCase() === "kiap93.kmj@gmail.com");
-
-  const isSuperRole = user.is_platform_admin === true || user.platform_role === 'superadmin' || user.role === 'superadmin' || user.role === 'admin' || user.role === 'ADMIN';
-
-  if (!isSuperRole && !isSuperEmail) {
+  if (user.platform_role !== 'superadmin') {
     console.warn(`[SECURITY WARNING] Blocked unauthorized superadmin panel access by user: ${user.email}`);
     return c.json({ error: "Forbidden: Redundant Superadmin access denied." }, 403);
   }
