@@ -5,7 +5,7 @@ import { guestSupabase as supabase } from '../lib/supabase';
 import { paymentEngine, PaymentIntentResponse } from '../lib/paymentEngine';
 import { Restaurant, Order, Payment, ProductSelection, Product, OrderStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { 
   ChevronLeft, 
   CreditCard, 
@@ -404,7 +404,7 @@ export function Checkout() {
                           <div className="flex items-center gap-3">
                             <div className={`w-1.5 h-1.5 rounded-full ${o.paid_at ? 'bg-emerald-500/50' : 'bg-orange-500'}`} />
                             <div className="flex flex-col">
-                              <span className="text-zinc-300 font-bold uppercase">Order #{o.id.slice(-4).toUpperCase()}</span>
+                              <span className="text-zinc-300 font-bold uppercase">Order #{getOrderDisplayNo(o.id, o.createdAt)}</span>
                               <span className="text-zinc-500 text-[9px] uppercase">{o.paid_at ? 'Already Paid' : 'Pending Payment'}</span>
                             </div>
                           </div>

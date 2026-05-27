@@ -275,11 +275,11 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col md:flex-row overflow-hidden font-sans">
+    <div className="fixed inset-0 z-50 bg-black flex flex-col md:flex-row overflow-y-auto md:overflow-hidden font-sans">
       {/* 1️⃣ Navigation Sidebar */}
-      <div className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'} w-full bg-zinc-950 border-r border-zinc-800/50 flex flex-col shrink-0`}>
-        <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+      <div className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'} w-full shrink-0 bg-zinc-950 border-b md:border-b-0 md:border-r border-zinc-800/50 flex flex-col md:flex-col`}>
+        <div className="p-3 md:p-4 border-b border-zinc-800/50 flex flex-row md:flex-col justify-between items-center md:items-stretch gap-4 shrink-0">
+          <div className="flex items-center gap-2">
             <button 
               onClick={onClose}
               className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors group"
@@ -298,14 +298,14 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           </div>
           
           {!isSidebarCollapsed && (
-            <div className="animate-in fade-in duration-300">
+            <div className="animate-in fade-in duration-300 hidden md:block">
               <h1 className="text-lg font-black text-white tracking-tighter uppercase leading-none italic">{t('common.settlement')}</h1>
               <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mt-1">Terminal Active</p>
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-x-auto md:overflow-y-auto p-2 flex flex-row md:flex-col gap-1.5 md:space-y-1 scrollbar-none shrink-0">
           {paymentMethods.map((method) => {
             const Icon = method.icon;
             const isActive = selectedMethod === method.id;
@@ -313,25 +313,25 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
               <button
                 key={method.id}
                 onClick={() => setSelectedMethod(method.id as PaymentMethodType)}
-                className={`w-full p-2 rounded-md flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} transition-all active:scale-[0.98] ${
+                className={`p-2 rounded-md flex items-center ${isSidebarCollapsed ? 'md:justify-center' : 'gap-3'} transition-all active:scale-[0.98] shrink-0 ${
                   isActive 
                   ? 'bg-zinc-900 text-white shadow-xl shadow-black/50 border border-zinc-800' 
                   : 'text-zinc-500 hover:bg-zinc-900/50 hover:text-zinc-300'
                 }`}
                 title={isSidebarCollapsed ? method.label : undefined}
               >
-                <div className={`w-8 h-8 rounded flex items-center justify-center border transition-all shrink-0 ${
+                <div className={`w-7 h-7 md:w-8 md:h-8 rounded flex items-center justify-center border transition-all shrink-0 ${
                   isActive 
                   ? `bg-${method.color}-500/10 border-${method.color}-500/20 text-${method.color}-500` 
                   : 'bg-zinc-950 border-zinc-900'
                 }`}>
-                  <Icon size={16} />
+                  <Icon size={14} className="md:size-4" />
                 </div>
                 {!isSidebarCollapsed && (
-                  <div className="text-left flex-1 min-w-0 animate-in fade-in slide-in-from-left-1 duration-200">
+                  <div className="text-left flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="block text-xs font-black tracking-tight truncate">{method.label}</span>
-                      <span className="text-[8px] font-black px-1 py-0.5 bg-zinc-800 text-zinc-600 rounded border border-zinc-700/50 shrink-0">
+                      <span className="block text-xs font-black tracking-tight truncate whitespace-nowrap">{method.label}</span>
+                      <span className="hidden md:inline-block text-[8px] font-black px-1 py-0.5 bg-zinc-800 text-zinc-600 rounded border border-zinc-700/50 shrink-0">
                         {method.id === 'cash' ? 'C' : method.id.charAt(0).toUpperCase()}
                       </span>
                     </div>
@@ -342,7 +342,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           })}
         </div>
 
-        <div className="p-3 bg-zinc-900/10 border-t border-zinc-800/50">
+        <div className="hidden md:block p-3 bg-zinc-900/10 border-t border-zinc-800/50 mt-auto">
           <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2'} p-2 bg-zinc-900/30 rounded border border-zinc-800/50`}>
             <div className={`w-6 h-6 bg-zinc-800 rounded flex items-center justify-center ${isSidebarCollapsed ? '' : 'shrink-0'}`}>
               <ShieldCheck size={12} className="text-emerald-500" />
@@ -358,7 +358,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       </div>
 
       {/* 2️⃣ Main Workspace Center */}
-      <div className="flex-1 bg-zinc-950 flex flex-col relative overflow-hidden">
+      <div className="flex-1 bg-zinc-950 flex flex-col relative md:overflow-hidden min-h-[420px] md:min-h-0 shrink-0 md:shrink">
         {/* Workspace Top Bar */}
         <div className="h-12 bg-zinc-950 border-b border-zinc-800/50 flex items-center justify-between px-4">
            <div className="flex items-center gap-3">
@@ -396,79 +396,32 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
               className="h-full"
             >
               {selectedMethod === 'cash' ? (
-                <div className="h-full flex items-center justify-center p-4">
-                   <div className="w-full max-w-2xl scale-[0.9] origin-center">
-                    <CashCalculator 
-                      amountDue={remainingBalance}
-                      orderId={order.id}
-                      orderDetails={{
-                        subtotal,
-                        serviceCharge: scAmount,
-                        sst: sstAmount,
-                        currency: restaurant.currency
-                      }}
-                      onCancel={() => setSelectedMethod('card')}
-                        onComplete={async (data) => {
-                          const token = useAuthStore.getState().token;
-                          if (!token) return;
+                <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-950">
+                  <div className="w-full max-w-sm space-y-6">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-emerald-500/5 blur-[60px] rounded-full" />
+                      <div className="relative w-24 h-24 bg-zinc-900 rounded-2xl border border-zinc-800 flex items-center justify-center mx-auto shadow-2xl">
+                        <Banknote size={32} className="text-emerald-500 animate-pulse" />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <h3 className="text-xl font-black text-white tracking-tight uppercase italic">Cash Hub</h3>
+                      <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">Active Cash Settlement Session</p>
+                    </div>
 
-                          setIsProcessing(true);
-                          try {
-                            const remainingAmount = totalAmount - paidAmount;
-                            const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
-                            
-                            const pRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
-                              method: 'POST',
-                              headers: {
-                                'Authorization': `Bearer ${token}`,
-                                'Content-Type': 'application/json'
-                              },
-                              body: JSON.stringify({
-                                restaurant_id: restaurant.id,
-                                amount: amountPaid,
-                                payment_method: 'cash',
-                                provider: 'pos_cash',
-                                status: 'paid',
-                                currency: restaurant.currency || 'MYR'
-                              })
-                            });
+                    <div className="p-3 bg-zinc-900/50 rounded-lg border border-zinc-800 text-center">
+                      <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1 leading-none">Net Due</p>
+                      <p className="text-base font-black text-white leading-none">RM {remainingBalance.toFixed(2)}</p>
+                    </div>
 
-                            if (!pRes.ok) throw new Error("Payment record failed");
-                            const payment = await pRes.json();
-
-                            const deviceId = await indexedDbStorage.getItem<string>('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
-                            
-                            await fetch(getApiUrl(`/api/cash-transactions`), {
-                              method: 'POST',
-                              headers: {
-                                'Authorization': `Bearer ${token}`,
-                                'Content-Type': 'application/json'
-                              },
-                              body: JSON.stringify({
-                                payment_id: payment.id,
-                                order_id: order.id,
-                                cashier_id: profile?.id,
-                                restaurant_id: restaurant.id,
-                                device_id: deviceId,
-                                amount_due: remainingAmount,
-                                cash_received: data.cashReceived,
-                                change_given: data.changeGiven,
-                                rounding_adjustment: data.rounding,
-                                status: 'completed',
-                                metadata: {
-                                  is_partial: data.isPartial,
-                                  remaining_balance: data.remainingBalance
-                                }
-                              })
-                            });
-
-                            await handlePaymentComplete(payment);
-                          } finally {
-                            setIsProcessing(false);
-                          }
-                        }}
-                    />
-                   </div>
+                    <button
+                      onClick={() => setSelectedMethod('cash')}
+                      className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white rounded font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>Active Overlay Opened</span>
+                    </button>
+                  </div>
                 </div>
               ) : selectedMethod === 'card' ? (
                 <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-950">
@@ -681,7 +634,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       </div>
 
       {/* 3️⃣ Summary & Timeline Side Panel */}
-      <div className="w-full md:w-[320px] bg-zinc-950 border-l border-zinc-800/50 flex flex-col shrink-0">
+      <div className="w-full md:w-[320px] bg-zinc-950 border-t md:border-t-0 md:border-l border-zinc-800/50 flex flex-col shrink-0">
         <div className="p-4 bg-zinc-950/50">
           <div className="flex items-center justify-between mb-4">
              <div className="flex items-center gap-2">
@@ -824,6 +777,81 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           </div>
         </div>
       </div>
+
+      {selectedMethod === 'cash' && (
+        <CashCalculator 
+          amountDue={remainingBalance}
+          orderId={order.id}
+          orderDetails={{
+            subtotal,
+            serviceCharge: scAmount,
+            sst: sstAmount,
+            currency: restaurant.currency
+          }}
+          onCancel={() => setSelectedMethod('card')}
+          onComplete={async (data) => {
+            const token = useAuthStore.getState().token;
+            if (!token) return;
+
+            setIsProcessing(true);
+            try {
+              const remainingAmount = totalAmount - paidAmount;
+              const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
+              
+              const pRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  restaurant_id: restaurant.id,
+                  amount: amountPaid,
+                  payment_method: 'cash',
+                  provider: 'pos_cash',
+                  status: 'paid',
+                  currency: restaurant.currency || 'MYR'
+                })
+              });
+
+              if (!pRes.ok) throw new Error("Payment record failed");
+              const payment = await pRes.json();
+
+              const deviceId = await indexedDbStorage.getItem<string>('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
+              
+              await fetch(getApiUrl(`/api/cash-transactions`), {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  payment_id: payment.id,
+                  order_id: order.id,
+                  cashier_id: profile?.id,
+                  restaurant_id: restaurant.id,
+                  device_id: deviceId,
+                  amount_due: remainingAmount,
+                  cash_received: data.cashReceived,
+                  change_given: data.changeGiven,
+                  rounding_adjustment: data.rounding,
+                  status: 'completed',
+                  metadata: {
+                    is_partial: data.isPartial,
+                    remaining_balance: data.remainingBalance
+                  }
+                })
+              });
+
+              await handlePaymentComplete(payment);
+            } catch (err) {
+              console.error(err);
+            } finally {
+              setIsProcessing(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

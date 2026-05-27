@@ -47,7 +47,7 @@ export function Navbar() {
   );
 
   const isWorkspaceSwitcherVisible = !isLoading && (
-    activeOrg ? activeOrg.max_outlets !== 1 : true
+    activeOrg ? (Number(activeOrg.max_outlets) > 1) : false
   );
 
   useEffect(() => {

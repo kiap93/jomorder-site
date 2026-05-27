@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, Restaurant } from '../types';
@@ -362,7 +362,7 @@ export function PosDashboard() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="bg-gray-900 text-white rounded px-1.5 py-0.5 text-[9px] font-black font-mono leading-none">
-                      #{order.id.slice(-4).toUpperCase()}
+                      #{getOrderDisplayNo(order.id, order.createdAt)}
                     </span>
                     <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-tighter">T-{order.tableName || order.tableId}</h3>
                   </div>

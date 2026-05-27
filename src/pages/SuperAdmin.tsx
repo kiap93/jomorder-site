@@ -5,7 +5,7 @@ import {
   Database, RefreshCw, Key, Power, Play, CreditCard, Ban, Trash2, Sliders
 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 
 interface TenantFeature {
   duitnow_payment: boolean;
@@ -722,7 +722,7 @@ export function SuperAdmin() {
                     >
                       <td className="p-4">
                         <div className="font-bold flex items-center gap-1.5">
-                          <span className="text-white">#{order.id.slice(0, 8)}</span>
+                          <span className="text-white">#{getOrderDisplayNo(order.id, order.createdAt)}</span>
                           {order.isStuck && (
                             <span className="bg-orange-950/80 text-orange-400 border border-orange-500/20 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider animate-pulse flex items-center gap-1">
                               <AlertTriangle size={10} /> Stuck
@@ -1090,7 +1090,7 @@ export function SuperAdmin() {
                 <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-ping" />
                 <span className="text-[10px] font-black tracking-widest text-orange-500 uppercase">OPS TELEMETRY LOG</span>
               </div>
-              <h2 className="text-xl font-black text-white leading-tight">Order #{selectedOrder.id.slice(0, 8)}</h2>
+              <h2 className="text-xl font-black text-white leading-tight">Order #{getOrderDisplayNo(selectedOrder.id, selectedOrder.createdAt)}</h2>
               <span className="text-[10px] font-mono text-zinc-500 block mt-0.5">{selectedOrder.restaurantName}</span>
             </div>
             <button 

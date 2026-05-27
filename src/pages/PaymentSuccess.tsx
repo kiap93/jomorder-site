@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { useLanguageStore } from '../store/useLanguageStore';
 
 import { motion } from 'motion/react';
@@ -115,7 +115,7 @@ export function PaymentSuccess() {
               {orders.filter(o => o.paid_at).map(o => (
                 <div key={o.id} className="flex justify-between items-center text-[12px]">
                    <div className="flex flex-col">
-                      <span className="text-zinc-300 font-bold tracking-tight">Order #{o.id.slice(-4).toUpperCase()}</span>
+                      <span className="text-zinc-300 font-bold tracking-tight">Order #{getOrderDisplayNo(o.id, o.createdAt)}</span>
                       <span className="text-zinc-600 text-[10px] uppercase font-black tracking-tighter">
                          {new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -131,7 +131,7 @@ export function PaymentSuccess() {
                </div>
                <div className="flex items-center gap-1 text-zinc-600 bg-zinc-800/50 px-2 py-0.5 rounded text-[10px] font-bold">
                   <Receipt size={10} />
-                  <span>REF: {orderId?.slice(0, 8).toUpperCase()}</span>
+                  <span>REF: {getOrderDisplayNo(orderId || '', orders[0]?.createdAt)}</span>
                </div>
             </div>
           </div>

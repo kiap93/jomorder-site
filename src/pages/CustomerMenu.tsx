@@ -164,6 +164,10 @@ export function CustomerMenu() {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [restId, tableId]);
+
+  useEffect(() => {
     return offlineService.subscribeConnectivity(setIsOnline);
   }, []);
   const mutationQueue = useRef<MutationQueue | null>(null);

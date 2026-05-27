@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
@@ -1277,7 +1277,7 @@ export function AdminPanel() {
                 {orders.map(order => (
                   <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
                     <td className="px-8 py-4">
-                      <span className="font-mono font-bold text-xs text-zinc-400">#{(order.id || '').slice(-6).toUpperCase()}</span>
+                      <span className="font-mono font-bold text-xs text-zinc-400">#{getOrderDisplayNo(order.id, order.created_at || (order as any).createdAt)}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>

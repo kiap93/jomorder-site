@@ -8,7 +8,7 @@ import { OrderStatus, OrderType } from '../enums';
 import { motion } from 'motion/react';
 import { ChefHat, CheckCircle2, Clock, MapPin, Plus, Receipt } from 'lucide-react';
 import { flattenSelections } from '../lib/configEngine';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { useLanguageStore } from '../store/useLanguageStore';
 
 export function OrderTracker() {
@@ -238,7 +238,7 @@ export function OrderTracker() {
         <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 relative">
           <statusInfo.icon size={48} className={`${currentOrder.status === OrderStatus.COOKING ? 'animate-pulse' : ''} ${statusInfo.color}`} />
           <div className="absolute -bottom-2 -right-2 bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">
-            #{currentOrder.id.slice(-4).toUpperCase()}
+            #{getOrderDisplayNo(currentOrder.id, currentOrder.createdAt)}
           </div>
         </div>
 
@@ -277,7 +277,7 @@ export function OrderTracker() {
           <div key={o.id} className={`bg-gray-50 rounded-3xl p-5 border ${o.id === orderId ? 'border-orange-200 bg-orange-50/30' : 'border-gray-100'}`}>
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-white bg-zinc-900 px-2 py-0.5 rounded-full">#{o.id.slice(-4).toUpperCase()}</span>
+                <span className="text-[10px] font-black text-white bg-zinc-900 px-2 py-0.5 rounded-full">#{getOrderDisplayNo(o.id, o.createdAt)}</span>
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Order {sessionIdx + 1}</span>
               </div>
               <span className={`text-[10px] font-black uppercase tracking-widest ${o.paid_at ? 'text-emerald-600' : 'text-orange-600'}`}>

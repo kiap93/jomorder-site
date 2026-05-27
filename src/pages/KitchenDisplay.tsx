@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { Order } from '../types';
@@ -183,7 +183,7 @@ export function KitchenDisplay() {
                   </div>
                 </div>
                 <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[10px] font-bold font-mono">
-                  #{order.id.slice(-4).toUpperCase()}
+                  #{getOrderDisplayNo(order.id, order.createdAt)}
                 </div>
               </div>
 
