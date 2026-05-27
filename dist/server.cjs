@@ -457,9 +457,28 @@ router.post("/login", async (req, res) => {
   if (isAdminEnvMatch || isDevAdminMatch) {
     let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
     if (!profile) {
-      const newAdminId = import_crypto.default.randomUUID();
+      let authUserId = null;
+      try {
+        const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          authUserId = existingAuthUser.id;
+        } else {
+          const { data: newAuth, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password: password || "admin123",
+            email_confirm: true
+          });
+          if (!createError && newAuth?.user) {
+            authUserId = newAuth.user.id;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to list or create auth user for express superadmin:", e);
+      }
+      const idToInsert = authUserId || import_crypto.default.randomUUID();
       const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
-        id: newAdminId,
+        id: idToInsert,
         email,
         role: "admin",
         status: "active"
@@ -468,7 +487,7 @@ router.post("/login", async (req, res) => {
         profile = inserted;
       } else {
         profile = {
-          id: newAdminId,
+          id: idToInsert,
           email,
           role: "admin",
           status: "active"
@@ -599,9 +618,29 @@ router.post("/google-login", async (req, res) => {
       console.log("Admin email match:", email);
       let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
       if (!profile) {
-        const newAdminId = import_crypto.default.randomUUID();
+        let authUserId = null;
+        try {
+          const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+          const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+          if (existingAuthUser) {
+            authUserId = existingAuthUser.id;
+          } else {
+            const dummyPassword = import_crypto.default.randomUUID();
+            const { data: newAuth, error: createError } = await supabaseAdmin.auth.admin.createUser({
+              email,
+              password: dummyPassword,
+              email_confirm: true
+            });
+            if (!createError && newAuth?.user) {
+              authUserId = newAuth.user.id;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to list or create auth user for google express superadmin:", e);
+        }
+        const idToInsert = authUserId || import_crypto.default.randomUUID();
         const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
-          id: newAdminId,
+          id: idToInsert,
           email,
           role: "admin",
           status: "active"
@@ -610,7 +649,7 @@ router.post("/google-login", async (req, res) => {
           profile = inserted;
         } else {
           profile = {
-            id: newAdminId,
+            id: idToInsert,
             email,
             role: "admin",
             status: "active"

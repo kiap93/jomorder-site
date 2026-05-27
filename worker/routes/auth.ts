@@ -34,11 +34,32 @@ authRoutes.post('/api/login', async (c) => {
       .maybeSingle();
 
     if (!profile) {
-      const newAdminId = crypto.randomUUID();
+      let authUserId: string | null = null;
+      try {
+        const { data: usersList } = await supabase.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          authUserId = existingAuthUser.id;
+        } else {
+          const { data: newAuth, error: createError } = await supabase.auth.admin.createUser({
+            email,
+            password: password || 'admin123',
+            email_confirm: true
+          });
+          if (!createError && newAuth?.user) {
+            authUserId = newAuth.user.id;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to list or create auth user for superadmin:", e);
+      }
+
+      const idToInsert = authUserId || crypto.randomUUID();
+
       const { data: inserted, error: insertError } = await supabase
         .from('profiles')
         .insert({
-          id: newAdminId,
+          id: idToInsert,
           email: email,
           role: 'admin',
           status: 'active'
@@ -50,7 +71,7 @@ authRoutes.post('/api/login', async (c) => {
         profile = inserted;
       } else {
         profile = {
-          id: newAdminId,
+          id: idToInsert,
           email: email,
           role: 'admin',
           status: 'active'
@@ -191,11 +212,33 @@ authRoutes.post('/api/google-login', async (c) => {
       .maybeSingle();
 
     if (!profile) {
-      const newAdminId = crypto.randomUUID();
+      let authUserId: string | null = null;
+      try {
+        const { data: usersList } = await supabase.auth.admin.listUsers();
+        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existingAuthUser) {
+          authUserId = existingAuthUser.id;
+        } else {
+          const dummyPassword = crypto.randomUUID();
+          const { data: newAuth, error: createError } = await supabase.auth.admin.createUser({
+            email,
+            password: dummyPassword,
+            email_confirm: true
+          });
+          if (!createError && newAuth?.user) {
+            authUserId = newAuth.user.id;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to list or create auth user for google superadmin:", e);
+      }
+
+      const idToInsert = authUserId || crypto.randomUUID();
+
       const { data: inserted, error: insertError } = await supabase
         .from('profiles')
         .insert({
-          id: newAdminId,
+          id: idToInsert,
           email: email,
           role: 'admin',
           status: 'active'
@@ -207,7 +250,7 @@ authRoutes.post('/api/google-login', async (c) => {
         profile = inserted;
       } else {
         profile = {
-          id: newAdminId,
+          id: idToInsert,
           email: email,
           role: 'admin',
           status: 'active'
