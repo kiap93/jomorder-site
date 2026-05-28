@@ -13,10 +13,14 @@ CREATE TABLE IF NOT EXISTS public.payments (
     provider VARCHAR(50) NOT NULL, -- paynet, stripe, adyen, internal
     external_id VARCHAR(255), -- Provider's transaction reference
     metadata JSONB DEFAULT '{}'::jsonb,
+    idempotency_key TEXT UNIQUE, -- Unique idempotency key column for replay protection
     paid_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Ensure idempotency_key exists on any existing tables
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS idempotency_key TEXT UNIQUE;
 
 -- 2. Payment Attempts Table (Audit Log)
 CREATE TABLE IF NOT EXISTS public.payment_attempts (

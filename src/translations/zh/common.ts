@@ -34,6 +34,7 @@ const common = {
   "status.ready": "已出餐 (请取餐)",
   "status.served": "已上菜",
   "status.completed": "已结账完成",
+  "status.completedUnpaid": "已完成 (未支付)",
   "status.cancelled": "已取消",
 };
 

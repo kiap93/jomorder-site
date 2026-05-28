@@ -49,6 +49,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS tr_log_cash_payment ON public.cash_transactions;
 CREATE TRIGGER tr_log_cash_payment
     AFTER INSERT ON public.cash_transactions
     FOR EACH ROW EXECUTE FUNCTION public.log_cash_payment();

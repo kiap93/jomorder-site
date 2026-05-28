@@ -34,6 +34,7 @@ const common = {
   "status.ready": "Sedia Dihidang",
   "status.served": "Telah Dihidang",
   "status.completed": "Selesai & Dibayar",
+  "status.completedUnpaid": "Selesai (Belum Bayar)",
   "status.cancelled": "Dibatalkan",
 };
 

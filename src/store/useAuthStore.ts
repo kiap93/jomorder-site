@@ -23,6 +23,8 @@ const getStorageKey = () => 'manual_supabase_jwt';
 
 // Worker channel for cross-tab synchronization
 const authChannel = new BroadcastChannel('auth_worker');
+const currentTabId = typeof window !== 'undefined' ? (Math.random().toString(36).substring(2, 11) + '-' + Date.now()) : 'ssr-env';
+let lastProcessedChangeTime = 0;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -36,6 +38,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Set up worker listener for cross-tab sync
       const channelListener = (event: MessageEvent) => {
         if (event.data.type === 'AUTH_STATE_CHANGED') {
+          if (event.data.sourceTab === currentTabId) return;
+
+          const now = Date.now();
+          if (now - lastProcessedChangeTime < 1500) {
+            console.log("AuthStore (Worker): Throttling redundant sync broadcast");
+            return;
+          }
+          lastProcessedChangeTime = now;
+
           console.log("AuthStore (Worker): Syncing auth state from another tab...");
           get().refreshSession();
         }
@@ -147,7 +158,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -195,7 +206,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -245,7 +256,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -267,7 +278,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null, profile: null, token: null, loading: false });
     
     // Notify other tabs via worker channel
-    authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+    authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     initializationPromise = null;
   },
 
@@ -308,7 +319,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED' });
+      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       throw err;
     }

@@ -34,6 +34,7 @@ const common = {
   "status.ready": "Ready to Serve",
   "status.served": "Served",
   "status.completed": "Paid & Done",
+  "status.completedUnpaid": "Completed (Unpaid)",
   "status.cancelled": "Cancelled",
 };
 

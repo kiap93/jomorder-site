@@ -26,7 +26,10 @@ export const SyncBasketItemSchema = z.object({
   p_product_id: z.string().min(1, { message: "p_product_id is required" }),
   p_delta: z.number().int({ message: "p_delta must be an integer" }),
   p_configuration: z.record(z.string(), z.any()).nullable().optional(),
-  p_device_info: z.string().nullable().optional()
+  p_device_info: z.string().nullable().optional(),
+  p_sequence_no: z.number().int().optional(),
+  p_client_timestamp: z.number().int().optional(),
+  p_sync_id: z.string().optional()
 });
 
 export const OrderItemSchema = z.object({

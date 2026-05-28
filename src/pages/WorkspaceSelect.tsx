@@ -185,11 +185,11 @@ export function WorkspaceSelect() {
           
           const params = new URLSearchParams(window.location.search);
           const forceSelector = params.get('select') === 'true';
-          if (!forceSelector && !params.get('orgId') && autoRedirectEnabled && rests.length === 0) {
+          if (!forceSelector && !params.get('orgId') && autoRedirectEnabled) {
             setRestoringSession(true);
             return; // let countdown handle it
           }
-        } else if (autoRedirectEnabled && rests.length === 0 && orgs.length === 1) {
+        } else if (autoRedirectEnabled && rests.length === 1 && orgs.length === 1) {
           // If strictly 1 organization and 1 branch, enter automatically
           const singleOrg = orgs[0];
           const outlets = rests.filter((w: any) => w.organization_id === singleOrg.id);

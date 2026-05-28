@@ -204,11 +204,43 @@ orderRoutes.post('/api/public/sync-basket-item', async (c) => {
       }
     }
 
-    // 4. Bump Basket Version
-    await supabase
-      .from('baskets')
-      .update({ basket_version: basketVersion + 1, updated_at: new Date().toISOString() })
-      .eq('id', basketId);
+     // 4. Bump Basket Version with Optimistic Lock retry loop
+    let currentVer = basketVersion;
+    let success = false;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const { data, error } = await supabase
+        .from('baskets')
+        .update({ basket_version: currentVer + 1, updated_at: new Date().toISOString() })
+        .eq('id', basketId)
+        .eq('basket_version', currentVer)
+        .select('basket_version');
+
+      if (!error && data && data.length > 0) {
+        success = true;
+        break;
+      }
+
+      // Fetch the latest version and retry
+      const { data: latestBasket } = await supabase
+        .from('baskets')
+        .select('basket_version')
+        .eq('id', basketId)
+        .maybeSingle();
+
+      if (latestBasket) {
+        currentVer = latestBasket.basket_version || 1;
+      } else {
+        break;
+      }
+    }
+
+    // Fallback if loop didn't succeed to update with lock
+    if (!success) {
+      await supabase
+        .from('baskets')
+        .update({ basket_version: currentVer + 1, updated_at: new Date().toISOString() })
+        .eq('id', basketId);
+    }
 
     return c.json({ basket_id: basketId, new_quantity: newQty });
   } catch (err: any) {

@@ -75,6 +75,24 @@ paymentRoutes.post("/api/cash-transactions", authenticate, async (c) => {
 
 // --- PAYMENTS ENDPOINTS (PUBLIC) ---
 
+interface WorkerIdempotencyRecord {
+  status: 'processing' | 'completed' | 'failed';
+  result?: any;
+  error?: string;
+  createdAt: number;
+}
+
+const workerIdempotencyRegistry = new Map<string, WorkerIdempotencyRecord>();
+
+function cleanWorkerExpiredIdempotencyKeys() {
+  const cutoff = Date.now() - 86400000; // 24-hour expiration
+  for (const [key, record] of workerIdempotencyRegistry.entries()) {
+    if (record.createdAt < cutoff) {
+      workerIdempotencyRegistry.delete(key);
+    }
+  }
+}
+
 paymentRoutes.post("/api/public/payments", async (c) => {
   try {
     const supabase = getSupabase(c.env);
@@ -86,15 +104,64 @@ paymentRoutes.post("/api/public/payments", async (c) => {
     const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
     const idempotencyKeyResolved = idempotency_key || idempotencyKey;
 
+    cleanWorkerExpiredIdempotencyKeys();
+
     if (idempotencyKeyResolved) {
-      const { data: existing } = await supabase
+      // 1. Concurrency Check & Lock
+      let record = workerIdempotencyRegistry.get(idempotencyKeyResolved);
+      if (record && record.status === 'processing') {
+        // Poll briefly to let parallel request finish
+        for (let i = 0; i < 50; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          record = workerIdempotencyRegistry.get(idempotencyKeyResolved);
+          if (!record || record.status !== 'processing') break;
+        }
+      }
+
+      if (record) {
+        if (record.status === 'completed') {
+          return c.json(record.result);
+        }
+        if (record.status === 'processing') {
+          return c.json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." }, 409);
+        }
+      }
+
+      // Initialize processing lock
+      workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+        status: 'processing',
+        createdAt: Date.now()
+      });
+
+      // 2. DB Replay Check (existing column lookup or metadata lookup)
+      const { data: existingCol } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('idempotency_key', idempotencyKeyResolved)
+        .maybeSingle();
+
+      if (existingCol) {
+        workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'completed',
+          result: existingCol,
+          createdAt: Date.now()
+        });
+        return c.json(existingCol);
+      }
+
+      const { data: existingMeta } = await supabase
         .from('payments')
         .select('*')
         .eq('metadata->>idempotency_key', idempotencyKeyResolved)
         .maybeSingle();
 
-      if (existing) {
-        return c.json(existing);
+      if (existingMeta) {
+        workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'completed',
+          result: existingMeta,
+          createdAt: Date.now()
+        });
+        return c.json(existingMeta);
       }
     }
 
@@ -114,14 +181,42 @@ paymentRoutes.post("/api/public/payments", async (c) => {
       idempotency_key: idempotencyKeyResolved
     };
 
-    const { data, error } = await supabase
+    // 3. Unique SQL level attempt with duplicate key catching fallback
+    const { data: successData, error: dbError } = await supabase
       .from('payments')
       .insert(insertPayload)
       .select()
       .single();
 
-    if (error) {
-      if (error.message?.includes('idempotency_key') || error.code === 'PGRST204') {
+    if (dbError) {
+      // Catch unique database constraint error
+      if (dbError.code === '23505' || dbError.message?.toLowerCase().includes('unique') || dbError.message?.toLowerCase().includes('duplicate')) {
+        const { data: reloadedCol } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('idempotency_key', idempotencyKeyResolved)
+          .maybeSingle();
+
+        const reloaded = reloadedCol || (await supabase
+          .from('payments')
+          .select('*')
+          .eq('metadata->>idempotency_key', idempotencyKeyResolved)
+          .maybeSingle()).data;
+
+        if (reloaded) {
+          if (idempotencyKeyResolved) {
+            workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+              status: 'completed',
+              result: reloaded,
+              createdAt: Date.now()
+            });
+          }
+          return c.json(reloaded);
+        }
+      }
+
+      // If schema error because column doesn't exist yet, fallback to metadata lookup & insert without the DB column
+      if (dbError.message?.includes('idempotency_key') || dbError.code === 'PGRST204') {
         const fallbackPayload = {
           restaurant_id: restaurantId,
           order_id: orderId,
@@ -137,13 +232,45 @@ paymentRoutes.post("/api/public/payments", async (c) => {
           .select()
           .single();
 
-        if (fallbackError) return c.json({ error: fallbackError.message }, 500);
+        if (fallbackError) {
+          if (idempotencyKeyResolved) {
+            workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+              status: 'failed',
+              error: fallbackError.message,
+              createdAt: Date.now()
+            });
+          }
+          return c.json({ error: fallbackError.message }, 500);
+        }
+
+        if (idempotencyKeyResolved) {
+          workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+            status: 'completed',
+            result: fallbackData,
+            createdAt: Date.now()
+          });
+        }
         return c.json(fallbackData);
       }
-      return c.json({ error: error.message }, 500);
+
+      if (idempotencyKeyResolved) {
+        workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'failed',
+          error: dbError.message,
+          createdAt: Date.now()
+        });
+      }
+      return c.json({ error: dbError.message }, 500);
     }
 
-    return c.json(data);
+    if (idempotencyKeyResolved) {
+      workerIdempotencyRegistry.set(idempotencyKeyResolved, {
+        status: 'completed',
+        result: successData,
+        createdAt: Date.now()
+      });
+    }
+    return c.json(successData);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

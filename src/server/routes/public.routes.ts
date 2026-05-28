@@ -265,10 +265,43 @@ router.post("/sync-basket-item", async (req, res) => {
       }
     }
 
-    await supabaseAdmin
-      .from('baskets')
-      .update({ basket_version: basketVersion + 1, updated_at: new Date().toISOString() })
-      .eq('id', basketId);
+    // 4. Bump Basket Version with Optimistic Lock retry loop
+    let currentVer = basketVersion;
+    let success = false;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const { data, error } = await supabaseAdmin
+        .from('baskets')
+        .update({ basket_version: currentVer + 1, updated_at: new Date().toISOString() })
+        .eq('id', basketId)
+        .eq('basket_version', currentVer)
+        .select('basket_version');
+
+      if (!error && data && data.length > 0) {
+        success = true;
+        break;
+      }
+
+      // Fetch the latest version and retry
+      const { data: latestBasket } = await supabaseAdmin
+        .from('baskets')
+        .select('basket_version')
+        .eq('id', basketId)
+        .maybeSingle();
+
+      if (latestBasket) {
+        currentVer = latestBasket.basket_version || 1;
+      } else {
+        break;
+      }
+    }
+
+    // Fallback if loop didn't succeed to update with lock
+    if (!success) {
+      await supabaseAdmin
+        .from('baskets')
+        .update({ basket_version: currentVer + 1, updated_at: new Date().toISOString() })
+        .eq('id', basketId);
+    }
 
     res.json({ basket_id: basketId, new_quantity: newQty });
   } catch (err: any) {
@@ -403,6 +436,24 @@ router.post("/dining-sessions/:id/mark-paid", async (req, res) => {
 });
 
 // Manage digital payments creation
+interface IdempotencyRecord {
+  status: 'processing' | 'completed' | 'failed';
+  result?: any;
+  error?: string;
+  createdAt: number;
+}
+
+const idempotencyRegistry = new Map<string, IdempotencyRecord>();
+
+function cleanExpiredIdempotencyKeys() {
+  const cutoff = Date.now() - 86400000; // 24-hour expiration
+  for (const [key, record] of idempotencyRegistry.entries()) {
+    if (record.createdAt < cutoff) {
+      idempotencyRegistry.delete(key);
+    }
+  }
+}
+
 router.post("/payments", async (req, res) => {
   try {
     const parsed = PaymentsSchema.safeParse(req.body);
@@ -412,15 +463,64 @@ router.post("/payments", async (req, res) => {
     const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
     const idempotencyKeyResolved = idempotency_key || idempotencyKey;
 
+    cleanExpiredIdempotencyKeys();
+
     if (idempotencyKeyResolved) {
-      const { data: existing } = await supabaseAdmin
+      // 1. Concurrency Check & Lock
+      let record = idempotencyRegistry.get(idempotencyKeyResolved);
+      if (record && record.status === 'processing') {
+        // Poll briefly to let parallel request finish
+        for (let i = 0; i < 50; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          record = idempotencyRegistry.get(idempotencyKeyResolved);
+          if (!record || record.status !== 'processing') break;
+        }
+      }
+
+      if (record) {
+        if (record.status === 'completed') {
+          return res.json(record.result);
+        }
+        if (record.status === 'processing') {
+          return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
+        }
+      }
+
+      // Initialize processing lock
+      idempotencyRegistry.set(idempotencyKeyResolved, {
+        status: 'processing',
+        createdAt: Date.now()
+      });
+
+      // 2. DB Replay Check (existing column lookup or metadata lookup)
+      const { data: existingCol } = await supabaseAdmin
+        .from('payments')
+        .select('*')
+        .eq('idempotency_key', idempotencyKeyResolved)
+        .maybeSingle();
+
+      if (existingCol) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'completed',
+          result: existingCol,
+          createdAt: Date.now()
+        });
+        return res.json(existingCol);
+      }
+
+      const { data: existingMeta } = await supabaseAdmin
         .from('payments')
         .select('*')
         .eq('metadata->>idempotency_key', idempotencyKeyResolved)
         .maybeSingle();
 
-      if (existing) {
-        return res.json(existing);
+      if (existingMeta) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'completed',
+          result: existingMeta,
+          createdAt: Date.now()
+        });
+        return res.json(existingMeta);
       }
     }
 
@@ -440,14 +540,43 @@ router.post("/payments", async (req, res) => {
       idempotency_key: idempotencyKeyResolved
     };
 
-    const { data, error } = await supabaseAdmin
+    // 3. Unique SQL level attempt with duplicate key catching fallback
+    const { data: successData, error: dbError } = await supabaseAdmin
       .from('payments')
       .insert(insertPayload)
       .select()
       .single();
 
-    if (error) {
-      if (error.message?.includes('idempotency_key') || error.code === 'PGRST204') {
+    if (dbError) {
+      // Catch unique constraint violations (pg code 23505) or custom unique errors
+      if (dbError.code === '23505' || dbError.message?.toLowerCase().includes('unique') || dbError.message?.toLowerCase().includes('duplicate')) {
+        // Retrieve the duplicate row and return it as standard replay protection
+        const { data: reloadedCol } = await supabaseAdmin
+          .from('payments')
+          .select('*')
+          .eq('idempotency_key', idempotencyKeyResolved)
+          .maybeSingle();
+
+        const reloaded = reloadedCol || (await supabaseAdmin
+          .from('payments')
+          .select('*')
+          .eq('metadata->>idempotency_key', idempotencyKeyResolved)
+          .maybeSingle()).data;
+
+        if (reloaded) {
+          if (idempotencyKeyResolved) {
+            idempotencyRegistry.set(idempotencyKeyResolved, {
+              status: 'completed',
+              result: reloaded,
+              createdAt: Date.now()
+            });
+          }
+          return res.json(reloaded);
+        }
+      }
+
+      // If schema error because column doesn't exist yet (PGRST204) or missing, fallback to inserting without the column
+      if (dbError.message?.includes('idempotency_key') || dbError.code === 'PGRST204') {
         const fallbackPayload = {
           restaurant_id: restaurantId,
           order_id: orderId,
@@ -463,13 +592,45 @@ router.post("/payments", async (req, res) => {
           .select()
           .single();
 
-        if (fallbackError) return res.status(500).json({ error: fallbackError.message });
+        if (fallbackError) {
+          if (idempotencyKeyResolved) {
+            idempotencyRegistry.set(idempotencyKeyResolved, {
+              status: 'failed',
+              error: fallbackError.message,
+              createdAt: Date.now()
+            });
+          }
+          return res.status(500).json({ error: fallbackError.message });
+        }
+
+        if (idempotencyKeyResolved) {
+          idempotencyRegistry.set(idempotencyKeyResolved, {
+            status: 'completed',
+            result: fallbackData,
+            createdAt: Date.now()
+          });
+        }
         return res.json(fallbackData);
       }
-      return res.status(500).json({ error: error.message });
+
+      if (idempotencyKeyResolved) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: 'failed',
+          error: dbError.message,
+          createdAt: Date.now()
+        });
+      }
+      return res.status(500).json({ error: dbError.message });
     }
 
-    res.json(data);
+    if (idempotencyKeyResolved) {
+      idempotencyRegistry.set(idempotencyKeyResolved, {
+        status: 'completed',
+        result: successData,
+        createdAt: Date.now()
+      });
+    }
+    return res.json(successData);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

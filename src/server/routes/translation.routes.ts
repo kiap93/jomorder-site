@@ -32,6 +32,7 @@ router.post("/translate", authenticateJWT, async (req, res) => {
       - For Bubble Tea: Use established tea culture terms.
       - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
       - Aim for appetite appeal and accuracy.
+      - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "椰浆饭（椰香米饭）"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
       
       Return ONLY the translated text, no explanation or quotes.
       `

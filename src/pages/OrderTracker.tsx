@@ -143,7 +143,14 @@ export function OrderTracker() {
       case OrderStatus.COOKING: return { icon: ChefHat, text: t('status.cooking'), color: 'text-orange-500' };
       case OrderStatus.READY: return { icon: CheckCircle2, text: t('status.ready'), color: 'text-green-500' };
       case OrderStatus.SERVED: return { icon: CheckCircle2, text: t('status.served'), color: 'text-gray-900' };
-      case OrderStatus.COMPLETED: return { icon: CheckCircle2, text: t('status.completed'), color: 'text-gray-900' };
+      case OrderStatus.COMPLETED: {
+        const isCurrentlyUnpaid = !currentOrder?.paid_at;
+        return { 
+          icon: CheckCircle2, 
+          text: isCurrentlyUnpaid ? t('status.completedUnpaid') : t('status.completed'), 
+          color: isCurrentlyUnpaid ? 'text-orange-500' : 'text-gray-900' 
+        };
+      }
       default: return { icon: Clock, text: 'Wait...', color: 'text-gray-400' };
     }
   };

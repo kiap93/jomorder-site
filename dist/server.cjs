@@ -260,7 +260,7 @@ async function detectLanguageAndTranslate(text, apiKey) {
       "${text}"
       
       Determine:
-      1. Is this text primarily in English? (Answer true if it's already in English or standard Latin name with no clear translation, false if it's in another language. For terms like "Nasi Lemak" or "Ayam Goreng" which are Malay, return false with languageCode "ms" and englishTranslation as a clean English/standard culinary spelling).
+      1. Is this text primarily in English? (Answer true if it's already in English or standard Latin name with no clear translation, false if it's in another language. For terms like "Nasi Lemak" or "Ayam Goreng" which are Malay, return false with languageCode "ms" and englishTranslation as a clean standard culinary spelling without any parenthetical definitions like "(Fragrant Coconut Rice)")
       2. If not English, detect its language code. Supported language codes are:
          - "zh" (Chinese)
          - "ms" (Malay/Bahasa Melayu)
@@ -315,6 +315,7 @@ async function translateTextWithGemini(text, targetLang) {
       - For Bubble Tea: Use established tea culture terms.
       - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
       - Aim for appetite appeal and accuracy.
+      - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "\u6930\u6D46\u996D\uFF08\u6930\u9999\u7C73\u996D\uFF09"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
       
       Return ONLY the translated text, no explanation or quotes.
       `
@@ -357,7 +358,10 @@ var SyncBasketItemSchema = import_zod.z.object({
   p_product_id: import_zod.z.string().min(1, { message: "p_product_id is required" }),
   p_delta: import_zod.z.number().int({ message: "p_delta must be an integer" }),
   p_configuration: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).nullable().optional(),
-  p_device_info: import_zod.z.string().nullable().optional()
+  p_device_info: import_zod.z.string().nullable().optional(),
+  p_sequence_no: import_zod.z.number().int().optional(),
+  p_client_timestamp: import_zod.z.number().int().optional(),
+  p_sync_id: import_zod.z.string().optional()
 });
 var OrderItemSchema = import_zod.z.object({
   id: import_zod.z.string().optional(),
@@ -744,6 +748,7 @@ router2.post("/translate", authenticateJWT, async (req, res) => {
       - For Bubble Tea: Use established tea culture terms.
       - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
       - Aim for appetite appeal and accuracy.
+      - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "\u6930\u6D46\u996D\uFF08\u6930\u9999\u7C73\u996D\uFF09"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
       
       Return ONLY the translated text, no explanation or quotes.
       `
@@ -2880,7 +2885,24 @@ router11.post("/sync-basket-item", async (req, res) => {
         }
       }
     }
-    await supabaseAdmin.from("baskets").update({ basket_version: basketVersion + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId);
+    let currentVer = basketVersion;
+    let success = false;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const { data, error } = await supabaseAdmin.from("baskets").update({ basket_version: currentVer + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId).eq("basket_version", currentVer).select("basket_version");
+      if (!error && data && data.length > 0) {
+        success = true;
+        break;
+      }
+      const { data: latestBasket } = await supabaseAdmin.from("baskets").select("basket_version").eq("id", basketId).maybeSingle();
+      if (latestBasket) {
+        currentVer = latestBasket.basket_version || 1;
+      } else {
+        break;
+      }
+    }
+    if (!success) {
+      await supabaseAdmin.from("baskets").update({ basket_version: currentVer + 1, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", basketId);
+    }
     res.json({ basket_id: basketId, new_quantity: newQty });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2948,6 +2970,15 @@ router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
+var idempotencyRegistry = /* @__PURE__ */ new Map();
+function cleanExpiredIdempotencyKeys() {
+  const cutoff = Date.now() - 864e5;
+  for (const [key, record] of idempotencyRegistry.entries()) {
+    if (record.createdAt < cutoff) {
+      idempotencyRegistry.delete(key);
+    }
+  }
+}
 router11.post("/payments", async (req, res) => {
   try {
     const parsed = PaymentsSchema.safeParse(req.body);
@@ -2956,10 +2987,45 @@ router11.post("/payments", async (req, res) => {
     }
     const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
     const idempotencyKeyResolved = idempotency_key || idempotencyKey;
+    cleanExpiredIdempotencyKeys();
     if (idempotencyKeyResolved) {
-      const { data: existing } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
-      if (existing) {
-        return res.json(existing);
+      let record = idempotencyRegistry.get(idempotencyKeyResolved);
+      if (record && record.status === "processing") {
+        for (let i = 0; i < 50; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          record = idempotencyRegistry.get(idempotencyKeyResolved);
+          if (!record || record.status !== "processing") break;
+        }
+      }
+      if (record) {
+        if (record.status === "completed") {
+          return res.json(record.result);
+        }
+        if (record.status === "processing") {
+          return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
+        }
+      }
+      idempotencyRegistry.set(idempotencyKeyResolved, {
+        status: "processing",
+        createdAt: Date.now()
+      });
+      const { data: existingCol } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", idempotencyKeyResolved).maybeSingle();
+      if (existingCol) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: "completed",
+          result: existingCol,
+          createdAt: Date.now()
+        });
+        return res.json(existingCol);
+      }
+      const { data: existingMeta } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
+      if (existingMeta) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: "completed",
+          result: existingMeta,
+          createdAt: Date.now()
+        });
+        return res.json(existingMeta);
       }
     }
     const newMetadata = {
@@ -2976,9 +3042,23 @@ router11.post("/payments", async (req, res) => {
       metadata: newMetadata,
       idempotency_key: idempotencyKeyResolved
     };
-    const { data, error } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
-    if (error) {
-      if (error.message?.includes("idempotency_key") || error.code === "PGRST204") {
+    const { data: successData, error: dbError } = await supabaseAdmin.from("payments").insert(insertPayload).select().single();
+    if (dbError) {
+      if (dbError.code === "23505" || dbError.message?.toLowerCase().includes("unique") || dbError.message?.toLowerCase().includes("duplicate")) {
+        const { data: reloadedCol } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", idempotencyKeyResolved).maybeSingle();
+        const reloaded = reloadedCol || (await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle()).data;
+        if (reloaded) {
+          if (idempotencyKeyResolved) {
+            idempotencyRegistry.set(idempotencyKeyResolved, {
+              status: "completed",
+              result: reloaded,
+              createdAt: Date.now()
+            });
+          }
+          return res.json(reloaded);
+        }
+      }
+      if (dbError.message?.includes("idempotency_key") || dbError.code === "PGRST204") {
         const fallbackPayload = {
           restaurant_id: restaurantId,
           order_id: orderId,
@@ -2989,12 +3069,42 @@ router11.post("/payments", async (req, res) => {
           metadata: newMetadata
         };
         const { data: fallbackData, error: fallbackError } = await supabaseAdmin.from("payments").insert(fallbackPayload).select().single();
-        if (fallbackError) return res.status(500).json({ error: fallbackError.message });
+        if (fallbackError) {
+          if (idempotencyKeyResolved) {
+            idempotencyRegistry.set(idempotencyKeyResolved, {
+              status: "failed",
+              error: fallbackError.message,
+              createdAt: Date.now()
+            });
+          }
+          return res.status(500).json({ error: fallbackError.message });
+        }
+        if (idempotencyKeyResolved) {
+          idempotencyRegistry.set(idempotencyKeyResolved, {
+            status: "completed",
+            result: fallbackData,
+            createdAt: Date.now()
+          });
+        }
         return res.json(fallbackData);
       }
-      return res.status(500).json({ error: error.message });
+      if (idempotencyKeyResolved) {
+        idempotencyRegistry.set(idempotencyKeyResolved, {
+          status: "failed",
+          error: dbError.message,
+          createdAt: Date.now()
+        });
+      }
+      return res.status(500).json({ error: dbError.message });
     }
-    res.json(data);
+    if (idempotencyKeyResolved) {
+      idempotencyRegistry.set(idempotencyKeyResolved, {
+        status: "completed",
+        result: successData,
+        createdAt: Date.now()
+      });
+    }
+    return res.json(successData);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

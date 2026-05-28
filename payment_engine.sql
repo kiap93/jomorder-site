@@ -35,10 +35,14 @@ CREATE TABLE IF NOT EXISTS public.payments (
     provider TEXT, -- 'stripe', 'billplz', 'manual'
     external_id TEXT, -- Provider's reference
     metadata JSONB DEFAULT '{}',
+    idempotency_key TEXT UNIQUE, -- Unique idempotency key column for replay protection
     paid_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure idempotency_key exists on any existing tables
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS idempotency_key TEXT UNIQUE;
 
 -- 3. Payment Attempts (Track retries)
 CREATE TABLE IF NOT EXISTS public.payment_attempts (
@@ -79,6 +83,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_payments_updated_at ON public.payments;
 CREATE TRIGGER update_payments_updated_at
     BEFORE UPDATE ON public.payments
     FOR EACH ROW
@@ -104,6 +109,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS on_payment_paid ON public.payments;
 CREATE TRIGGER on_payment_paid
     AFTER UPDATE ON public.payments
     FOR EACH ROW

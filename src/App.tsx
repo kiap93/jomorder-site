@@ -88,7 +88,13 @@ export default function App() {
         <main className="container mx-auto px-4 py-8">
           <Routes>
             {/* Main Landing */}
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={
+              user ? (
+                profile?.restaurantId 
+                  ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
+                  : <Navigate to="/workspace-select" replace />
+              ) : <Landing />
+            } />
 
             {/* Customer Flow */}
             <Route path="/restaurant/:restId/table/:tableId" element={<CustomerMenu />} />
@@ -107,8 +113,20 @@ export default function App() {
             <Route path="/restaurant/:restId/admin" element={<AdminPanel />} />
             
             {/* Auth & Setup */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={
+              user ? (
+                profile?.restaurantId 
+                  ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
+                  : <Navigate to="/workspace-select" replace />
+              ) : <Login />
+            } />
+            <Route path="/register" element={
+              user ? (
+                profile?.restaurantId 
+                  ? <Navigate to={`/restaurant/${profile.restaurantId}/orders`} replace />
+                  : <Navigate to="/workspace-select" replace />
+              ) : <Register />
+            } />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/workspace-select" element={<WorkspaceSelect />} />
             

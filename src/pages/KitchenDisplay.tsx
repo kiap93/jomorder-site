@@ -16,6 +16,7 @@ export function KitchenDisplay() {
   const { user, loading: loadingAuth } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const { t } = useLanguageStore();
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -112,20 +113,38 @@ export function KitchenDisplay() {
       supabase.removeChannel(subscription);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [restId]);
+  }, [restId, refreshTrigger]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    await fetch(getApiUrl(`/api/orders/${orderId}`), {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status, updated_at: new Date().toISOString() })
-    });
+    // Optimistically update the status of the order in local state for instant real-time feedback!
+    setOrders(prevOrders =>
+      prevOrders.map(o => o.id === orderId ? { ...o, status } : o)
+    );
+
+    try {
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+      });
+      if (!response.ok) {
+        console.error("Failed to update status on server:", await response.text());
+        // Trigger a background refetch to fix state drift
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        // Core state sync
+        setRefreshTrigger(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error("Error updating status:", err);
+      setRefreshTrigger(prev => prev + 1);
+    }
   };
 
   return (

@@ -6,7 +6,7 @@ import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
-import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield, Printer } from 'lucide-react';
+import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield, Printer, Download, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
@@ -928,6 +928,410 @@ export function AdminPanel() {
     }
   };
 
+  const downloadQRCode = (tableId: string, tableName: string) => {
+    const container = document.getElementById(`qr-container-${tableId}`);
+    if (!container) return;
+    const svg = container.querySelector('svg');
+    if (!svg) return;
+
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const blobURL = window.URL.createObjectURL(svgBlob);
+    
+    const image = new Image();
+    image.onload = () => {
+      // Create high-res canvas for crystal clear image export
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 700;
+      const context = canvas.getContext('2d');
+      if (context) {
+        // Clear background with white
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Render QR Code centered
+        const qrSize = 420;
+        const xOffset = (canvas.width - qrSize) / 2;
+        const yOffset = 70;
+        context.drawImage(image, xOffset, yOffset, qrSize, qrSize);
+        
+        // Draw Restaurant Name
+        context.shadowColor = 'rgba(0, 0, 0, 0)';
+        context.fillStyle = '#a1a1aa'; // zinc-405
+        context.font = 'bold 16px Inter, system-ui, sans-serif';
+        context.textAlign = 'center';
+        context.fillText(restaurant?.name?.toUpperCase() || 'SMART RESTAURANT', canvas.width / 2, 45);
+
+        // Draw Table name and Scan instructions
+        context.fillStyle = '#18181b'; // zinc-901
+        context.font = '900 36px Inter, system-ui, sans-serif';
+        context.fillText(tableName, canvas.width / 2, 535);
+        
+        context.fillStyle = '#f97316'; // orange-501
+        context.font = 'bold 20px Inter, system-ui, sans-serif';
+        context.fillText('SCAN TO ORDER & PAY', canvas.width / 2, 580);
+
+        // Footer note
+        context.fillStyle = '#a1a1aa'; // zinc-403
+        context.font = 'italic 12px Inter, system-ui, sans-serif';
+        context.fillText('Please ask staff if you need assistance', canvas.width / 2, 635);
+
+        // Download PNG
+        const pngURL = canvas.toDataURL('image/png');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = pngURL;
+        downloadLink.download = `QR_${tableName.replace(/\s+/g, '_')}.png`;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+      }
+      window.URL.revokeObjectURL(blobURL);
+    };
+    image.src = blobURL;
+  };
+
+  const printQRCode = (tableId: string, tableName: string) => {
+    const container = document.getElementById(`qr-container-${tableId}`);
+    if (!container) return;
+    const svg = container.querySelector('svg');
+    if (!svg) return;
+
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow popups to print the QR code.');
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Print QR - ${tableName}</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Inter:wght@400;500;700;900&display=swap');
+          body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .ticket {
+            width: 80mm;
+            min-height: 120mm;
+            background: #ffffff;
+            border: 1.5px solid #e4e4e7;
+            border-radius: 16px;
+            padding: 24px;
+            box-sizing: border-box;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+          }
+          .header {
+            margin-bottom: 12px;
+          }
+          .restaurant {
+            font-size: 14px;
+            font-weight: 950;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #18181b;
+            margin-bottom: 4px;
+          }
+          .sub {
+            font-size: 9px;
+            font-weight: 700;
+            color: #71717a;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+          }
+          .qr-wrapper {
+            background: #fafafa;
+            border: 1px solid #f4f4f5;
+            padding: 12px;
+            border-radius: 12px;
+            margin: 16px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          .qr-wrapper svg {
+            width: 140mm;
+            height: auto;
+            max-width: 100%;
+          }
+          .table-info {
+            margin-top: 12px;
+          }
+          .table-name {
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 28px;
+            font-weight: 900;
+            color: #18181b;
+            letter-spacing: -1px;
+            margin-bottom: 4px;
+          }
+          .instructions {
+            font-size: 10px;
+            font-weight: 700;
+            color: #f97316;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+          }
+          .footer {
+            font-size: 8px;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-top: 1px dashed #e4e4e7;
+            width: 100%;
+            padding-top: 12px;
+          }
+          @media print {
+            body {
+              background-color: #ffffff;
+            }
+            .ticket {
+              border: none;
+              box-shadow: none;
+              padding: 10px;
+              width: 100%;
+              height: auto;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="ticket">
+          <div class="header">
+            <div class="restaurant">${restaurant?.name || 'WELCOME'}</div>
+            <div class="sub">Order & Pay At Your Table</div>
+          </div>
+          
+          <div class="qr-wrapper">
+            ${svgString}
+          </div>
+          
+          <div class="table-info">
+            <div class="table-name">${tableName}</div>
+            <div class="instructions">← SCAN TO ORDER & PAY →</div>
+          </div>
+          
+          <div class="footer">
+            Thank you for dining with us
+          </div>
+        </div>
+        <script>
+          window.addEventListener('load', () => {
+            setTimeout(() => {
+              window.print();
+              window.close();
+            }, 400);
+          });
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const printAllQRCodes = () => {
+    if (tables.length === 0) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow popups to print QR codes.');
+      return;
+    }
+
+    let ticketsHTML = '';
+    
+    for (const table of tables) {
+      const container = document.getElementById(`qr-container-${table.id}`);
+      if (!container) continue;
+      const svg = container.querySelector('svg');
+      if (!svg) continue;
+      
+      const svgString = new XMLSerializer().serializeToString(svg);
+      ticketsHTML += `
+        <div class="ticket">
+          <div class="header">
+            <div class="restaurant">${restaurant?.name || 'WELCOME'}</div>
+            <div class="sub">Order & Pay At Your Table</div>
+          </div>
+          
+          <div class="qr-wrapper">
+            ${svgString}
+          </div>
+          
+          <div class="table-info">
+            <div class="table-name">Table ${table.name}</div>
+            <div class="instructions">← SCAN TO ORDER & PAY →</div>
+          </div>
+          
+          <div class="footer">
+            Thank you for dining with us
+          </div>
+        </div>
+      `;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Print All Table QR Codes</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Inter:wght@400;500;700;900&display=swap');
+          body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f4f4f5;
+            font-family: 'Inter', system-ui, sans-serif;
+          }
+          .page-header-tip {
+            background: #181c24;
+            color: white;
+            padding: 12px 24px;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            width: 100%;
+            box-sizing: border-box;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+          }
+          .ticket {
+            width: 80mm;
+            min-height: 120mm;
+            background: #ffffff;
+            border: 1px solid #e4e4e7;
+            border-radius: 16px;
+            padding: 24px;
+            box-sizing: border-box;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px auto;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            page-break-after: always;
+          }
+          .header {
+            margin-bottom: 12px;
+          }
+          .restaurant {
+            font-size: 14px;
+            font-weight: 950;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #181c24;
+            margin-bottom: 4px;
+          }
+          .sub {
+            font-size: 9px;
+            font-weight: 700;
+            color: #71717a;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+          }
+          .qr-wrapper {
+            background: #fafafa;
+            border: 1px solid #f4f4f5;
+            padding: 12px;
+            border-radius: 12px;
+            margin: 16px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          .qr-wrapper svg {
+            width: 140mm;
+            height: auto;
+            max-width: 100%;
+          }
+          .table-info {
+            margin-top: 12px;
+          }
+          .table-name {
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 28px;
+            font-weight: 900;
+            color: #181c24;
+            letter-spacing: -1px;
+            margin-bottom: 4px;
+          }
+          .instructions {
+            font-size: 10px;
+            font-weight: 700;
+            color: #f97316;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+          }
+          .footer {
+            font-size: 8px;
+            color: #a1a1aa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-top: 1px dashed #e4e4e7;
+            width: 100%;
+            padding-top: 12px;
+          }
+          @media print {
+            .page-header-tip {
+              display: none !important;
+            }
+            body {
+              background-color: #ffffff;
+              padding: 0;
+              margin: 0;
+            }
+            .ticket {
+              border: none;
+              box-shadow: none;
+              margin: 0;
+              width: 100%;
+              height: 100vh;
+              justify-content: space-around;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page-header-tip">Print Preview - All table QR sheets. Click Print or Use Ctrl+P</div>
+        <div>
+          ${ticketsHTML}
+        </div>
+        <script>
+          window.addEventListener('load', () => {
+            setTimeout(() => {
+              window.print();
+            }, 500);
+          });
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   if (loading) return (
     <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
@@ -1099,143 +1503,205 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'tables' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {tables.map(table => {
-            const activeSession = table.dining_sessions;
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+            <div>
+              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                <span>{t('admin.tablesQR')}</span>
+                <span className="text-xs bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full font-bold">Total: {tables.length}</span>
+              </h2>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">Generate physical table standees, print receipts/stickers, or download high-resolution QR vectors</p>
+            </div>
+            {tables.length > 0 && (
+              <button
+                onClick={printAllQRCodes}
+                className="h-11 px-5 bg-zinc-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Printer size={14} />
+                <span>Print All QR Codes</span>
+              </button>
+            )}
+          </div>
 
-            return (
-              <div key={table.id} className={`p-8 rounded-[2.5rem] shadow-sm border transition-all ${
-                activeSession ? 'bg-orange-50/30 border-orange-100' : 'bg-white border-zinc-100'
-              }`}>
-                <div className="mb-6 bg-white p-4 rounded-3xl shadow-inner border border-zinc-50 flex flex-col items-center">
-                  <QRCodeSVG 
-                    value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
-                    size={150}
-                    level="H"
-                    includeMargin={true}
-                  />
-                </div>
-                
-                <div className="text-center mb-6">
-                  <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">{t('kds.table').replace('{table}', table.name)}</h3>
-                  <div className="flex items-center justify-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
-                      {activeSession ? t('admin.activeSession') : t('admin.available')}
-                    </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {tables.map(table => {
+              const activeSession = table.dining_sessions;
+
+              return (
+                <div key={table.id} className={`p-8 rounded-[2.5rem] shadow-sm border transition-all ${
+                  activeSession ? 'bg-orange-50/30 border-orange-100' : 'bg-white border-zinc-100'
+                }`}>
+                  <div 
+                    id={`qr-container-${table.id}`}
+                    className="mb-6 bg-white p-4 rounded-3xl shadow-inner border border-zinc-50 flex flex-col items-center"
+                  >
+                    <QRCodeSVG 
+                      value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
+                      size={150}
+                      level="H"
+                      includeMargin={true}
+                    />
+                    
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-zinc-100/50 w-full justify-center">
+                      <button
+                        onClick={() => downloadQRCode(table.id, `Table ${table.name}`)}
+                        title="Download high-quality PNG"
+                        className="px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border border-zinc-200/50"
+                      >
+                        <Download size={11} />
+                        <span>Download</span>
+                      </button>
+                      <button
+                        onClick={() => printQRCode(table.id, `Table ${table.name}`)}
+                        title="Print 80mm Table Card"
+                        className="px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border border-zinc-200/50"
+                      >
+                        <Printer size={11} />
+                        <span>Print</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex flex-col gap-3 w-full">
-                  {activeSession ? (
-                    <div className="space-y-3">
-                      <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Started</span>
-                          <span className="text-[10px] font-bold text-zinc-600">
-                            {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                  
+                  <div className="text-center mb-6">
+                    <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">{t('kds.table').replace('{table}', table.name)}</h3>
+                    <div className="flex items-center justify-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
+                        {activeSession ? t('admin.activeSession') : t('admin.available')}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col gap-3 w-full">
+                    {activeSession ? (
+                      <div className="space-y-3">
+                        <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Started</span>
+                            <span className="text-[10px] font-bold text-zinc-600">
+                              {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
+                            <span className="text-[10px] font-mono font-bold text-orange-600">
+                              {activeSession.sessionToken ? `${activeSession.sessionToken.slice(0, 8)}...` : 'N/A'}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
-                          <span className="text-[10px] font-mono font-bold text-orange-600">
-                            {activeSession.sessionToken ? `${activeSession.sessionToken.slice(0, 8)}...` : 'N/A'}
-                          </span>
-                        </div>
+                        
+                        <button 
+                          onClick={() => closeDiningSession(activeSession)}
+                          className="w-full h-11 bg-zinc-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2"
+                        >
+                          <X size={14} />
+                          {t('admin.closeSession')}
+                        </button>
                       </div>
-                      
-                      <button 
-                        onClick={() => closeDiningSession(activeSession)}
-                        className="w-full h-11 bg-zinc-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2"
-                      >
-                        <X size={14} />
-                        {t('admin.closeSession')}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2 bg-zinc-100 p-1 rounded-xl">
-                      <button
-                        onClick={() => updateTableStatus(table.id, 'available')}
-                        className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
-                          table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
-                        }`}
-                      >
-                        {t('admin.available')}
-                      </button>
-                      <button
-                        onClick={() => updateTableStatus(table.id, 'occupied')}
-                        className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
-                          table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
-                        }`}
-                      >
-                        {t('admin.occupied')}
-                      </button>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 bg-zinc-100 p-1 rounded-xl">
+                        <button
+                          onClick={() => updateTableStatus(table.id, 'available')}
+                          className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                            table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
+                          }`}
+                        >
+                          {t('admin.available')}
+                        </button>
+                        <button
+                          onClick={() => updateTableStatus(table.id, 'occupied')}
+                          className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                            table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
+                          }`}
+                        >
+                          {t('admin.occupied')}
+                        </button>
+                      </div>
+                    )}
 
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => deleteTable(table.id)} 
-                      className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
-                    >
-                      <Trash2 size={13} />
-                      <span className="text-[10px] font-bold uppercase">{t('admin.delete')}</span>
-                    </button>
-                    <div className="relative flex-1">
+                    <div className="flex gap-2">
                       <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenTableActionsId(openTableActionsId === table.id ? null : table.id);
-                        }}
-                        className="w-full h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2"
+                        onClick={() => deleteTable(table.id)} 
+                        className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
                       >
-                        <Settings2 size={13} />
-                        <span className="text-[10px] font-bold uppercase">{t('admin.actions')}</span>
+                        <Trash2 size={13} />
+                        <span className="text-[10px] font-bold uppercase">{t('admin.delete')}</span>
                       </button>
-                      <AnimatePresence>
-                        {openTableActionsId === table.id && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                            className="absolute bottom-full right-0 z-[2] p-2 shadow-2xl bg-white rounded-2xl w-48 mb-2 border border-blue-50"
-                          >
-                            <div className="px-3 py-2 border-b border-gray-50 mb-1">
-                              <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{t('admin.management')}</span>
-                            </div>
-                            <button 
-                              onClick={() => navigate(`/restaurant/${restId}/table/${table.id}`)} 
-                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                      <div className="relative flex-1">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenTableActionsId(openTableActionsId === table.id ? null : table.id);
+                          }}
+                          className="w-full h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2"
+                        >
+                          <Settings2 size={13} />
+                          <span className="text-[10px] font-bold uppercase">{t('admin.actions')}</span>
+                        </button>
+                        <AnimatePresence>
+                          {openTableActionsId === table.id && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                              className="absolute bottom-full right-0 z-[2] p-2 shadow-2xl bg-white rounded-2xl w-48 mb-2 border border-blue-50"
                             >
-                              <Monitor size={14} className="text-zinc-400" />
-                              {t('admin.openTablePage')}
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setActiveTab('localization');
-                                setOpenTableActionsId(null);
-                              }} 
-                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
-                            >
-                              <Globe size={14} className="text-zinc-400" />
-                              {t('admin.translateMenu')}
-                            </button>
-                            <button 
-                              onClick={() => setOpenTableActionsId(null)}
-                              className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
-                            >
-                              <Edit2 size={14} className="text-zinc-400" />
-                              {t('admin.editDetails')}
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                              <div className="px-3 py-2 border-b border-gray-50 mb-1">
+                                <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{t('admin.management')}</span>
+                              </div>
+                              <button 
+                                onClick={() => navigate(`/restaurant/${restId}/table/${table.id}`)} 
+                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                              >
+                                <Monitor size={14} className="text-zinc-400" />
+                                {t('admin.openTablePage')}
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  printQRCode(table.id, `Table ${table.name}`);
+                                  setOpenTableActionsId(null);
+                                }} 
+                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 text-zinc-700 hover:text-orange-600 transition-colors"
+                              >
+                                <Printer size={14} className="text-zinc-400" />
+                                <span>Print QR Code</span>
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  downloadQRCode(table.id, `Table ${table.name}`);
+                                  setOpenTableActionsId(null);
+                                }} 
+                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 text-zinc-700 hover:text-orange-600 transition-colors"
+                              >
+                                <Download size={14} className="text-zinc-400" />
+                                <span>Download PNG</span>
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setActiveTab('localization');
+                                  setOpenTableActionsId(null);
+                                }} 
+                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                              >
+                                <Globe size={14} className="text-zinc-400" />
+                                {t('admin.translateMenu')}
+                              </button>
+                              <button 
+                                onClick={() => setOpenTableActionsId(null)}
+                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
+                              >
+                                <Edit2 size={14} className="text-zinc-400" />
+                                {t('admin.editDetails')}
+                              </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           <button 
             onClick={addTable}
             className="border-2 border-dashed border-gray-200 p-8 rounded-3xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"
@@ -1244,7 +1710,8 @@ export function AdminPanel() {
             {t('admin.addTable')}
           </button>
         </div>
-      )}
+      </div>
+    )}
 
       {activeTab === 'orders' && (
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 min-h-[60vh]">

@@ -3,6 +3,8 @@ import { NetworkMonitor } from './networkMonitor';
 import { MutationJob } from '../types';
 import { indexedDbStorage } from './indexedDbStorage';
 
+let lastQueueTimestamp = Date.now();
+
 export interface QueueStatus {
   pendingCount: number;
   failedCount: number;
@@ -88,8 +90,12 @@ export class QueueProcessor {
     description?: string,
     rollback_data?: unknown
   ): Promise<OfflineMutation> {
+    const now = Date.now();
+    const monotonicTimestamp = Math.max(now, lastQueueTimestamp + 1);
+    lastQueueTimestamp = monotonicTimestamp;
+
     const mutation: OfflineMutation = {
-      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      id: Math.random().toString(36).slice(2) + monotonicTimestamp.toString(36),
       url,
       method,
       body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -99,7 +105,7 @@ export class QueueProcessor {
       },
       retry_count: 0,
       status: 'pending',
-      created_at: Date.now(),
+      created_at: monotonicTimestamp,
       priority,
       description,
       rollback_data
@@ -122,13 +128,17 @@ export class QueueProcessor {
     operation: 'create' | 'update' | 'delete',
     payload: unknown
   ): Promise<MutationJob> {
+    const now = Date.now();
+    const monotonicTimestamp = Math.max(now, lastQueueTimestamp + 1);
+    lastQueueTimestamp = monotonicTimestamp;
+
     const job: MutationJob = {
-      id: 'job_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+      id: 'job_' + Math.random().toString(36).slice(2) + monotonicTimestamp.toString(36),
       entity,
       operation,
       payload,
       retries: 0,
-      createdAt: Date.now(),
+      createdAt: monotonicTimestamp,
       syncStatus: 'pending'
     };
 

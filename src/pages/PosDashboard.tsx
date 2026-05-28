@@ -31,6 +31,7 @@ export function PosDashboard() {
   const [settlingOrder, setSettlingOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -207,20 +208,38 @@ export function PosDashboard() {
       supabase.removeChannel(subscription);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [restId]);
+  }, [restId, refreshTrigger]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    await fetch(getApiUrl(`/api/orders/${orderId}`), {
-      method: 'PATCH',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status, updated_at: new Date().toISOString() })
-    });
+    // Optimistically update the status in local state for instant real-time response!
+    setOrders(prevOrders =>
+      prevOrders.map(o => o.id === orderId ? { ...o, status } : o)
+    );
+
+    try {
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}`), {
+        method: 'PATCH',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+      });
+      if (!response.ok) {
+        console.error("Failed to update status on server:", await response.text());
+        // Trigger a background refetch to correct any drift
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        // Trigger a fresh state sync to match the backend perfect source of truth
+        setRefreshTrigger(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error("Error updating status:", err);
+      setRefreshTrigger(prev => prev + 1);
+    }
   };
 
   const closeSession = async (sessionId: string, tableId: string) => {
