@@ -493,19 +493,63 @@ var requireTenantIsolation = (paramName = "restId") => {
       next();
       return;
     }
-    const userRestId = user.restaurantId || user.restaurant_id;
-    if (!userRestId) {
-      return res.status(403).json({ error: "Forbidden: No authorized restaurant/tenant context in active token." });
+    let userRestId = null;
+    let allowedRestaurantIds = [];
+    try {
+      const [profileResult, permissionsResult] = await Promise.all([
+        supabaseAdmin.from("profiles").select("restaurant_id, status").eq("id", user.id).maybeSingle(),
+        supabaseAdmin.from("restaurant_users").select("restaurant_id, status").eq("user_id", user.id)
+      ]);
+      if (profileResult.data) {
+        const p = profileResult.data;
+        if (p.status === "suspended") {
+          return res.status(403).json({ error: "Forbidden: Your profile has been suspended." });
+        }
+        if (p.restaurant_id) {
+          allowedRestaurantIds.push(p.restaurant_id);
+          userRestId = p.restaurant_id;
+        }
+      }
+      if (permissionsResult.data && permissionsResult.data.length > 0) {
+        for (const membership of permissionsResult.data) {
+          if (membership.status !== "suspended" && membership.restaurant_id) {
+            allowedRestaurantIds.push(membership.restaurant_id);
+            if (!userRestId) {
+              userRestId = membership.restaurant_id;
+            }
+          }
+        }
+      }
+      allowedRestaurantIds = Array.from(new Set(allowedRestaurantIds));
+    } catch (err) {
+      console.error("[TenantIsolation] Real-time database membership lookup failed:", err);
+      return res.status(500).json({ error: "Internal security constraint error: Failed to verify multi-tenant membership." });
+    }
+    if (allowedRestaurantIds.length === 0 || !userRestId) {
+      return res.status(403).json({ error: "Forbidden: No authorized restaurant/tenant context coordinates matched. Membership invalid." });
+    }
+    const requestedWorkspaceId = req.params[paramName] || req.params.restId || req.params.restaurantId || req.query.restaurantId || req.query.restaurant_id || req.query.restId || req.body && (req.body.restaurantId || req.body.restaurant_id || req.body.restId);
+    if (requestedWorkspaceId) {
+      if (allowedRestaurantIds.includes(requestedWorkspaceId)) {
+        userRestId = requestedWorkspaceId;
+      } else {
+        console.error(`[CROSS-TENANT VIOLATION] Express Blocked: User ${user.email} (id: ${user.id}) tried accessing unauthorized workspace context: ${requestedWorkspaceId}`);
+        try {
+          await logToAuditDb(supabaseAdmin, user.id, user.email, user.role, `BLOCKED: Unauthorized cross-tenant attempt to access ${requestedWorkspaceId}`, userRestId);
+        } catch (_) {
+        }
+        return res.status(403).json({ error: "Forbidden: Multi-tenant isolation violation. You do not hold permissions for this workspace." });
+      }
     }
     if (req.body) {
-      if (req.body.restaurantId && req.body.restaurantId !== userRestId) req.body.restaurantId = userRestId;
-      if (req.body.restaurant_id && req.body.restaurant_id !== userRestId) req.body.restaurant_id = userRestId;
-      if (req.body.restId && req.body.restId !== userRestId) req.body.restId = userRestId;
+      req.body.restaurantId = userRestId;
+      req.body.restaurant_id = userRestId;
+      req.body.restId = userRestId;
     }
     if (req.query) {
-      if (req.query.restaurantId) req.query.restaurantId = userRestId;
-      if (req.query.restaurant_id) req.query.restaurant_id = userRestId;
-      if (req.query.restId) req.query.restId = userRestId;
+      req.query.restaurantId = userRestId;
+      req.query.restaurant_id = userRestId;
+      req.query.restId = userRestId;
     }
     const targetedRestId = req.params[paramName] || req.params.restId || req.params.restaurantId;
     if (targetedRestId && targetedRestId !== userRestId) {
