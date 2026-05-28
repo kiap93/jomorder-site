@@ -148,7 +148,12 @@ export class SyncService {
       return offlineService.resolveOrderConflict(local as unknown as OfflineOrder, remote as unknown as OfflineOrder) as unknown as T;
     }
 
-    // Compare versions and timestamps for general objects (like tables)
+    // Special table conflict resolution
+    if ('name' in remote && 'status' in remote) {
+      return offlineService.resolveTableConflict(local as any, remote as any) as unknown as T;
+    }
+
+    // Compare versions and timestamps for general objects
     const localTime = new Date(local.updated_at).getTime();
     const remoteTime = new Date(remote.updated_at).getTime();
 

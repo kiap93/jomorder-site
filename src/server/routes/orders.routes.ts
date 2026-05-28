@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
-import { authenticateJWT } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
 import { logToAudit } from "../services/auditService";
 
 const router = Router();
 
 // Get orders
-router.get("/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit as string) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -26,7 +26,7 @@ router.get("/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
 });
 
 // Update order
-router.patch("/orders/:id", authenticateJWT, async (req, res) => {
+router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = (req as any).user;
   const orderId = req.params.id;
 

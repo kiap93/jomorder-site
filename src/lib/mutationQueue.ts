@@ -1,4 +1,5 @@
 import { offlineService } from './offlineService';
+import { OfflineMutation } from './indexedDbRepository';
 
 function parseHeaders(headers?: HeadersInit): Record<string, string> {
   const result: Record<string, string> = {};
@@ -64,8 +65,7 @@ function enrichRequestBody(body: any, seqNo: number, timestamp: number, syncId: 
 }
 
 export class MutationQueue {
-  private queue: QueueItem[] = [];
-  private processing = false;
+  private processingCount = 0;
   private onSyncComplete?: (data: QueueSyncResult) => void;
 
   constructor(onSyncComplete?: (data: QueueSyncResult) => void) {
@@ -105,15 +105,16 @@ export class MutationQueue {
       opts.headers = hdrs;
     }
 
-    // Protect sequential ordering: If offline or there already is a backlog
-    // in the durable storage queue, immediately forward everything directly to IndexedDB.
-    const queueStatus = await offlineService.queueProcessor.getQueueStatus();
-    const hasBacklog = queueStatus.pendingCount > 0 || queueStatus.failedCount > 0 || queueStatus.processingCount > 0;
+    if (requestDetails) {
+      const { url, options } = requestDetails;
+      
+      const queueStatus = await offlineService.queueProcessor.getQueueStatus();
+      const hasBacklog = queueStatus.pendingCount > 0 || queueStatus.failedCount > 0 || queueStatus.processingCount > 0;
+      const isOnline = offlineService.isOnline;
 
-    if (!offlineService.isOnline || hasBacklog) {
-      console.log('[MutationQueue] Durable backlog present or system offline. Forcing request directly to durable IndexedDB queue to preserve strict sequential order.');
-      if (requestDetails) {
-        const { url, options } = requestDetails;
+      if (!isOnline || hasBacklog) {
+        console.log('[MutationQueue] Durable backlog present or system offline. Request persisted securely as pending in IndexedDB.');
+        
         await offlineService.queueProcessor.enqueue(
           url,
           options?.method || 'POST',
@@ -122,77 +123,63 @@ export class MutationQueue {
           2,
           description || `Sync item offline: ${url}`
         );
+
+        if (this.onSyncComplete) {
+          this.onSyncComplete({ status: 'queued_offline', basket_version: Date.now() });
+        }
+        return { status: 'queued_offline', basket_version: Date.now() };
       }
-      
-      if (this.onSyncComplete) {
-        this.onSyncComplete({ status: 'queued_offline', basket_version: Date.now() });
-      }
-      return { status: 'queued_offline', basket_version: Date.now() };
-    }
 
-    this.queue.push({ task, requestDetails, description });
-    if (!this.processing) {
-      await this.process();
-    }
-  }
-
-  private async process() {
-    if (this.processing) return;
-    this.processing = true;
-
-    while (this.queue.length > 0) {
-      const item = this.queue.shift();
-      if (!item) continue;
-
-      const { task, requestDetails, description } = item;
+      // Symmetrically route through the centralized FIFO queue processor to maintain exact sequential network constraints.
+      this.processingCount++;
       try {
-        const result = await task();
+        const mutation = await offlineService.queueProcessor.enqueue(
+          url,
+          options?.method || 'POST',
+          options?.body || '',
+          parseHeaders(options?.headers),
+          2,
+          description || `Sync item: ${url}`
+        );
+
+        const result = await offlineService.queueProcessor.waitForMutation(mutation.id);
         if (this.onSyncComplete) {
           this.onSyncComplete(result);
         }
-      } catch (error) {
-        console.warn('[MutationQueue] Task failed. Rebounding current task and flushing queue into durable IndexedDB queue:', error);
+        return result;
+      } catch (error: any) {
+        console.warn('[MutationQueue] Direct synced task failed, falling back to registered queue retry state:', error);
         
-        if (requestDetails) {
-          const { url, options } = requestDetails;
-          await offlineService.queueProcessor.enqueue(
-            url,
-            options?.method || 'POST',
-            options?.body || '',
-            parseHeaders(options?.headers),
-            2,
-            description || `Auto-retry for failed: ${url}`
-          );
-        }
-
-        // Flush remainder of memory queue to durable queue in serial order!
-        // This stops other queued requests from race-bypassing the failed head task!
-        while (this.queue.length > 0) {
-          const nextItem = this.queue.shift();
-          if (nextItem && nextItem.requestDetails) {
-            const { url, options } = nextItem.requestDetails;
-            await offlineService.queueProcessor.enqueue(
-              url,
-              options?.method || 'POST',
-              options?.body || '',
-              parseHeaders(options?.headers),
-              2,
-              nextItem.description || `Autoforwarded queue: ${url}`
-            );
-          }
-        }
-
+        const fallbackResult = { status: 'queued_fallback', basket_version: Date.now(), error: error?.message || 'Transaction aborted' };
         if (this.onSyncComplete) {
-          this.onSyncComplete({ status: 'queued_fallback', basket_version: Date.now() });
+          this.onSyncComplete(fallbackResult);
         }
-        break; // Halted memory processing completely
+        return fallbackResult;
+      } finally {
+        this.processingCount--;
       }
     }
 
-    this.processing = false;
+    // Fallback if no network requestDetails are registered: run the task callback immediately in sequence
+    this.processingCount++;
+    try {
+      const result = await task();
+      if (this.onSyncComplete) {
+        this.onSyncComplete(result);
+      }
+      return result;
+    } catch (error: any) {
+      const fallbackResult = { status: 'queued_fallback', basket_version: Date.now(), error: error?.message };
+      if (this.onSyncComplete) {
+        this.onSyncComplete(fallbackResult);
+      }
+      return fallbackResult;
+    } finally {
+      this.processingCount--;
+    }
   }
 
   get isIdle() {
-    return !this.processing && this.queue.length === 0;
+    return this.processingCount === 0;
   }
 }

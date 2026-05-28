@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
-import { authenticateJWT } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // Get tables
-router.get("/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('tables')
     .select('*, current_session:dining_sessions!tables_current_session_id_fkey(*)')
@@ -17,7 +17,7 @@ router.get("/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
 });
 
 // Create table
-router.post("/tables", authenticateJWT, async (req, res) => {
+router.post("/tables", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('tables')
     .insert(req.body)
@@ -29,7 +29,7 @@ router.post("/tables", authenticateJWT, async (req, res) => {
 });
 
 // Update table
-router.patch("/tables/:id", authenticateJWT, async (req, res) => {
+router.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('tables')
     .update(req.body)
@@ -42,7 +42,7 @@ router.patch("/tables/:id", authenticateJWT, async (req, res) => {
 });
 
 // Delete table
-router.delete("/tables/:id", authenticateJWT, async (req, res) => {
+router.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { error } = await supabaseAdmin
     .from('tables')
     .delete()

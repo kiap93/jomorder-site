@@ -8,12 +8,12 @@ import {
   writeStaffRegistry 
 } from "../services/dbService";
 import { logToAudit, readAuditLogs } from "../services/auditService";
-import { authenticateJWT } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // 1. Get List of Staff
-router.get("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId } = req.params;
   const caller = (req as any).user;
 
@@ -129,7 +129,7 @@ router.get("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
 });
 
 // 2. Create Staff Member
-router.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = (req as any).user;
@@ -350,7 +350,7 @@ router.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
 });
 
 // 3. Update Staff Member (Role, Status, Custom Permissions)
-router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = (req as any).user;
@@ -477,7 +477,7 @@ router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, r
 });
 
 // 4. Delete Staff Member
-router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = (req as any).user;
 
@@ -559,7 +559,7 @@ router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req
 });
 
 // 5. Audit Logs
-router.get("/restaurants/:restId/audit-logs", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { restId } = req.params;
   const caller = (req as any).user;
 

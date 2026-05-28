@@ -25,6 +25,13 @@ export class QueueProcessor {
   private listeners: Set<QueueStatusCallback> = new Set();
   private maxRetries = 5;
   private baseBackoffMs = 1000;
+  private mutationResolvers: Map<string, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
+
+  async waitForMutation(id: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.mutationResolvers.set(id, { resolve, reject });
+    });
+  }
 
   constructor(repository: IndexedDbRepository, networkMonitor: NetworkMonitor) {
     this.repository = repository;
@@ -174,11 +181,11 @@ export class QueueProcessor {
         const mutations = await this.repository.getMutations();
         const jobs = await this.repository.getMutationJobs();
 
-        // Map and prioritize all active items
+        // Map and prioritize all active items (ignore 'failed' and 'processing/syncing' to quarantine poison-pills)
         const pool: QueueItem[] = [];
 
         for (const m of mutations) {
-          if (m.status !== 'pending' && m.status !== 'failed') continue;
+          if (m.status !== 'pending') continue;
           
           let score = 1; // Default
           if (m.priority >= 3) {
@@ -191,7 +198,7 @@ export class QueueProcessor {
         }
 
         for (const j of jobs) {
-          if (j.syncStatus !== 'pending' && j.syncStatus !== 'failed') continue;
+          if (j.syncStatus !== 'pending') continue;
           
           let score = 2; // Default (basket)
           if (j.entity === 'payment') {
@@ -207,14 +214,15 @@ export class QueueProcessor {
           break; // Queue is fully synchronized!
         }
 
-        // Sort pool: highest score first, then earliest creation time
+        // Sort pool strictly chronologically (monotonically) to guarantee strict sequence FIFO order.
         pool.sort((a, b) => {
-          if (b.score !== a.score) {
-            return b.score - a.score;
-          }
           const timeA = a.type === 'mutation' ? a.item.created_at : a.item.createdAt;
           const timeB = b.type === 'mutation' ? b.item.created_at : b.item.createdAt;
-          return timeA - timeB;
+          if (timeA !== timeB) {
+            return timeA - timeB;
+          }
+          // Tie-break on priority
+          return b.score - a.score;
         });
 
         const active = pool[0];
@@ -325,6 +333,22 @@ export class QueueProcessor {
         console.log(`[QueueProcessor] Mutation ${mutation.id} synchronized successfully.`);
         await this.repository.deleteMutation(mutation.id);
         this.notify();
+
+        let jsonPayload: any = null;
+        try {
+          const bodyClone = response.clone();
+          const text = await bodyClone.text();
+          jsonPayload = text ? JSON.parse(text) : null;
+        } catch (err) {
+          console.warn('[QueueProcessor] Response payload parse bypassed:', err);
+        }
+
+        const resolver = this.mutationResolvers.get(mutation.id);
+        if (resolver) {
+          resolver.resolve(jsonPayload || { status: 'synchronized', basket_version: Date.now() });
+          this.mutationResolvers.delete(mutation.id);
+        }
+
         return true;
       }
 
@@ -337,6 +361,13 @@ export class QueueProcessor {
         mutation.retry_count += 1;
         await this.repository.saveMutation(mutation);
         this.notify();
+
+        const resolver = this.mutationResolvers.get(mutation.id);
+        if (resolver) {
+          resolver.reject(new Error(errorDetail || `HTTP Client Error ${response.status}`));
+          this.mutationResolvers.delete(mutation.id);
+        }
+
         return false;
       }
 
@@ -358,6 +389,14 @@ export class QueueProcessor {
 
       await this.repository.saveMutation(mutation);
       this.notify();
+
+      // Resolve waiting client with a queued fallback state so that offline logic proceeds gracefully
+      const resolver = this.mutationResolvers.get(mutation.id);
+      if (resolver) {
+        resolver.resolve({ status: 'queued_fallback', basket_version: Date.now() });
+        this.mutationResolvers.delete(mutation.id);
+      }
+
       return false;
     }
   }

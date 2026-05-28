@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { UserProfile } from '../types';
 import { getApiUrl } from '../lib/api';
 import { indexedDbStorage } from '../lib/indexedDbStorage';
+import { offlineService } from '../lib/offlineService';
 
 interface AuthState {
   user: { id: string; email: string } | null;
@@ -275,6 +276,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
 
+    // Purge ALL tenant-scoped offline databases and memories immediately before session teardown
+    try {
+      await offlineService.purgeTenantData();
+    } catch (err) {
+      console.error('[AuthStore] Failed to purge tenant-scoped data during signOut:', err);
+    }
+
     set({ user: null, profile: null, token: null, loading: false });
     
     // Notify other tabs via worker channel
@@ -287,6 +295,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!currentToken) throw new Error("No active session found.");
 
     try {
+      // Clear current offline state so workspace switches don't leak or reuse old session data
+      try {
+        await offlineService.purgeTenantData();
+      } catch (err) {
+        console.error('[AuthStore] Failed to purge tenant data prior to workspace switch:', err);
+      }
+
       const response = await fetch(getApiUrl(`/api/switch-workspace/${restaurantId}`), {
         method: 'POST',
         headers: {

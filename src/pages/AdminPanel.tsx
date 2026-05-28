@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TranslationStudio } from '../components/TranslationStudio';
 import { PrinterManager } from '../components/PrinterManager';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { offlineService } from '../lib/offlineService';
 
 const VisibilityManager = ({ 
   value, 
@@ -110,8 +111,12 @@ export function AdminPanel() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [orders, setOrders] = useState<(Order & { total_price?: string, created_at?: string, tables?: { name: string } })[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
+
+  // Offline conflict states
+  const [activeConflictPolicy, setActiveConflictPolicy] = useState(offlineService.getConflictPolicy());
+  const [conflictLogs, setConflictLogs] = useState(offlineService.getConflictLogs());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -1379,6 +1384,7 @@ export function AdminPanel() {
           { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
           { id: 'localization', icon: Globe, key: 'admin.translations' },
           ...(canManageStaff ? [{ id: 'staff', icon: Users, key: 'admin.staffAudits' }] : []),
+          { id: 'offline-sync', icon: RefreshCw, name: 'Sync & Conflicts', key: 'admin.offlineSync' },
           { id: 'settings', icon: Save, key: 'admin.settings' }
         ].map(tab => (
           <button
@@ -2339,6 +2345,312 @@ export function AdminPanel() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'offline-sync' && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header Description */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-orange-500/10 text-orange-600 rounded-2xl">
+                <RefreshCw size={24} className="animate-spin duration-3000" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-gray-900">Offline Sync & Conflict Engine</h2>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-0.5">Distributed State Integrity & Edge Case Safeguards</p>
+              </div>
+            </div>
+            <p className="text-sm font-medium text-gray-500 max-w-3xl leading-relaxed">
+              When working offline or in poor network conditions, different staff members may modify the same order or table concurrently. This engine enforces strict, deterministic policy hierarchies to prevent <strong>phantom orders, uncoordinated double updates, or disappearing items</strong>.
+            </p>
+          </div>
+
+          {/* 1. Policy Settings Grid */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+            <div>
+              <h3 className="text-lg font-black text-gray-900">1. Conflict Resolution Settings</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Choose which policy is automatically triggered when concurrent modifications clash</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                {
+                  id: 'smart',
+                  title: 'Smart Precedence Merge',
+                  badge: 'Recommended',
+                  desc: 'Deterministic status priority system (Cancelled/Completed takes precedence over cook/pending), union of items to prevent food waste & disappearing orders.',
+                  color: 'border-orange-500/30'
+                },
+                {
+                  id: 'server-wins',
+                  title: 'Server Wins (Strict)',
+                  badge: 'Conservative',
+                  desc: 'All conflicts are solved in favor of the central server database. Offline modifications made concurrently on client devices are safely dropped.',
+                  color: 'border-zinc-300'
+                },
+                {
+                  id: 'client-wins',
+                  title: 'Client Wins (Offline First)',
+                  badge: 'Optimistic',
+                  desc: 'Always trust the local client. The modifications made offline override the server state completely regardless of physical modification times.',
+                  color: 'border-zinc-300'
+                },
+                {
+                  id: 'timestamp-wins',
+                  title: 'Latest Timestamp',
+                  badge: 'Chronological',
+                  desc: 'Standard Last-Write-Wins (LWW) mechanism. The computer compares precise local and physical server trigger timestamps to select the newest record.',
+                  color: 'border-zinc-300'
+                }
+              ].map(policy => {
+                const isActive = activeConflictPolicy === policy.id;
+                return (
+                  <button
+                    key={policy.id}
+                    onClick={() => {
+                      offlineService.setConflictPolicy(policy.id as any);
+                      setActiveConflictPolicy(policy.id as any);
+                    }}
+                    className={`text-left p-6 rounded-2xl border-2 transition-all flex flex-col justify-between h-full hover:scale-[1.01] active:scale-[0.99] group ${
+                      isActive 
+                        ? 'border-orange-500 bg-orange-500/5 shadow-md shadow-orange-500/5' 
+                        : 'border-gray-100 bg-gray-50 hover:bg-gray-100/70 hover:border-gray-200'
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-start gap-2">
+                        <h4 className="font-black text-sm text-gray-800 leading-tight">{policy.title}</h4>
+                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded leading-none ${
+                          isActive 
+                            ? 'bg-orange-500 text-white' 
+                            : 'bg-zinc-200 text-zinc-600'
+                        }`}>
+                          {policy.badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 font-medium leading-relaxed group-hover:text-gray-500 transition-colors">
+                        {policy.desc}
+                      </p>
+                    </div>
+                    {isActive && (
+                      <div className="mt-4 flex items-center gap-1.5 text-xs text-orange-600 font-extrabold font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping" />
+                        ACTIVE STRATEGY
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Interactive Conflict Simulator */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+            <div>
+              <h3 className="text-lg font-black text-gray-900">2. Conflict Sandbox & Simulation Controls</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Safely test concurrent offline race conditions to understand how the active policy resolves them</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card A: Status Precedence */}
+              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+                <div className="space-y-1">
+                  <span className="text-[9px] bg-red-100 text-red-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Waiters vs Kitchen</span>
+                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">Status Mismatch Battle</h4>
+                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                    Simulates non-coordinated actions: Waiter marks order <strong>Completed</strong> while offline, but Kitchen marks it <strong>Cancelled</strong> online due to stock exhaustion.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const id = `order-${Math.floor(Math.random() * 9000 + 1000)}`;
+                    const localOrder = {
+                      id,
+                      status: 'Completed',
+                      items: [
+                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
+                      ],
+                      updated_at: new Date(Date.now() - 300000).toISOString(), // 5m ago
+                      version: 2
+                    };
+                    const remoteOrder = {
+                      id,
+                      status: 'Cancelled',
+                      items: [
+                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
+                      ],
+                      updated_at: new Date().toISOString(), // Now
+                      version: 3
+                    };
+                    offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
+                    setConflictLogs(offlineService.getConflictLogs());
+                  }}
+                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                >
+                  Trigger Status Battle
+                </button>
+              </div>
+
+              {/* Card B: Disappearing Items */}
+              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+                <div className="space-y-1">
+                  <span className="text-[9px] bg-blue-100 text-blue-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Waiter A vs Waiter B</span>
+                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">No-Disappearing Item Union</h4>
+                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                    Simulates item edits: Client A modifies Rice quantity to 2 while offline, while Client B appends a Laksa Soup online concurrently. Prevents items from vanishing.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const id = `order-${Math.floor(Math.random() * 9000 + 1000)}`;
+                    const localOrder = {
+                      id,
+                      status: 'Cooking',
+                      items: [
+                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
+                      ],
+                      updated_at: new Date(Date.now() - 100000).toISOString(),
+                      version: 3
+                    };
+                    const remoteOrder = {
+                      id,
+                      status: 'Cooking',
+                      items: [
+                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 1 },
+                        { menuItemId: 'm-soup', name: 'Hot Laksa Soup', price: 15, quantity: 1 }
+                      ],
+                      updated_at: new Date().toISOString(),
+                      version: 2
+                    };
+                    offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
+                    setConflictLogs(offlineService.getConflictLogs());
+                  }}
+                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                >
+                  Trigger Item Edit Battle
+                </button>
+              </div>
+
+              {/* Card C: Seating Overlap */}
+              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+                <div className="space-y-1">
+                  <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Concurrent Check-Ins</span>
+                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">Safe Double Seating Avoidance</h4>
+                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                    Simulates Table statuses: Local device clears a table state to vacant while another device registers a new active guest session concurrently.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const localTable = {
+                      id: `tbl-${Math.floor(Math.random() * 20 + 1)}`,
+                      name: 'Table 6 (Simulated)',
+                      status: 'vacant' as const,
+                      updated_at: new Date(Date.now() - 400000).toISOString(),
+                      version: 2
+                    };
+                    const remoteTable = {
+                      id: localTable.id,
+                      name: 'Table 6 (Simulated)',
+                      status: 'active' as const,
+                      current_session_id: 'sess-new-guest',
+                      updated_at: new Date().toISOString(),
+                      version: 3
+                    };
+                    offlineService.resolveTableConflict(localTable as any, remoteTable as any);
+                    setConflictLogs(offlineService.getConflictLogs());
+                  }}
+                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                >
+                  Trigger Seating Battle
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Conflict Resolution Log Audit Trail */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">3. Automated Conflict Resolution Audit Logs</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Immutable record of client-server auto merges executed on other devices or simulated sandbox runs</p>
+              </div>
+              {conflictLogs.length > 0 && (
+                <button
+                  onClick={() => {
+                    offlineService.clearConflictLogs();
+                    setConflictLogs([]);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                >
+                  <Trash2 size={13} /> Clear Logs
+                </button>
+              )}
+            </div>
+
+            {conflictLogs.length === 0 ? (
+              <div className="h-48 border-2 border-dashed border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center">
+                <RefreshCw size={36} className="text-gray-200 mb-3 animate-pulse" />
+                <h4 className="font-extrabold text-sm text-gray-600">No Conflict Resolutions Logged</h4>
+                <p className="text-xs text-gray-400 font-medium max-w-xs mt-1">
+                  Use the quick sandbox simulator above to test conflicts and confirm policies in real time!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                {conflictLogs.map(log => {
+                  const dateStr = new Date(log.timestamp).toLocaleTimeString();
+                  return (
+                    <div key={log.id} className="p-6 rounded-2xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-all space-y-4 text-left">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-black uppercase text-gray-400 bg-gray-200/60 px-2 py-0.5 rounded">
+                              {log.entityType} ID: {log.entityId}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-mono font-bold">
+                              Triggered at {dateStr}
+                            </span>
+                          </div>
+                          <h4 className="font-extrabold text-sm text-gray-800">{log.issue}</h4>
+                        </div>
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full ${
+                          log.policyApplied === 'smart' 
+                            ? 'bg-orange-500 text-white' 
+                            : 'bg-zinc-800 text-white'
+                        }`}>
+                          POLICY: {log.policyApplied.replace('-', ' ')}
+                        </span>
+                      </div>
+
+                      {/* Side-by-side data indicators */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-white p-3 rounded-xl border border-gray-100 text-xs">
+                          <span className="block text-[9px] font-black uppercase text-gray-400 mb-1 font-mono">Waiter Local Cache (IDB)</span>
+                          <pre className="font-mono text-[10px] bg-gray-50 p-2 rounded text-zinc-600 block max-h-24 overflow-y-auto select-all">
+                            {JSON.stringify(log.localValue, null, 2)}
+                          </pre>
+                        </div>
+                        <div className="bg-white p-3 rounded-xl border border-gray-100 text-xs">
+                          <span className="block text-[9px] font-black uppercase text-gray-400 mb-1 font-mono">Central Server DB state</span>
+                          <pre className="font-mono text-[10px] bg-gray-50 p-2 rounded text-zinc-600 block max-h-24 overflow-y-auto select-all">
+                            {JSON.stringify(log.remoteValue, null, 2)}
+                          </pre>
+                        </div>
+                        <div className="bg-white p-3 rounded-xl border-orange-200 bg-orange-500/[0.01] text-xs">
+                          <span className="block text-[9px] font-black uppercase text-orange-600 mb-1 font-mono">Automerge Result</span>
+                          <pre className="font-mono text-[10px] bg-orange-500/5 border border-orange-100 p-2 rounded text-orange-900 block max-h-24 overflow-y-auto font-bold select-all">
+                            {JSON.stringify(log.resolvedValue, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

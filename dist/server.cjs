@@ -242,7 +242,31 @@ function getStaffSettings(userId, role) {
 
 // src/server/services/translationService.ts
 var import_genai = require("@google/genai");
+var import_crypto = __toESM(require("crypto"), 1);
+var detectionCache = /* @__PURE__ */ new Map();
+var translationCache = /* @__PURE__ */ new Map();
+function setInCache(cache, key, value, limit = 5e3) {
+  if (cache.size >= limit) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey !== void 0) {
+      cache.delete(firstKey);
+    }
+  }
+  cache.set(key, value);
+}
+function getHash(text) {
+  return import_crypto.default.createHash("sha256").update(text.trim().toLowerCase()).digest("hex");
+}
 async function detectLanguageAndTranslate(text, apiKey) {
+  const sanitizedText = (text || "").trim();
+  if (!sanitizedText) {
+    return null;
+  }
+  const textHash = getHash(sanitizedText);
+  if (detectionCache.has(textHash)) {
+    console.log(`[Translation Cache] HIT! Saved detectLanguageAndTranslate API cost for text hash: ${textHash.substring(0, 8)} ("${sanitizedText.substring(0, 20)}...")`);
+    return detectionCache.get(textHash) || null;
+  }
   const finalApiKey = apiKey || process.env.GEMINI_API_KEY;
   if (!finalApiKey) {
     return null;
@@ -257,17 +281,17 @@ async function detectLanguageAndTranslate(text, apiKey) {
       contents: `
       You are an expert language detector and culinary translator for a multi-tenant restaurant system.
       Analyze the following text (which is a food menu item name or description):
-      "${text}"
+      "${sanitizedText}"
       
       Determine:
       1. Is this text primarily in English? (Answer true if it's already in English or standard Latin name with no clear translation, false if it's in another language. For terms like "Nasi Lemak" or "Ayam Goreng" which are Malay, return false with languageCode "ms" and englishTranslation as a clean standard culinary spelling without any parenthetical definitions like "(Fragrant Coconut Rice)")
       2. If not English, detect its language code. Supported language codes are:
-         - "zh" (Chinese)
-         - "ms" (Malay/Bahasa Melayu)
-         - "th" (Thai)
-         - "ja" (Japanese)
-         - "ko" (Korean)
-         If the language is not one of these, but is non-English, use the closest ISO 2-letter code.
+      - "zh" (Chinese)
+      - "ms" (Malay/Bahasa Melayu)
+      - "th" (Thai)
+      - "ja" (Japanese)
+      - "ko" (Korean)
+      If the language is not one of these, but is non-English, use the closest ISO 2-letter code.
       3. Translate the text from its original language to natural, appealing English.
       
       Return ONLY a JSON object (no markdown formatting, no code blocks, just raw JSON) with the following structure:
@@ -281,17 +305,29 @@ async function detectLanguageAndTranslate(text, apiKey) {
     const rawText = response.text.trim();
     const cleanText = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
     const result = JSON.parse(cleanText);
-    return {
+    const parsedResult = {
       isEnglish: !!result.isEnglish,
       languageCode: result.languageCode || null,
       englishTranslation: result.englishTranslation ? result.englishTranslation.trim() : null
     };
+    setInCache(detectionCache, textHash, parsedResult);
+    return parsedResult;
   } catch (error) {
-    console.error(`[Language Detection] Gemini language detection/translation failed for "${text}":`, error);
+    console.error(`[Language Detection] Gemini language detection/translation failed for "${sanitizedText}":`, error);
     return null;
   }
 }
-async function translateTextWithGemini(text, targetLang) {
+async function translateTextWithGemini(text, targetLang, restaurantContext) {
+  const sanitizedText = (text || "").trim();
+  if (!sanitizedText) {
+    return null;
+  }
+  const contextStr = (restaurantContext || "General").trim();
+  const cacheKey = `${getHash(sanitizedText)}:${targetLang.toLowerCase()}:${getHash(contextStr)}`;
+  if (translationCache.has(cacheKey)) {
+    console.log(`[Translation Cache] HIT! Saved translateTextWithGemini API cost for cache key: ${cacheKey.substring(0, 12)} ("${sanitizedText.substring(0, 20)}...")`);
+    return translationCache.get(cacheKey) || null;
+  }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return null;
@@ -308,8 +344,8 @@ async function translateTextWithGemini(text, targetLang) {
       You are a professional culinary translator specializing in multi-tenant restaurant systems.
       Translate the following food term or description to the target language: ${targetLangFull}.
       
-      Term: "${text}"
-      Restaurant Type: General
+      Term: "${sanitizedText}"
+      Restaurant Type: ${contextStr}
       
       Context Guidelines:
       - For Bubble Tea: Use established tea culture terms.
@@ -320,9 +356,11 @@ async function translateTextWithGemini(text, targetLang) {
       Return ONLY the translated text, no explanation or quotes.
       `
     });
-    return response.text.trim();
+    const translatedText = response.text.trim();
+    setInCache(translationCache, cacheKey, translatedText);
+    return translatedText;
   } catch (error) {
-    console.error(`[Gemini Translation] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
+    console.error(`[Gemini Translation] Gemini Translation failed for "${sanitizedText}" to ${targetLang}:`, error);
     return null;
   }
 }
@@ -333,7 +371,7 @@ var import_express12 = require("express");
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
 var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
-var import_crypto = __toESM(require("crypto"), 1);
+var import_crypto2 = __toESM(require("crypto"), 1);
 
 // src/lib/validation.ts
 var import_zod = require("zod");
@@ -405,6 +443,20 @@ var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 
 // worker/services/db_service.ts
 var import_supabase_js2 = require("@supabase/supabase-js");
+async function logToAuditDb(supabase, userId, userEmail, role, action, restaurantId) {
+  try {
+    await supabase.from("audit_logs").insert({
+      restaurant_id: restaurantId,
+      user_id: userId || null,
+      user_email: userEmail,
+      user_role: role,
+      action,
+      metadata: {}
+    });
+  } catch (err) {
+    console.error("Failed to write to audit_logs table", err);
+  }
+}
 
 // src/server/middleware/authMiddleware.ts
 var getSecret = () => {
@@ -430,6 +482,88 @@ var authenticateJWT = (req, res, next) => {
     console.warn(`[AUTH FAIL] Invalid token for ${req.path}: ${err.message}`);
     return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
   }
+};
+var requireTenantIsolation = (paramName = "restId") => {
+  return async (req, res, next) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized: User session not found" });
+    }
+    if (user.platform_role === "superadmin" || user.is_platform_admin === true) {
+      next();
+      return;
+    }
+    const userRestId = user.restaurantId || user.restaurant_id;
+    if (!userRestId) {
+      return res.status(403).json({ error: "Forbidden: No authorized restaurant/tenant context in active token." });
+    }
+    if (req.body) {
+      if (req.body.restaurantId && req.body.restaurantId !== userRestId) req.body.restaurantId = userRestId;
+      if (req.body.restaurant_id && req.body.restaurant_id !== userRestId) req.body.restaurant_id = userRestId;
+      if (req.body.restId && req.body.restId !== userRestId) req.body.restId = userRestId;
+    }
+    if (req.query) {
+      if (req.query.restaurantId) req.query.restaurantId = userRestId;
+      if (req.query.restaurant_id) req.query.restaurant_id = userRestId;
+      if (req.query.restId) req.query.restId = userRestId;
+    }
+    const targetedRestId = req.params[paramName] || req.params.restId || req.params.restaurantId;
+    if (targetedRestId && targetedRestId !== userRestId) {
+      console.error(`[CROSS-TENANT VIOLATION] Express Block: ${user.email} tried crossing into restaurant: ${targetedRestId} (User bound to parent tenant: ${userRestId})`);
+      try {
+        await logToAuditDb(supabaseAdmin, user.id, user.email, user.role, `BLOCKED: Express cross-tenant attempt to access ${targetedRestId}`, userRestId);
+      } catch (_) {
+      }
+      return res.status(403).json({ error: "Forbidden: Multi-tenant isolation violation. Access Denied." });
+    }
+    const targetId = req.params.id || req.params.staffId || req.params.orderId;
+    if (targetId) {
+      const fullPath = (req.baseUrl || "") + (req.path || "");
+      let tableName = "";
+      if (fullPath.includes("/tables/")) {
+        tableName = "tables";
+      } else if (fullPath.includes("/menu-items/")) {
+        tableName = "menu_items";
+      } else if (fullPath.includes("/categories/")) {
+        tableName = "categories";
+      } else if (fullPath.includes("/orders/")) {
+        tableName = "orders";
+      } else if (fullPath.includes("/dining-sessions/")) {
+        tableName = "dining_sessions";
+      } else if (fullPath.includes("/translation-jobs/")) {
+        tableName = "translation_jobs";
+      } else if (fullPath.includes("/staff/")) {
+        tableName = "profiles";
+      } else if (fullPath.includes("/restaurants/") && !fullPath.includes("/orders") && !fullPath.includes("/categories") && !fullPath.includes("/menu-items") && !fullPath.includes("/tables") && !fullPath.includes("/staff") && !fullPath.includes("/dining-sessions")) {
+        tableName = "restaurants";
+      }
+      if (tableName) {
+        try {
+          if (tableName === "restaurants") {
+            if (targetId !== userRestId) {
+              return res.status(403).json({ error: "Forbidden: Access denied to target restaurant." });
+            }
+          } else {
+            const { data, error } = await supabaseAdmin.from(tableName).select("restaurant_id").eq("id", targetId).maybeSingle();
+            if (error) {
+              return res.status(500).json({ error: `Ownership check error: ${error.message}` });
+            }
+            if (data) {
+              const resourceRestId = data.restaurant_id || data.restaurantId;
+              if (resourceRestId && resourceRestId !== userRestId) {
+                console.error(`[OWNERSHIP VIOLATION] ${user.email} tried accessing/modifying ${tableName} ID ${targetId} which belongs to restaurant ${resourceRestId} (User belongs to: ${userRestId})`);
+                return res.status(403).json({ error: "Forbidden: You do not own this resource level object." });
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[OWNERSHIP ABORT] Res ${targetId} matching ${tableName}:`, err);
+          return res.status(500).json({ error: "Internal resource ownership evaluation error" });
+        }
+      }
+    }
+    next();
+  };
 };
 var requireSuperAdmin = (req, res, next) => {
   const user = req.user;
@@ -477,7 +611,7 @@ router.post("/login", async (req, res) => {
       } catch (e) {
         console.error("Failed to list or create auth user for express superadmin:", e);
       }
-      const idToInsert = authUserId || import_crypto.default.randomUUID();
+      const idToInsert = authUserId || import_crypto2.default.randomUUID();
       const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
         id: idToInsert,
         email,
@@ -626,7 +760,7 @@ router.post("/google-login", async (req, res) => {
           if (existingAuthUser) {
             authUserId = existingAuthUser.id;
           } else {
-            const dummyPassword = import_crypto.default.randomUUID();
+            const dummyPassword = import_crypto2.default.randomUUID();
             const { data: newAuth, error: createError } = await supabaseAdmin.auth.admin.createUser({
               email,
               password: dummyPassword,
@@ -639,7 +773,7 @@ router.post("/google-login", async (req, res) => {
         } catch (e) {
           console.error("Failed to list or create auth user for google express superadmin:", e);
         }
-        const idToInsert = authUserId || import_crypto.default.randomUUID();
+        const idToInsert = authUserId || import_crypto2.default.randomUUID();
         const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
           id: idToInsert,
           email,
@@ -723,46 +857,33 @@ var auth_routes_default = router;
 
 // src/server/routes/translation.routes.ts
 var import_express2 = require("express");
-var import_genai2 = require("@google/genai");
 var router2 = (0, import_express2.Router)();
-router2.post("/translate", authenticateJWT, async (req, res) => {
+router2.post("/translate", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { text, targetLang, restaurantContext } = req.body;
   if (!process.env.GEMINI_API_KEY) {
     return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
   }
   try {
-    const ai = new import_genai2.GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
-    });
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `
-      You are a professional culinary translator specializing in multi-tenant restaurant systems.
-      Translate the following food term or description from English to ${targetLang}.
-      
-      Term: "${text}"
-      Restaurant Type: ${restaurantContext || "General"}
-      
-      Context Guidelines:
-      - For Bubble Tea: Use established tea culture terms.
-      - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
-      - Aim for appetite appeal and accuracy.
-      - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "\u6930\u6D46\u996D\uFF08\u6930\u9999\u7C73\u996D\uFF09"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
-      
-      Return ONLY the translated text, no explanation or quotes.
-      `
-    });
-    const translatedText = response.text.trim();
+    const translatedText = await translateTextWithGemini(text, targetLang, restaurantContext);
+    if (translatedText === null) {
+      throw new Error("Translation service returned null");
+    }
     res.json({ translatedText });
   } catch (error) {
     console.error("AI Translation failed:", error);
     res.status(500).json({ error: `Translation failed: ${error?.message || error}` });
   }
 });
-router2.get("/translation-jobs", authenticateJWT, async (req, res) => {
+router2.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const user = req.user;
+  const userRestId = user.restaurantId || user.restaurant_id;
   const { filter } = req.query;
   let query = supabaseAdmin.from("translation_jobs").select("*").order("created_at", { ascending: false });
+  if (user.platform_role !== "superadmin" && user.is_platform_admin !== true) {
+    if (userRestId) {
+      query = query.eq("restaurant_id", userRestId);
+    }
+  }
   if (filter && filter !== "all") {
     query = query.eq("review_status", filter);
   } else {
@@ -772,12 +893,12 @@ router2.get("/translation-jobs", authenticateJWT, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router2.patch("/translation-jobs/:id", authenticateJWT, async (req, res) => {
+router2.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("translation_jobs").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router2.patch("/tenant-translations", authenticateJWT, async (req, res) => {
+router2.patch("/tenant-translations", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { restaurantId, entityId, fieldName, languageCode, translatedText } = req.body;
   const { data, error } = await supabaseAdmin.from("tenant_translations").update({ translated_text: translatedText }).eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("field_name", fieldName).eq("language_code", languageCode).select();
   if (error) return res.status(500).json({ error: error.message });
@@ -830,22 +951,22 @@ function logToAudit(userId, userEmail, role, action, restaurantId) {
 
 // src/server/routes/menu.routes.ts
 var router3 = (0, import_express3.Router)();
-router3.get("/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
+router3.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router3.post("/categories", authenticateJWT, async (req, res) => {
+router3.post("/categories", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router3.delete("/categories/:id", authenticateJWT, async (req, res) => {
+router3.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { error } = await supabaseAdmin.from("categories").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
-router3.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res) => {
+router3.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("menu_items").select(`
       *,
       display_behavior,
@@ -869,7 +990,7 @@ router3.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res)
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router3.post("/menu-items", authenticateJWT, async (req, res) => {
+router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -925,7 +1046,7 @@ router3.post("/menu-items", authenticateJWT, async (req, res) => {
   }
   res.json(data);
 });
-router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
+router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -936,19 +1057,34 @@ router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   const body = req.body;
   const originalNames = [];
   const originalDescs = [];
-  if (body.name && body.name.trim()) {
+  let existingItem = null;
+  if (body.name && body.name.trim() || body.description && body.description.trim()) {
+    try {
+      const { data: data2 } = await supabaseAdmin.from("menu_items").select("name, description").eq("id", req.params.id).single();
+      existingItem = data2;
+    } catch (e) {
+      console.error("[Menu API] Failed to fetch existing item for change detection:", e);
+    }
+  }
+  const nameChanged = body.name && body.name.trim() && (!existingItem || body.name.trim() !== (existingItem.name || "").trim());
+  const descChanged = body.description && body.description.trim() && (!existingItem || body.description.trim() !== (existingItem.description || "").trim());
+  if (nameChanged) {
     const result = await detectLanguageAndTranslate(body.name.trim());
     if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
       originalNames.push({ lang: result.languageCode, text: body.name.trim() });
       body.name = result.englishTranslation;
     }
+  } else if (existingItem && body.name) {
+    delete body.name;
   }
-  if (body.description && body.description.trim()) {
+  if (descChanged) {
     const result = await detectLanguageAndTranslate(body.description.trim());
     if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
       originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
       body.description = result.englishTranslation;
     }
+  } else if (existingItem && body.description) {
+    delete body.description;
   }
   const { data, error } = await supabaseAdmin.from("menu_items").update(body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -981,7 +1117,7 @@ router3.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   }
   res.json(data);
 });
-router3.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
+router3.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -998,6 +1134,17 @@ router3.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
   res.json({ success: true });
 });
 router3.post("/batch-sync", authenticateJWT, async (req, res) => {
+  const caller = req.user;
+  const userRestId = caller?.restaurantId || caller?.restaurant_id;
+  if (caller && caller.platform_role !== "superadmin" && caller.is_platform_admin !== true) {
+    const { productId: productId2 } = req.body;
+    if (productId2) {
+      const { data: menuCheck } = await supabaseAdmin.from("menu_items").select("restaurant_id").eq("id", productId2).maybeSingle();
+      if (!menuCheck || menuCheck.restaurant_id !== userRestId) {
+        return res.status(403).json({ error: "Forbidden: Multi-tenant isolation violation on target menu item." });
+      }
+    }
+  }
   const { entity, productId, data } = req.body;
   try {
     if (entity === "combo_groups") {
@@ -1054,7 +1201,7 @@ var menu_routes_default = router3;
 // src/server/routes/staff.routes.ts
 var import_express4 = require("express");
 var router4 = (0, import_express4.Router)();
-router4.get("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -1142,7 +1289,7 @@ router4.get("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router4.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => {
+router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
@@ -1315,7 +1462,7 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, async (req, res) => 
     res.status(500).json({ error: err.message });
   }
 });
-router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
@@ -1410,7 +1557,7 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, 
     res.status(500).json({ error: err.message });
   }
 });
-router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (req, res) => {
+router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
   const callerSettings = getStaffSettings(caller.id, caller.role);
@@ -1461,7 +1608,7 @@ router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, async (re
     res.status(500).json({ error: err.message });
   }
 });
-router4.get("/restaurants/:restId/audit-logs", authenticateJWT, async (req, res) => {
+router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -2579,22 +2726,22 @@ var superadmin_routes_default = router6;
 // src/server/routes/tables.routes.ts
 var import_express7 = require("express");
 var router7 = (0, import_express7.Router)();
-router7.get("/restaurants/:restId/tables", authenticateJWT, async (req, res) => {
+router7.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router7.post("/tables", authenticateJWT, async (req, res) => {
+router7.post("/tables", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.patch("/tables/:id", authenticateJWT, async (req, res) => {
+router7.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.delete("/tables/:id", authenticateJWT, async (req, res) => {
+router7.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { error } = await supabaseAdmin.from("tables").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
@@ -2604,7 +2751,7 @@ var tables_routes_default = router7;
 // src/server/routes/orders.routes.ts
 var import_express8 = require("express");
 var router8 = (0, import_express8.Router)();
-router8.get("/restaurants/:restId/orders", authenticateJWT, async (req, res) => {
+router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -2615,7 +2762,7 @@ router8.get("/restaurants/:restId/orders", authenticateJWT, async (req, res) => 
   }
   return res.json(data || []);
 });
-router8.patch("/orders/:id", authenticateJWT, async (req, res) => {
+router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = req.user;
   const orderId = req.params.id;
   try {
@@ -2652,7 +2799,7 @@ var orders_routes_default = router8;
 // src/server/routes/sessions.routes.ts
 var import_express9 = require("express");
 var router9 = (0, import_express9.Router)();
-router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, async (req, res) => {
+router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
   const status = req.query.status;
   let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
   if (status === "active") {
@@ -2662,12 +2809,12 @@ router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, async (req,
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.get("/dining-sessions/:id/orders", authenticateJWT, async (req, res) => {
+router9.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.post("/dining-sessions/:id/settle", authenticateJWT, async (req, res) => {
+router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { orderIds, paidAmount } = req.body;
   try {
     const { error: orderError } = await supabaseAdmin.from("orders").update({
@@ -2685,7 +2832,7 @@ router9.post("/dining-sessions/:id/settle", authenticateJWT, async (req, res) =>
     res.status(500).json({ error: err.message });
   }
 });
-router9.patch("/dining-sessions/:id", authenticateJWT, async (req, res) => {
+router9.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -2694,8 +2841,77 @@ var sessions_routes_default = router9;
 
 // src/server/routes/payments.routes.ts
 var import_express10 = require("express");
+
+// src/server/services/idempotencyService.ts
+var IdempotencyService = class {
+  constructor() {
+    this.registry = /* @__PURE__ */ new Map();
+    if (typeof setInterval !== "undefined") {
+      const interval = setInterval(() => {
+        this.cleanup();
+      }, 36e5);
+      if (interval && typeof interval.unref === "function") {
+        interval.unref();
+      }
+    }
+  }
+  /**
+   * Force manual purge of expired keys
+   */
+  cleanup() {
+    const cutoff = Date.now() - 8645e4;
+    let deletedCount = 0;
+    for (const [key, record] of this.registry.entries()) {
+      if (record.createdAt < cutoff) {
+        this.registry.delete(key);
+        deletedCount++;
+      }
+    }
+    if (deletedCount > 0) {
+      console.log(`[IdempotencyService] Purged ${deletedCount} expired idempotency keys.`);
+    }
+  }
+  get(key) {
+    return this.registry.get(key);
+  }
+  set(key, record) {
+    this.registry.set(key, record);
+  }
+  delete(key) {
+    this.registry.delete(key);
+  }
+  /**
+   * Safe transaction replay detector and high-concurrency lock.
+   * If another identical request is active, polls for maximum 5 seconds before reporting processing state.
+   */
+  async acquireLock(key) {
+    let record = this.registry.get(key);
+    if (record && record.status === "processing") {
+      console.log(`[IdempotencyService] Lock hit in processing state for key: ${key}. Polling for parallel execution...`);
+      for (let i = 0; i < 50; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        record = this.registry.get(key);
+        if (!record || record.status !== "processing") break;
+      }
+    }
+    if (record) {
+      if (record.status === "completed" || record.status === "processing") {
+        console.log(`[IdempotencyService] Replay match found. Status: ${record.status} for key: ${key}`);
+        return { success: false, record };
+      }
+    }
+    this.registry.set(key, {
+      status: "processing",
+      createdAt: Date.now()
+    });
+    return { success: true };
+  }
+};
+var idempotencyService = new IdempotencyService();
+
+// src/server/routes/payments.routes.ts
 var router10 = (0, import_express10.Router)();
-router10.get("/orders/:orderId/payments", authenticateJWT, async (req, res) => {
+router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { sessionId } = req.query;
   let query;
   if (sessionId) {
@@ -2712,7 +2928,7 @@ router10.get("/orders/:orderId/payments", authenticateJWT, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router10.post("/orders/:orderId/payments", authenticateJWT, async (req, res) => {
+router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").insert({
     ...req.body,
     order_id: req.params.orderId
@@ -2720,10 +2936,124 @@ router10.post("/orders/:orderId/payments", authenticateJWT, async (req, res) => 
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router10.post("/cash-transactions", authenticateJWT, async (req, res) => {
+router10.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+router10.post("/payment/webhook", async (req, res) => {
+  const payload = req.body || {};
+  console.log("[PaymentWebhook] Received incoming payment webhook event:", JSON.stringify(payload));
+  const transactionId = payload.transaction_id || payload.idempotency_key || payload.idempotencyKey || payload.payment_id || payload.paymentId;
+  if (!transactionId) {
+    return res.status(400).json({ error: "Missing transaction identifier or idempotency_key" });
+  }
+  const webhookLockKey = `webhook:${transactionId}`;
+  const lockAcquired = await idempotencyService.acquireLock(webhookLockKey);
+  if (!lockAcquired.success) {
+    console.warn(`[PaymentWebhook] Webhook processed or processing matches for transaction client id: ${transactionId}`);
+    const record = lockAcquired.record;
+    if (record?.status === "completed") {
+      return res.json(record.result);
+    }
+    return res.status(409).json({ error: "Duplicate webhook event currently being processed. Please retry." });
+  }
+  try {
+    let { data: payment, error: pError } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", transactionId).maybeSingle();
+    if (!payment && payload.payment_id) {
+      const { data: pById } = await supabaseAdmin.from("payments").select("*").eq("id", payload.payment_id).maybeSingle();
+      payment = pById;
+    }
+    if (payment && payment.status === "completed") {
+      console.log(`[PaymentWebhook] Replay Match: Webhook duplicate checks caught already completed transaction context: ${payment.id}`);
+      const responsePayload = { success: true, message: "Payment already successfully processed.", payment };
+      idempotencyService.set(webhookLockKey, {
+        status: "completed",
+        result: responsePayload,
+        createdAt: Date.now()
+      });
+      return res.json(responsePayload);
+    }
+    let orderId = payment?.order_id || payload.order_id || payload.orderId;
+    let paymentAmount = payment?.amount || payload.amount || 0;
+    if (!payment) {
+      if (!orderId) {
+        idempotencyService.delete(webhookLockKey);
+        return res.status(422).json({ error: "Unrecognized transaction. No associated payment ledger or orderId found." });
+      }
+      const { data: order } = await supabaseAdmin.from("orders").select("*").eq("id", orderId).maybeSingle();
+      if (!order) {
+        idempotencyService.delete(webhookLockKey);
+        return res.status(404).json({ error: "Associated order not found." });
+      }
+      paymentAmount = order.total_price || payload.amount || 0;
+      const { data: newPayment, error: insertError } = await supabaseAdmin.from("payments").insert({
+        restaurant_id: order.restaurant_id,
+        order_id: order.id,
+        amount: paymentAmount,
+        payment_method: payload.method || "online",
+        provider: payload.provider || "duitnow",
+        status: "completed",
+        metadata: { webhook_payload: payload },
+        idempotency_key: transactionId
+      }).select().single();
+      if (insertError) {
+        if (insertError.code === "23505" || insertError.message?.toLowerCase().includes("unique") || insertError.message?.toLowerCase().includes("duplicate")) {
+          const { data: duplicatePayment } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", transactionId).single();
+          if (duplicatePayment) {
+            const resData = { success: true, message: "Handled concurrent insert replay.", payment: duplicatePayment };
+            idempotencyService.set(webhookLockKey, { status: "completed", result: resData, createdAt: Date.now() });
+            return res.json(resData);
+          }
+        }
+        throw insertError;
+      }
+      payment = newPayment;
+    } else {
+      const { data: updatedPayment, error: updatePayError } = await supabaseAdmin.from("payments").update({
+        status: "completed",
+        metadata: {
+          ...payment.metadata || {},
+          webhook_processed_at: (/* @__PURE__ */ new Date()).toISOString(),
+          webhook_payload: payload
+        }
+      }).eq("id", payment.id).select().single();
+      if (updatePayError) throw updatePayError;
+      payment = updatedPayment;
+    }
+    if (orderId) {
+      console.log(`[PaymentWebhook] Transitioning Order ${orderId} to confirmed.`);
+      const { error: orderUpdateError } = await supabaseAdmin.from("orders").update({
+        status: "confirmed",
+        paid_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", orderId);
+      if (orderUpdateError) {
+        console.error(`[PaymentWebhook] Warning: failed to transition Order ${orderId} state:`, orderUpdateError);
+      }
+    }
+    const finalResponse = {
+      success: true,
+      message: "Webhook processed successfully.",
+      payment_id: payment.id,
+      order_id: orderId,
+      amount: paymentAmount,
+      status: "PAID"
+    };
+    idempotencyService.set(webhookLockKey, {
+      status: "completed",
+      result: finalResponse,
+      createdAt: Date.now()
+    });
+    return res.json(finalResponse);
+  } catch (err) {
+    console.error("[PaymentWebhook] Fatal runtime processing failure error:", err);
+    idempotencyService.set(webhookLockKey, {
+      status: "failed",
+      error: err.message || "Failed execution",
+      createdAt: Date.now()
+    });
+    return res.status(500).json({ error: err.message || "Internal Webhook Processing Failure" });
+  }
 });
 var payments_routes_default = router10;
 
@@ -2970,15 +3300,6 @@ router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-var idempotencyRegistry = /* @__PURE__ */ new Map();
-function cleanExpiredIdempotencyKeys() {
-  const cutoff = Date.now() - 864e5;
-  for (const [key, record] of idempotencyRegistry.entries()) {
-    if (record.createdAt < cutoff) {
-      idempotencyRegistry.delete(key);
-    }
-  }
-}
 router11.post("/payments", async (req, res) => {
   try {
     const parsed = PaymentsSchema.safeParse(req.body);
@@ -2987,31 +3308,18 @@ router11.post("/payments", async (req, res) => {
     }
     const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
     const idempotencyKeyResolved = idempotency_key || idempotencyKey;
-    cleanExpiredIdempotencyKeys();
     if (idempotencyKeyResolved) {
-      let record = idempotencyRegistry.get(idempotencyKeyResolved);
-      if (record && record.status === "processing") {
-        for (let i = 0; i < 50; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          record = idempotencyRegistry.get(idempotencyKeyResolved);
-          if (!record || record.status !== "processing") break;
-        }
-      }
-      if (record) {
-        if (record.status === "completed") {
+      const lockAcquired = await idempotencyService.acquireLock(idempotencyKeyResolved);
+      if (!lockAcquired.success) {
+        const record = lockAcquired.record;
+        if (record?.status === "completed") {
           return res.json(record.result);
         }
-        if (record.status === "processing") {
-          return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
-        }
+        return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
       }
-      idempotencyRegistry.set(idempotencyKeyResolved, {
-        status: "processing",
-        createdAt: Date.now()
-      });
       const { data: existingCol } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", idempotencyKeyResolved).maybeSingle();
       if (existingCol) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: "completed",
           result: existingCol,
           createdAt: Date.now()
@@ -3020,7 +3328,7 @@ router11.post("/payments", async (req, res) => {
       }
       const { data: existingMeta } = await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle();
       if (existingMeta) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: "completed",
           result: existingMeta,
           createdAt: Date.now()
@@ -3049,7 +3357,7 @@ router11.post("/payments", async (req, res) => {
         const reloaded = reloadedCol || (await supabaseAdmin.from("payments").select("*").eq("metadata->>idempotency_key", idempotencyKeyResolved).maybeSingle()).data;
         if (reloaded) {
           if (idempotencyKeyResolved) {
-            idempotencyRegistry.set(idempotencyKeyResolved, {
+            idempotencyService.set(idempotencyKeyResolved, {
               status: "completed",
               result: reloaded,
               createdAt: Date.now()
@@ -3071,7 +3379,7 @@ router11.post("/payments", async (req, res) => {
         const { data: fallbackData, error: fallbackError } = await supabaseAdmin.from("payments").insert(fallbackPayload).select().single();
         if (fallbackError) {
           if (idempotencyKeyResolved) {
-            idempotencyRegistry.set(idempotencyKeyResolved, {
+            idempotencyService.set(idempotencyKeyResolved, {
               status: "failed",
               error: fallbackError.message,
               createdAt: Date.now()
@@ -3080,7 +3388,7 @@ router11.post("/payments", async (req, res) => {
           return res.status(500).json({ error: fallbackError.message });
         }
         if (idempotencyKeyResolved) {
-          idempotencyRegistry.set(idempotencyKeyResolved, {
+          idempotencyService.set(idempotencyKeyResolved, {
             status: "completed",
             result: fallbackData,
             createdAt: Date.now()
@@ -3089,7 +3397,7 @@ router11.post("/payments", async (req, res) => {
         return res.json(fallbackData);
       }
       if (idempotencyKeyResolved) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: "failed",
           error: dbError.message,
           createdAt: Date.now()
@@ -3098,7 +3406,7 @@ router11.post("/payments", async (req, res) => {
       return res.status(500).json({ error: dbError.message });
     }
     if (idempotencyKeyResolved) {
-      idempotencyRegistry.set(idempotencyKeyResolved, {
+      idempotencyService.set(idempotencyKeyResolved, {
         status: "completed",
         result: successData,
         createdAt: Date.now()

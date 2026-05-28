@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
+import { idempotencyService } from "../services/idempotencyService";
 import { 
   ResolveSessionSchema, 
   SyncBasketItemSchema, 
@@ -436,24 +437,6 @@ router.post("/dining-sessions/:id/mark-paid", async (req, res) => {
 });
 
 // Manage digital payments creation
-interface IdempotencyRecord {
-  status: 'processing' | 'completed' | 'failed';
-  result?: any;
-  error?: string;
-  createdAt: number;
-}
-
-const idempotencyRegistry = new Map<string, IdempotencyRecord>();
-
-function cleanExpiredIdempotencyKeys() {
-  const cutoff = Date.now() - 86400000; // 24-hour expiration
-  for (const [key, record] of idempotencyRegistry.entries()) {
-    if (record.createdAt < cutoff) {
-      idempotencyRegistry.delete(key);
-    }
-  }
-}
-
 router.post("/payments", async (req, res) => {
   try {
     const parsed = PaymentsSchema.safeParse(req.body);
@@ -463,34 +446,16 @@ router.post("/payments", async (req, res) => {
     const { restaurantId, orderId, amount, method, provider, metadata, idempotency_key, idempotencyKey } = parsed.data;
     const idempotencyKeyResolved = idempotency_key || idempotencyKey;
 
-    cleanExpiredIdempotencyKeys();
-
     if (idempotencyKeyResolved) {
-      // 1. Concurrency Check & Lock
-      let record = idempotencyRegistry.get(idempotencyKeyResolved);
-      if (record && record.status === 'processing') {
-        // Poll briefly to let parallel request finish
-        for (let i = 0; i < 50; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          record = idempotencyRegistry.get(idempotencyKeyResolved);
-          if (!record || record.status !== 'processing') break;
-        }
-      }
-
-      if (record) {
-        if (record.status === 'completed') {
+      // 1. Concurrency Check & Lock utilizing high-quality idempotencyService
+      const lockAcquired = await idempotencyService.acquireLock(idempotencyKeyResolved);
+      if (!lockAcquired.success) {
+        const record = lockAcquired.record;
+        if (record?.status === 'completed') {
           return res.json(record.result);
         }
-        if (record.status === 'processing') {
-          return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
-        }
+        return res.status(409).json({ error: "Another payment with this transaction id is currently processing. Please wait or retry." });
       }
-
-      // Initialize processing lock
-      idempotencyRegistry.set(idempotencyKeyResolved, {
-        status: 'processing',
-        createdAt: Date.now()
-      });
 
       // 2. DB Replay Check (existing column lookup or metadata lookup)
       const { data: existingCol } = await supabaseAdmin
@@ -500,7 +465,7 @@ router.post("/payments", async (req, res) => {
         .maybeSingle();
 
       if (existingCol) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: 'completed',
           result: existingCol,
           createdAt: Date.now()
@@ -515,7 +480,7 @@ router.post("/payments", async (req, res) => {
         .maybeSingle();
 
       if (existingMeta) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: 'completed',
           result: existingMeta,
           createdAt: Date.now()
@@ -540,7 +505,7 @@ router.post("/payments", async (req, res) => {
       idempotency_key: idempotencyKeyResolved
     };
 
-    // 3. Unique SQL level attempt with duplicate key catching fallback
+    // 3. Unique SQL-level attempt with duplicate key catching fallback
     const { data: successData, error: dbError } = await supabaseAdmin
       .from('payments')
       .insert(insertPayload)
@@ -548,7 +513,7 @@ router.post("/payments", async (req, res) => {
       .single();
 
     if (dbError) {
-      // Catch unique constraint violations (pg code 23505) or custom unique errors
+      // Catch unique database constraint violations (pg code 23505) or custom unique errors
       if (dbError.code === '23505' || dbError.message?.toLowerCase().includes('unique') || dbError.message?.toLowerCase().includes('duplicate')) {
         // Retrieve the duplicate row and return it as standard replay protection
         const { data: reloadedCol } = await supabaseAdmin
@@ -565,7 +530,7 @@ router.post("/payments", async (req, res) => {
 
         if (reloaded) {
           if (idempotencyKeyResolved) {
-            idempotencyRegistry.set(idempotencyKeyResolved, {
+            idempotencyService.set(idempotencyKeyResolved, {
               status: 'completed',
               result: reloaded,
               createdAt: Date.now()
@@ -594,7 +559,7 @@ router.post("/payments", async (req, res) => {
 
         if (fallbackError) {
           if (idempotencyKeyResolved) {
-            idempotencyRegistry.set(idempotencyKeyResolved, {
+            idempotencyService.set(idempotencyKeyResolved, {
               status: 'failed',
               error: fallbackError.message,
               createdAt: Date.now()
@@ -604,7 +569,7 @@ router.post("/payments", async (req, res) => {
         }
 
         if (idempotencyKeyResolved) {
-          idempotencyRegistry.set(idempotencyKeyResolved, {
+          idempotencyService.set(idempotencyKeyResolved, {
             status: 'completed',
             result: fallbackData,
             createdAt: Date.now()
@@ -614,7 +579,7 @@ router.post("/payments", async (req, res) => {
       }
 
       if (idempotencyKeyResolved) {
-        idempotencyRegistry.set(idempotencyKeyResolved, {
+        idempotencyService.set(idempotencyKeyResolved, {
           status: 'failed',
           error: dbError.message,
           createdAt: Date.now()
@@ -624,7 +589,7 @@ router.post("/payments", async (req, res) => {
     }
 
     if (idempotencyKeyResolved) {
-      idempotencyRegistry.set(idempotencyKeyResolved, {
+      idempotencyService.set(idempotencyKeyResolved, {
         status: 'completed',
         result: successData,
         createdAt: Date.now()

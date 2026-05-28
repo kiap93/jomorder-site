@@ -4,6 +4,18 @@ import { QueueProcessor, QueueStatus } from './queueProcessor';
 import { SyncService } from './syncService';
 import { MutationJob } from '../types';
 
+export interface ConflictLog {
+  id: string;
+  timestamp: number;
+  entityType: 'order' | 'table';
+  entityId: string;
+  issue: string;
+  localValue: any;
+  remoteValue: any;
+  policyApplied: 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins';
+  resolvedValue: any;
+}
+
 class OfflineService {
   public repository: IndexedDbRepository;
   public networkMonitor: NetworkMonitor;
@@ -15,11 +27,30 @@ class OfflineService {
   private tablesMemoryCache = new Map<string, OfflineTable>();
   private cartMemoryCache: OfflineCartItem[] = [];
 
+  // Conflict policy state
+  private conflictPolicy: 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins' = 'smart';
+  private conflictLogs: ConflictLog[] = [];
+
   constructor() {
     this.repository = new IndexedDbRepository();
     this.networkMonitor = networkMonitorInstance;
     this.queueProcessor = new QueueProcessor(this.repository, this.networkMonitor);
     this.syncService = new SyncService(this.repository, this.networkMonitor, this.queueProcessor);
+
+    // Load active settings from localStorage
+    const storedPolicy = localStorage.getItem('pos_offline_conflict_policy');
+    if (storedPolicy && ['smart', 'server-wins', 'client-wins', 'timestamp-wins'].includes(storedPolicy)) {
+      this.conflictPolicy = storedPolicy as any;
+    }
+
+    const storedLogs = localStorage.getItem('pos_offline_conflict_logs');
+    if (storedLogs) {
+      try {
+        this.conflictLogs = JSON.parse(storedLogs);
+      } catch (_) {
+        this.conflictLogs = [];
+      }
+    }
 
     this.repository.init().then(async () => {
       console.log('[OfflineService] Initialized Offline-First architecture correctly.');
@@ -35,6 +66,34 @@ class OfflineService {
    */
   private async warmUpMemoryCache(): Promise<void> {
     try {
+      // Startup Recovery: Recover any mutations/jobs left in 'processing' or 'syncing' states
+      // due to a previous browser crash or abrupt app termination.
+      const mutations = await this.repository.getMutations();
+      let recoveredCount = 0;
+      for (const m of mutations) {
+        if (m.status === 'processing') {
+          m.status = 'pending';
+          await this.repository.saveMutation(m);
+          recoveredCount++;
+        }
+      }
+      if (recoveredCount > 0) {
+        console.log(`[OfflineService] Recovered ${recoveredCount} abandoned 'processing' mutations on startup.`);
+      }
+
+      const jobs = await this.repository.getMutationJobs();
+      let recoveredJobsCount = 0;
+      for (const j of jobs) {
+        if (j.syncStatus === 'syncing') {
+          j.syncStatus = 'pending';
+          await this.repository.saveMutationJob(j);
+          recoveredJobsCount++;
+        }
+      }
+      if (recoveredJobsCount > 0) {
+        console.log(`[OfflineService] Recovered ${recoveredJobsCount} abandoned 'syncing' jobs on startup.`);
+      }
+
       const orders = await this.repository.getOrders();
       for (const order of orders) {
         this.ordersMemoryCache.set(order.id, order);
@@ -78,6 +137,40 @@ class OfflineService {
 
   async discardMutation(id: string): Promise<void> {
     await this.queueProcessor.discardMutation(id);
+  }
+
+  // Conflict policy getters/setters
+  getConflictPolicy(): 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins' {
+    return this.conflictPolicy;
+  }
+
+  setConflictPolicy(policy: 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins'): void {
+    this.conflictPolicy = policy;
+    localStorage.setItem('pos_offline_conflict_policy', policy);
+    console.log(`[OfflineService] Conflict policy switched to: ${policy}`);
+  }
+
+  getConflictLogs(): ConflictLog[] {
+    return this.conflictLogs;
+  }
+
+  clearConflictLogs(): void {
+    this.conflictLogs = [];
+    localStorage.setItem('pos_offline_conflict_logs', JSON.stringify([]));
+  }
+
+  private addConflictLog(log: Omit<ConflictLog, 'id' | 'timestamp'>): void {
+    const newLog: ConflictLog = {
+      ...log,
+      id: Math.random().toString(36).substring(2, 9),
+      timestamp: Date.now()
+    };
+    this.conflictLogs.unshift(newLog);
+    // Max 100 logs
+    if (this.conflictLogs.length > 100) {
+      this.conflictLogs = this.conflictLogs.slice(0, 100);
+    }
+    localStorage.setItem('pos_offline_conflict_logs', JSON.stringify(this.conflictLogs));
   }
 
   // Direct state read/write (Layer 1 reads first, falls back to Layer 2)
@@ -204,13 +297,93 @@ class OfflineService {
     const localTime = new Date(local.updated_at || 0).getTime();
     const remoteTime = new Date(remote.updated_at || 0).getTime();
 
-    // Determine base based on version & timestamp
-    const base = (local.version > remote.version || localTime > remoteTime) ? local : remote;
-    const secondary = base === local ? remote : local;
+    // Check if there is actual value mismatch to prevent spamming conflict logs
+    const isStatusMismatch = local.status !== remote.status;
+    const isItemsMismatch = JSON.stringify(local.items || []) !== JSON.stringify(remote.items || []);
 
-    // Merge items array cleanly so no added menu items or selections are overwritten
-    const mergedItems = [...(base.items || [])];
-    const secondaryItems = secondary.items || [];
+    if (!isStatusMismatch && !isItemsMismatch) {
+      // No discrepancy: clean exit, return whichever is newer or remote
+      return local.version >= remote.version ? local : remote;
+    }
+
+    const policy = this.conflictPolicy;
+
+    // 1. POLICY: SERVER WINS
+    if (policy === 'server-wins') {
+      this.addConflictLog({
+        entityType: 'order',
+        entityId: remote.id,
+        issue: `Discrepancy detected (Status/Items). Server-Wins policy applied.`,
+        localValue: { status: local.status, itemsCount: (local.items || []).length },
+        remoteValue: { status: remote.status, itemsCount: (remote.items || []).length },
+        policyApplied: 'server-wins',
+        resolvedValue: { status: remote.status, itemsCount: (remote.items || []).length }
+      });
+      return remote;
+    }
+
+    // 2. POLICY: CLIENT WINS
+    if (policy === 'client-wins') {
+      this.addConflictLog({
+        entityType: 'order',
+        entityId: remote.id,
+        issue: `Discrepancy detected (Status/Items). Client-Wins policy applied.`,
+        localValue: { status: local.status, itemsCount: (local.items || []).length },
+        remoteValue: { status: remote.status, itemsCount: (remote.items || []).length },
+        policyApplied: 'client-wins',
+        resolvedValue: { status: local.status, itemsCount: (local.items || []).length }
+      });
+      return local;
+    }
+
+    // 3. POLICY: LATEST TIMESTAMP WINS
+    if (policy === 'timestamp-wins') {
+      const isLocalNewer = localTime > remoteTime || (localTime === remoteTime && local.version > remote.version);
+      const winner = isLocalNewer ? local : remote;
+      this.addConflictLog({
+        entityType: 'order',
+        entityId: remote.id,
+        issue: `Discrepancy detected. Last-Write-Wins (LWW) timestamp policy applied.`,
+        localValue: { status: local.status, itemsCount: (local.items || []).length, updated: local.updated_at },
+        remoteValue: { status: remote.status, itemsCount: (remote.items || []).length, updated: remote.updated_at },
+        policyApplied: 'timestamp-wins',
+        resolvedValue: { status: winner.status, itemsCount: (winner.items || []).length }
+      });
+      return winner;
+    }
+
+    // 4. POLICY: SMART MERGE (Role and Status Safety Overrides - DEFAULT)
+    // Deterministic hierarchy rules to ensure zero disappearing items and maximum safety.
+    const statusPrecedence: Record<string, number> = {
+      'cancelled': 4,
+      'completed': 3,
+      'cooking': 2,
+      'ready_to_serve': 2,
+      'pending': 1
+    };
+
+    const localScore = statusPrecedence[local.status.toLowerCase()] || 0;
+    const remoteScore = statusPrecedence[remote.status.toLowerCase()] || 0;
+
+    let resolvedStatus = remote.status;
+    let statusSource = 'Server Status Priority';
+
+    if (localScore > remoteScore) {
+      resolvedStatus = local.status;
+      statusSource = 'Local Status override (Higher precedence)';
+    } else if (remoteScore > localScore) {
+      resolvedStatus = remote.status;
+      statusSource = 'Remote Status override (Higher precedence)';
+    } else {
+      // Equal status score. Tie-break: use newest modifier
+      resolvedStatus = localTime >= remoteTime ? local.status : remote.status;
+      statusSource = localTime >= remoteTime ? 'Local status (Newer modification)' : 'Remote status (Newer modification)';
+    }
+
+    // Safe items Union: Never discard added items concurrently!
+    const mergedItems = [...(remote.items || [])];
+    const secondaryItems = local.items || [];
+    let itemsAddedCount = 0;
 
     for (const sItem of secondaryItems) {
       const match = mergedItems.find(bItem => 
@@ -219,23 +392,98 @@ class OfflineService {
       );
 
       if (match) {
-        // Choose the highest quantity requested to prevent missing orders
-        match.quantity = Math.max(match.quantity, sItem.quantity);
+        // Safe item update: take the max quantity so chef never under-prepares
+        if (sItem.quantity > match.quantity) {
+          match.quantity = sItem.quantity;
+        }
       } else {
         mergedItems.push({ ...sItem });
+        itemsAddedCount++;
       }
     }
 
-    // Recalculate totalPrice
+    // Recompute total amount
     const totalAmount = mergedItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0);
 
-    return {
-      ...base,
+    const resolvedOrder: OfflineOrder = {
+      ...(local.version > remote.version ? local : remote),
+      status: resolvedStatus,
       items: mergedItems,
       total_amount: totalAmount,
       updated_at: new Date().toISOString(),
       version: Math.max(local.version, remote.version) + 1
     };
+
+    this.addConflictLog({
+      entityType: 'order',
+      entityId: remote.id,
+      issue: `Smart Merge: Status conflict resolved via [${statusSource}]. Merged duplicate items safely.`,
+      localValue: { status: local.status, itemsCount: (local.items || []).length },
+      remoteValue: { status: remote.status, itemsCount: (remote.items || []).length },
+      policyApplied: 'smart',
+      resolvedValue: { status: resolvedOrder.status, itemsCount: resolvedOrder.items?.length || 0, total: totalAmount }
+    });
+
+    return resolvedOrder;
+  }
+
+  /**
+   * Centralized Table Conflict resolution
+   */
+  public resolveTableConflict(local: OfflineTable, remote: OfflineTable): OfflineTable {
+    const localTime = new Date(local.updated_at || 0).getTime();
+    const remoteTime = new Date(remote.updated_at || 0).getTime();
+
+    if (local.status === remote.status && local.current_session_id === remote.current_session_id) {
+      return local.version >= remote.version ? local : remote;
+    }
+
+    const policy = this.conflictPolicy;
+
+    if (policy === 'server-wins') {
+      return remote;
+    }
+    if (policy === 'client-wins') {
+      return local;
+    }
+    if (policy === 'timestamp-wins') {
+      return localTime >= remoteTime ? local : remote;
+    }
+
+    // Smart Merge for tables: keep seated or active states rather than clearing, to prevent seating overlaps.
+    const tableStatusScore = {
+      'active': 3,
+      'reserved': 2,
+      'vacant': 1
+    };
+
+    const localScore = tableStatusScore[local.status] || 0;
+    const remoteScore = tableStatusScore[remote.status] || 0;
+
+    let resolvedStatus: 'active' | 'reserved' | 'vacant' = remote.status;
+    if (localScore > remoteScore) {
+      resolvedStatus = local.status;
+    }
+
+    const resolvedTable: OfflineTable = {
+      ...(local.version >= remote.version ? local : remote),
+      status: resolvedStatus,
+      current_session_id: local.current_session_id || remote.current_session_id,
+      updated_at: new Date().toISOString(),
+      version: Math.max(local.version, remote.version) + 1
+    };
+
+    this.addConflictLog({
+      entityType: 'table',
+      entityId: remote.id,
+      issue: `Smart Seating Merge applied to prevent Seat Overlaps. Status merged to: ${resolvedStatus}.`,
+      localValue: { status: local.status, session: local.current_session_id },
+      remoteValue: { status: remote.status, session: remote.current_session_id },
+      policyApplied: 'smart',
+      resolvedValue: { status: resolvedTable.status, session: resolvedTable.current_session_id }
+    });
+
+    return resolvedTable;
   }
 
   /**
@@ -259,6 +507,32 @@ class OfflineService {
     }
 
     return merged;
+  }
+
+  /**
+   * Clears ALL local caches and IndexedDB database stores to safeguard session integrity,
+   * preventing cross-session desync or data leakage on multi-user or shared terminals.
+   */
+  public async purgeTenantData(): Promise<void> {
+    console.log('[OfflineService] Purging all tenant-scoped data from Layer 1 Memory and Layer 2 IndexedDB.');
+    // Clear Layer 1 Memory caches
+    this.ordersMemoryCache.clear();
+    this.tablesMemoryCache.clear();
+    this.cartMemoryCache = [];
+    this.conflictLogs = [];
+    
+    // Clear Layer 2 IndexedDB stores
+    await this.repository.clearAllData();
+    
+    // Clear localStorage values
+    localStorage.removeItem('pos_offline_conflict_policy');
+    localStorage.removeItem('pos_offline_conflict_logs');
+    
+    // Reset policy to default
+    this.conflictPolicy = 'smart';
+
+    // Broadcast update to notify any reactive listeners or hook subscriptions
+    this.queueProcessor['notify']();
   }
 }
 

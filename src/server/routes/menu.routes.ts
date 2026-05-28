@@ -2,12 +2,12 @@ import { Router } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
 import { detectLanguageAndTranslate } from "../services/translationService";
 import { logToAudit } from "../services/auditService";
-import { authenticateJWT } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // Categories
-router.get("/restaurants/:restId/categories", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('categories')
     .select('*')
@@ -18,7 +18,7 @@ router.get("/restaurants/:restId/categories", authenticateJWT, async (req, res) 
   res.json(data || []);
 });
 
-router.post("/categories", authenticateJWT, async (req, res) => {
+router.post("/categories", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('categories')
     .insert(req.body)
@@ -29,7 +29,7 @@ router.post("/categories", authenticateJWT, async (req, res) => {
   res.json(data);
 });
 
-router.delete("/categories/:id", authenticateJWT, async (req, res) => {
+router.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { error } = await supabaseAdmin
     .from('categories')
     .delete()
@@ -40,7 +40,7 @@ router.delete("/categories/:id", authenticateJWT, async (req, res) => {
 });
 
 // Menu Items
-router.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res) => {
+router.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('menu_items')
     .select(`
@@ -69,7 +69,7 @@ router.get("/restaurants/:restId/menu-items", authenticateJWT, async (req, res) 
   res.json(data || []);
 });
 
-router.post("/menu-items", authenticateJWT, async (req, res) => {
+router.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -138,7 +138,7 @@ router.post("/menu-items", authenticateJWT, async (req, res) => {
   res.json(data);
 });
 
-router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
+router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -151,20 +151,44 @@ router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   const originalNames: { lang: string; text: string }[] = [];
   const originalDescs: { lang: string; text: string }[] = [];
 
-  if (body.name && body.name.trim()) {
+  // Change detection to prevent redundant, expensive AI translations
+  let existingItem: any = null;
+  if ((body.name && body.name.trim()) || (body.description && body.description.trim())) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('menu_items')
+        .select('name, description')
+        .eq('id', req.params.id)
+        .single();
+      existingItem = data;
+    } catch (e) {
+      console.error("[Menu API] Failed to fetch existing item for change detection:", e);
+    }
+  }
+
+  const nameChanged = body.name && body.name.trim() && (!existingItem || body.name.trim() !== (existingItem.name || '').trim());
+  const descChanged = body.description && body.description.trim() && (!existingItem || body.description.trim() !== (existingItem.description || '').trim());
+
+  if (nameChanged) {
     const result = await detectLanguageAndTranslate(body.name.trim());
     if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
       originalNames.push({ lang: result.languageCode, text: body.name.trim() });
       body.name = result.englishTranslation;
     }
+  } else if (existingItem && body.name) {
+    // Keep raw English name if unchanged, skip AI translation detection
+    delete body.name; 
   }
 
-  if (body.description && body.description.trim()) {
+  if (descChanged) {
     const result = await detectLanguageAndTranslate(body.description.trim());
     if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
       originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
       body.description = result.englishTranslation;
     }
+  } else if (existingItem && body.description) {
+    // Keep existing text if unchanged, skip AI translation detection
+    delete body.description;
   }
 
   const { data, error } = await supabaseAdmin
@@ -208,7 +232,7 @@ router.patch("/menu-items/:id", authenticateJWT, async (req, res) => {
   res.json(data);
 });
 
-router.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
+router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -235,6 +259,25 @@ router.delete("/menu-items/:id", authenticateJWT, async (req, res) => {
 
 // Sub-collections sync (Combo/Modifier groups)
 router.post("/batch-sync", authenticateJWT, async (req, res) => {
+  const caller = (req as any).user;
+  const userRestId = caller?.restaurantId || caller?.restaurant_id;
+
+  // Derive tenant ownership check for batch-sync target item
+  if (caller && caller.platform_role !== 'superadmin' && caller.is_platform_admin !== true) {
+    const { productId } = req.body;
+    if (productId) {
+      const { data: menuCheck } = await supabaseAdmin
+        .from('menu_items')
+        .select('restaurant_id')
+        .eq('id', productId)
+        .maybeSingle();
+
+      if (!menuCheck || menuCheck.restaurant_id !== userRestId) {
+        return res.status(403).json({ error: "Forbidden: Multi-tenant isolation violation on target menu item." });
+      }
+    }
+  }
+
   const { entity, productId, data } = req.body;
   try {
     if (entity === 'combo_groups') {
