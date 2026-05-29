@@ -3,6 +3,7 @@ import { NetworkMonitor, networkMonitorInstance } from './networkMonitor';
 import { QueueProcessor, QueueStatus } from './queueProcessor';
 import { SyncService } from './syncService';
 import { MutationJob } from '../types';
+import { indexedDbStorage } from './indexedDbStorage';
 
 export interface ConflictLog {
   id: string;
@@ -538,3 +539,37 @@ class OfflineService {
 
 export const offlineService = new OfflineService();
 export default offlineService;
+
+export async function clearTenantScopedIndexedDB(): Promise<void> {
+  console.log('[clearTenantScopedIndexedDB] Initiating complete tenant block wipeout on IndexedDB databases...');
+  
+  // 1. Wipe offline service layers (Memory caches, cart, tables, orders, pending mutations and logs)
+  try {
+    await offlineService.purgeTenantData();
+  } catch (err) {
+    console.warn('[clearTenantScopedIndexedDB] Failed purging offlineService:', err);
+  }
+
+  // 2. Clear KV session storage database (JWT tokens, cached workspace items)
+  try {
+    await indexedDbStorage.clear();
+  } catch (err) {
+    console.warn('[clearTenantScopedIndexedDB] Failed clearing indexedDbStorage:', err);
+  }
+
+  // 3. Clear relevant sessionStorage items and client-side storage keys as final safety margin
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.clear();
+    }
+  } catch (err) {
+    console.warn('[clearTenantScopedIndexedDB] sessionStorage clearance bypassed:', err);
+  }
+
+  console.log('[clearTenantScopedIndexedDB] Offline database wipeout complete.');
+}
+
+// Bind to window to guarantee full accessibility in test suites and terminal scripts
+if (typeof window !== 'undefined') {
+  (window as any).clearTenantScopedIndexedDB = clearTenantScopedIndexedDB;
+}

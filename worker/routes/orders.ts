@@ -160,7 +160,7 @@ orderRoutes.post('/api/public/sync-basket-item', async (c) => {
       if (existingItem) {
         const { error: updErr } = await supabase
           .from('basket_items')
-          .update({ quantity: newQty, updated_at: new Date().toISOString() })
+          .update({ quantity: newQty })
           .eq('id', existingItem.id);
         if (updErr) return c.json({ error: updErr.message }, 500);
       } else {

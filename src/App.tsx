@@ -21,6 +21,7 @@ import { Landing } from './pages/Landing';
 import { InternalReview } from './pages/InternalReview';
 import { SuperAdmin } from './pages/SuperAdmin';
 import { WorkspaceSelect } from './pages/WorkspaceSelect';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 function ContextTracker() {
   const location = useLocation();
@@ -107,10 +108,26 @@ export default function App() {
             <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId" element={<OrderTracker />} />
             
             {/* Staff Flow */}
-            <Route path="/restaurant/:restId/orders" element={<PosDashboard />} />
-            <Route path="/restaurant/:restId/payments" element={<PosPayments />} />
-            <Route path="/restaurant/:restId/kitchen" element={<KitchenDisplay />} />
-            <Route path="/restaurant/:restId/admin" element={<AdminPanel />} />
+            <Route path="/restaurant/:restId/orders" element={
+              <ProtectedRoute permissions={['orders.view']}>
+                <PosDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/restaurant/:restId/payments" element={
+              <ProtectedRoute permissions={['payments.view']}>
+                <PosPayments />
+              </ProtectedRoute>
+            } />
+            <Route path="/restaurant/:restId/kitchen" element={
+              <ProtectedRoute permissions={['orders.prepare']}>
+                <KitchenDisplay />
+              </ProtectedRoute>
+            } />
+            <Route path="/restaurant/:restId/admin" element={
+              <ProtectedRoute permissions={['settings.manage']}>
+                <AdminPanel />
+              </ProtectedRoute>
+            } />
             
             {/* Auth & Setup */}
             <Route path="/login" element={

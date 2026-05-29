@@ -8,12 +8,12 @@ import {
   writeStaffRegistry 
 } from "../services/dbService";
 import { logToAudit, readAuditLogs } from "../services/auditService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // 1. Get List of Staff
-router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
+router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId } = req.params;
   const caller = (req as any).user;
 

@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { supabaseAdmin } from "../services/dbService";
 import { getStaffSettingsFromDb, logToAuditDb } from "../../../worker/services/db_service";
+import { hasPermission, PermissionCode } from "../../lib/rbac";
 
 const getSecret = () => {
   const secret = process.env.JWT_SECRET;
@@ -279,3 +280,60 @@ export const requireSuperAdmin = (req: express.Request, res: express.Response, n
 
   next();
 };
+
+/**
+ * 5. Production-Grade Reusable Permission Protection Middleware
+ * Restricts access to API routes by matching user credentials and dynamic JSON overrides
+ * against specific target permission codes, respecting restaurant/tenant isolation boundaries.
+ */
+export const requirePermissions = (...requiredPermissions: PermissionCode[]) => {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized: User session details not found." });
+    }
+
+    // Platform Super Admins hold absolute bypass
+    if (user.platform_role === 'superadmin' || user.is_platform_admin === true) {
+      next();
+      return;
+    }
+
+    try {
+      // Resolve targeted restId/restaurantId parameter to validate boundary isolation
+      const restId = req.params.restId || req.params.restaurantId || req.query.restaurantId || req.query.restaurant_id || req.query.restId || (req.body && (req.body.restaurantId || req.body.restaurant_id || req.body.restId)) || user.restaurantId;
+
+      if (!restId) {
+        return res.status(400).json({ error: "Bad Request: Missing restaurant identifier mapping in context." });
+      }
+
+      // Read dynamic staff registry/custom profiles permissions configuration from the persistent cache
+      const settings = await getStaffSettingsFromDb(supabaseAdmin, user.id, user.role, restId);
+      
+      if (settings.status === 'suspended') {
+        return res.status(403).json({ error: "Forbidden: Your staff account has been suspended." });
+      }
+
+      const customPermissions = settings.permissions || {};
+      const userRole = user.role;
+
+      // Type-safe matching of every required permission
+      const isAuthorized = requiredPermissions.every(perm => 
+        hasPermission(userRole, perm, customPermissions)
+      );
+
+      if (!isAuthorized) {
+        console.warn(`[API ACCESS DENIED] User: ${user.email} | Role: ${userRole} | Lacks: ${requiredPermissions.join(', ')} on Tenant: ${restId}`);
+        return res.status(403).json({
+          error: `Forbidden: Lacking required capabilities: ${requiredPermissions.join(', ')}`
+        });
+      }
+
+      next();
+    } catch (err: any) {
+      console.error(`[API RBAC EXCEPTION] Failed to verify system user permissions:`, err);
+      return res.status(500).json({ error: "Internal security constraints failed to match RBAC state properties." });
+    }
+  };
+};
+

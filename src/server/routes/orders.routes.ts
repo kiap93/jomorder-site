@@ -1,22 +1,23 @@
 import { Router } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
 import { logToAudit } from "../services/auditService";
+import { hasPermission } from "../../lib/rbac";
 
 const router = Router();
 
 // Get orders
-router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
+router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('orders.view'), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit as string) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
 
   const { data, error } = await supabaseAdmin
-    .from('orders')
-    .select('*, tables(name), payments(amount)')
-    .eq('restaurant_id', restId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+     .from('orders')
+     .select('*, tables(name), payments(amount)')
+     .eq('restaurant_id', restId)
+     .order('created_at', { ascending: false })
+     .limit(limit);
   
   if (error) {
     console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
@@ -26,7 +27,7 @@ router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolatio
 });
 
 // Update order
-router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('orders.view'), async (req, res) => {
   const caller = (req as any).user;
   const orderId = req.params.id;
 
@@ -44,7 +45,29 @@ router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (re
 
     if (caller && caller.is_platform_admin !== true) {
       const settings = getStaffSettings(caller.id, caller.role);
-      
+      const userRole = caller.role;
+      const customPerms = settings.permissions || {};
+
+      // Match statuses to actual operational KDS privileges
+      if (req.body.status && req.body.status !== order.status) {
+        const nextStatus = req.body.status;
+        if (nextStatus === 'preparing' || nextStatus === 'cooking') {
+          if (!hasPermission(userRole, 'orders.prepare', customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.prepare' capabilities to start preparation." });
+          }
+        }
+        if (nextStatus === 'ready') {
+          if (!hasPermission(userRole, 'orders.ready', customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.ready' capabilities to mark products ready." });
+          }
+        }
+        if (nextStatus === 'completed' || nextStatus === 'bumped') {
+          if (!hasPermission(userRole, 'orders.bump', customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.bump' capabilities to bump tickets." });
+          }
+        }
+      }
+
       if (req.body.status === 'cancelled' && !settings.permissions.can_cancel_order) {
         return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
       }

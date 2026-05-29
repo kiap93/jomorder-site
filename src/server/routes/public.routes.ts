@@ -224,7 +224,7 @@ router.post("/sync-basket-item", async (req, res) => {
       if (existingItem) {
         const { error: updErr } = await supabaseAdmin
           .from('basket_items')
-          .update({ quantity: newQty, updated_at: new Date().toISOString() })
+          .update({ quantity: newQty })
           .eq('id', existingItem.id);
         if (updErr) return res.status(500).json({ error: updErr.message });
       } else {

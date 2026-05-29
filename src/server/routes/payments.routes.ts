@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
 import { idempotencyService } from "../services/idempotencyService";
 
 const router = Router();
 
 // Get list of payments mapped to an order or restaurant session
-router.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions('payments.view'), async (req, res) => {
   const { sessionId } = req.query;
   let query;
   if (sessionId) {
@@ -38,7 +38,7 @@ router.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(
 });
 
 // Create payment for order
-router.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions('payments.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('payments')
     .insert({
@@ -53,7 +53,7 @@ router.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation
 });
 
 // Log cash transactions
-router.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), requirePermissions('payments.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('cash_transactions')
     .insert(req.body)

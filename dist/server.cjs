@@ -443,6 +443,92 @@ var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 
 // worker/services/db_service.ts
 var import_supabase_js2 = require("@supabase/supabase-js");
+async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
+  try {
+    if (restaurantId) {
+      const { data: ruMapping, error: ruError } = await supabase.from("restaurant_users").select("role, status, custom_permissions").eq("user_id", userId).eq("restaurant_id", restaurantId).maybeSingle();
+      if (!ruError && ruMapping) {
+        const selectedRole = ruMapping.role || role;
+        const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
+        const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
+        const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+        const defaultPerms = {
+          can_refund: isOwner || isManager,
+          can_edit_menu: isOwner || isManager,
+          can_cancel_order: isOwner || isManager || isCashier,
+          can_view_analytics: isOwner || isManager,
+          can_manage_staff: isOwner
+        };
+        return {
+          status: ruMapping.status || "active",
+          permissions: {
+            ...defaultPerms,
+            ...ruMapping.custom_permissions || {}
+          }
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to query restaurant_users in getStaffSettingsFromDb:", err);
+  }
+  try {
+    const { data: profile, error } = await supabase.from("profiles").select("status, custom_permissions, role").eq("id", userId).maybeSingle();
+    if (!error && profile) {
+      const selectedRole = profile.role || role;
+      const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
+      const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
+      const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+      const defaultPerms = {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      };
+      return {
+        status: profile.status || "active",
+        permissions: {
+          ...defaultPerms,
+          ...profile.custom_permissions || {}
+        }
+      };
+    }
+  } catch (err) {
+    console.warn("Failed to query customized columns (status, custom_permissions) - database likely unmigrated:", err);
+  }
+  try {
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+    const selectedRole = profile?.role || role;
+    const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
+    const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
+    const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+    return {
+      status: "active",
+      permissions: {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      }
+    };
+  } catch (err) {
+    console.error("Critical fallback in getStaffSettingsFromDb, hardcoding defaults:", err);
+    const isOwner = role === "owner" || role === "admin" || role === "OWNER";
+    const isManager = role === "manager" || role === "MANAGER";
+    const isCashier = role === "cashier" || role === "CASHIER";
+    return {
+      status: "active",
+      permissions: {
+        can_refund: isOwner || isManager,
+        can_edit_menu: isOwner || isManager,
+        can_cancel_order: isOwner || isManager || isCashier,
+        can_view_analytics: isOwner || isManager,
+        can_manage_staff: isOwner
+      }
+    };
+  }
+}
 async function logToAuditDb(supabase, userId, userEmail, role, action, restaurantId) {
   try {
     await supabase.from("audit_logs").insert({
@@ -456,6 +542,103 @@ async function logToAuditDb(supabase, userId, userEmail, role, action, restauran
   } catch (err) {
     console.error("Failed to write to audit_logs table", err);
   }
+}
+
+// src/lib/rbac.ts
+var ROLE_PERMISSIONS = {
+  super_admin: [
+    "orders.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready",
+    "payments.view",
+    "payments.refund",
+    "reports.view",
+    "users.manage",
+    "settings.manage"
+  ],
+  superadmin: [
+    "orders.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready",
+    "payments.view",
+    "payments.refund",
+    "reports.view",
+    "users.manage",
+    "settings.manage"
+  ],
+  owner: [
+    "orders.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready",
+    "payments.view",
+    "payments.refund",
+    "reports.view",
+    "users.manage",
+    "settings.manage"
+  ],
+  manager: [
+    "orders.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready",
+    "payments.view",
+    "payments.refund",
+    "reports.view",
+    "users.manage",
+    "settings.manage"
+  ],
+  cashier: [
+    "orders.view",
+    "orders.bump",
+    "orders.ready",
+    "payments.view"
+  ],
+  waiter: [
+    "orders.view",
+    "orders.bump",
+    "orders.ready"
+  ],
+  kitchen: [
+    "orders.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready"
+  ],
+  runner: [
+    "orders.view",
+    "orders.bump",
+    "orders.ready"
+  ]
+};
+function hasPermission(role, permission, customPermissions) {
+  if (!role) return false;
+  const normalizedRole = role.toLowerCase().replace("_", "");
+  if (normalizedRole === "superadmin") {
+    return true;
+  }
+  if (customPermissions) {
+    if (permission === "payments.refund" && customPermissions.can_refund !== void 0) {
+      return !!customPermissions.can_refund;
+    }
+    if (permission === "settings.manage" && customPermissions.can_edit_menu !== void 0) {
+      return !!customPermissions.can_edit_menu;
+    }
+    if (permission === "reports.view" && customPermissions.can_view_analytics !== void 0) {
+      return !!customPermissions.can_view_analytics;
+    }
+    if (permission === "users.manage" && customPermissions.can_manage_staff !== void 0) {
+      return !!customPermissions.can_manage_staff;
+    }
+    if (permission === "orders.bump" && customPermissions.can_cancel_order !== void 0) {
+      return true;
+    }
+  }
+  const roleMapKey = role.toLowerCase();
+  const permissions = ROLE_PERMISSIONS[roleMapKey] || ROLE_PERMISSIONS[roleMapKey.replace("_", "")] || [];
+  return permissions.includes(permission);
 }
 
 // src/server/middleware/authMiddleware.ts
@@ -619,6 +802,43 @@ var requireSuperAdmin = (req, res, next) => {
     return res.status(403).json({ error: "Forbidden: Superadmin authorization required" });
   }
   next();
+};
+var requirePermissions = (...requiredPermissions) => {
+  return async (req, res, next) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized: User session details not found." });
+    }
+    if (user.platform_role === "superadmin" || user.is_platform_admin === true) {
+      next();
+      return;
+    }
+    try {
+      const restId = req.params.restId || req.params.restaurantId || req.query.restaurantId || req.query.restaurant_id || req.query.restId || req.body && (req.body.restaurantId || req.body.restaurant_id || req.body.restId) || user.restaurantId;
+      if (!restId) {
+        return res.status(400).json({ error: "Bad Request: Missing restaurant identifier mapping in context." });
+      }
+      const settings = await getStaffSettingsFromDb(supabaseAdmin, user.id, user.role, restId);
+      if (settings.status === "suspended") {
+        return res.status(403).json({ error: "Forbidden: Your staff account has been suspended." });
+      }
+      const customPermissions = settings.permissions || {};
+      const userRole = user.role;
+      const isAuthorized = requiredPermissions.every(
+        (perm) => hasPermission(userRole, perm, customPermissions)
+      );
+      if (!isAuthorized) {
+        console.warn(`[API ACCESS DENIED] User: ${user.email} | Role: ${userRole} | Lacks: ${requiredPermissions.join(", ")} on Tenant: ${restId}`);
+        return res.status(403).json({
+          error: `Forbidden: Lacking required capabilities: ${requiredPermissions.join(", ")}`
+        });
+      }
+      next();
+    } catch (err) {
+      console.error(`[API RBAC EXCEPTION] Failed to verify system user permissions:`, err);
+      return res.status(500).json({ error: "Internal security constraints failed to match RBAC state properties." });
+    }
+  };
 };
 
 // src/server/routes/auth.routes.ts
@@ -1245,7 +1465,7 @@ var menu_routes_default = router3;
 // src/server/routes/staff.routes.ts
 var import_express4 = require("express");
 var router4 = (0, import_express4.Router)();
-router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -2795,7 +3015,7 @@ var tables_routes_default = router7;
 // src/server/routes/orders.routes.ts
 var import_express8 = require("express");
 var router8 = (0, import_express8.Router)();
-router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("orders.view"), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -2806,7 +3026,7 @@ router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolati
   }
   return res.json(data || []);
 });
-router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("orders.view"), async (req, res) => {
   const caller = req.user;
   const orderId = req.params.id;
   try {
@@ -2816,6 +3036,26 @@ router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), async (r
     const restId = order.restaurant_id || caller?.restaurantId || "default";
     if (caller && caller.is_platform_admin !== true) {
       const settings = getStaffSettings(caller.id, caller.role);
+      const userRole = caller.role;
+      const customPerms = settings.permissions || {};
+      if (req.body.status && req.body.status !== order.status) {
+        const nextStatus = req.body.status;
+        if (nextStatus === "preparing" || nextStatus === "cooking") {
+          if (!hasPermission(userRole, "orders.prepare", customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.prepare' capabilities to start preparation." });
+          }
+        }
+        if (nextStatus === "ready") {
+          if (!hasPermission(userRole, "orders.ready", customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.ready' capabilities to mark products ready." });
+          }
+        }
+        if (nextStatus === "completed" || nextStatus === "bumped") {
+          if (!hasPermission(userRole, "orders.bump", customPerms)) {
+            return res.status(403).json({ error: "Forbidden: You lack 'orders.bump' capabilities to bump tickets." });
+          }
+        }
+      }
       if (req.body.status === "cancelled" && !settings.permissions.can_cancel_order) {
         return res.status(403).json({ error: "Forbidden: You do not have permission to cancel orders." });
       }
@@ -2955,7 +3195,7 @@ var idempotencyService = new IdempotencyService();
 
 // src/server/routes/payments.routes.ts
 var router10 = (0, import_express10.Router)();
-router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { sessionId } = req.query;
   let query;
   if (sessionId) {
@@ -2972,7 +3212,7 @@ router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolatio
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").insert({
     ...req.body,
     order_id: req.params.orderId
@@ -2980,7 +3220,7 @@ router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolati
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router10.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router10.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -3227,7 +3467,7 @@ router11.post("/sync-basket-item", async (req, res) => {
       }
     } else {
       if (existingItem) {
-        const { error: updErr } = await supabaseAdmin.from("basket_items").update({ quantity: newQty, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existingItem.id);
+        const { error: updErr } = await supabaseAdmin.from("basket_items").update({ quantity: newQty }).eq("id", existingItem.id);
         if (updErr) return res.status(500).json({ error: updErr.message });
       } else {
         const insertPayload = {
