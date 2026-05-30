@@ -188,7 +188,7 @@ export function CustomerMenu() {
         name: item.name,
         price: item.price,
         quantity: item.quantity,
-        selection: item.selection,
+        selection: item.selection || { productId: item.menuItemId, selections: {} },
         subtotal: item.price * item.quantity,
         notes: item.specialInstructions
       })));
@@ -378,7 +378,7 @@ export function CustomerMenu() {
           itemsRes = responses[3];
 
           // Store successful payloads to local cache
-          if (restRes && !restRes.error) {
+          if (restRes && !(restRes as any).error) {
             await indexedDbStorage.setItem(`pos_rest_cache_${restId}`, restRes);
           }
           if (catsRes && Array.isArray(catsRes)) {
@@ -417,7 +417,7 @@ export function CustomerMenu() {
         }
 
         // Resolve Dining Session if not in preview mode and we have a resolved UUID
-        let currentSession = null;
+        let currentSession: { id: string; token: string; status: string } | null = null;
         if (!isPreviewMode && resolvedTable?.id) {
           console.time("fetchData-session");
           const epoch = await getSessionEpochAsync(resolvedTable.id);

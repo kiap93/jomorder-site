@@ -11,10 +11,10 @@ export interface ConflictLog {
   entityType: 'order' | 'table';
   entityId: string;
   issue: string;
-  localValue: any;
-  remoteValue: any;
+  localValue: unknown;
+  remoteValue: unknown;
   policyApplied: 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins';
-  resolvedValue: any;
+  resolvedValue: unknown;
 }
 
 class OfflineService {
@@ -41,7 +41,7 @@ class OfflineService {
     // Load active settings from localStorage
     const storedPolicy = localStorage.getItem('pos_offline_conflict_policy');
     if (storedPolicy && ['smart', 'server-wins', 'client-wins', 'timestamp-wins'].includes(storedPolicy)) {
-      this.conflictPolicy = storedPolicy as any;
+      this.conflictPolicy = storedPolicy as 'smart' | 'server-wins' | 'client-wins' | 'timestamp-wins';
     }
 
     const storedLogs = localStorage.getItem('pos_offline_conflict_logs');
@@ -569,7 +569,13 @@ export async function clearTenantScopedIndexedDB(): Promise<void> {
   console.log('[clearTenantScopedIndexedDB] Offline database wipeout complete.');
 }
 
+declare global {
+  interface Window {
+    clearTenantScopedIndexedDB?: typeof clearTenantScopedIndexedDB;
+  }
+}
+
 // Bind to window to guarantee full accessibility in test suites and terminal scripts
 if (typeof window !== 'undefined') {
-  (window as any).clearTenantScopedIndexedDB = clearTenantScopedIndexedDB;
+  window.clearTenantScopedIndexedDB = clearTenantScopedIndexedDB;
 }

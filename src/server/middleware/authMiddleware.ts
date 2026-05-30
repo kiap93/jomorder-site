@@ -129,9 +129,9 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
       req.body.restId = userRestId;
     }
     if (req.query) {
-      req.query.restaurantId = userRestId;
-      req.query.restaurant_id = userRestId;
-      req.query.restId = userRestId;
+      req.query.restaurantId = userRestId as string;
+      req.query.restaurant_id = userRestId as string;
+      req.query.restId = userRestId as string;
     }
 
     // 2. Validate URL Params to prevent crossed references
@@ -140,7 +140,7 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
     if (targetedRestId && targetedRestId !== userRestId) {
       console.error(`[CROSS-TENANT VIOLATION] Express Block: ${user.email} tried crossing into restaurant: ${targetedRestId} (User bound to parent tenant: ${userRestId})`);
       try {
-        await logToAuditDb(supabaseAdmin, user.id, user.email, user.role, `BLOCKED: Express cross-tenant attempt to access ${targetedRestId}`, userRestId);
+        await logToAuditDb(supabaseAdmin, user.id, user.email, user.role, `BLOCKED: Express cross-tenant attempt to access ${targetedRestId}`, userRestId as string);
       } catch (_) {}
       return res.status(403).json({ error: "Forbidden: Multi-tenant isolation violation. Access Denied." });
     }

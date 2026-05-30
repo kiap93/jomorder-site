@@ -60,7 +60,7 @@ export function KitchenDisplay() {
         clearTimeout(timeoutTimer);
 
         if (data) {
-          setOrders(data.map(o => ({
+          setOrders(data.map((o: any) => ({
             id: o.id,
             tableId: o.table_id,
             tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),

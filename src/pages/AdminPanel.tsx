@@ -1778,7 +1778,7 @@ export function AdminPanel() {
                     </td>
                     <td className="px-8 py-4">
                       <span className="text-[10px] font-bold text-zinc-400">
-                        {new Date(order.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        {order.created_at ? new Date(order.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
                       </span>
                     </td>
                   </tr>

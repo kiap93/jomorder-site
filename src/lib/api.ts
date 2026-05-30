@@ -9,11 +9,26 @@ export const getApiUrl = (path: string) => {
   return url;
 };
 
-export function getOrderDisplayNo(orderId: string, createdAt?: string): string {
+export function getOrderDisplayNo(orderId: string, createdAt?: any): string {
   if (!orderId) return "";
   // Check if orderId is already in date+7digit format to avoid double-processing
   if (/^\d{15}$/.test(orderId)) return orderId;
-  const dateObj = createdAt ? new Date(createdAt) : new Date();
+
+  let dateObj: Date;
+  if (!createdAt) {
+    dateObj = new Date();
+  } else if (createdAt instanceof Date) {
+    dateObj = createdAt;
+  } else if (typeof createdAt === 'object' && typeof createdAt.toDate === 'function') {
+    dateObj = createdAt.toDate();
+  } else {
+    dateObj = new Date(createdAt);
+  }
+
+  if (isNaN(dateObj.getTime())) {
+    dateObj = new Date();
+  }
+
   const yyyy = dateObj.getFullYear();
   const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
   const dd = String(dateObj.getDate()).padStart(2, '0');

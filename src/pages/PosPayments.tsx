@@ -18,15 +18,62 @@ import {
 } from 'lucide-react';
 import { PaymentWorkspace } from '../components/PaymentWorkspace';
 
+interface ApisTable {
+  id: string;
+  name: string;
+  status: 'available' | 'occupied';
+  restaurant_id: string;
+}
+
+interface ApisOrderOption {
+  optionName: string;
+  valueName: string;
+  priceDelta: number;
+}
+
+interface ApisOrderItem {
+  id?: string;
+  menuItemId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  options: ApisOrderOption[];
+}
+
+interface ApisOrder {
+  id: string;
+  total_price: string;
+  status: OrderStatus;
+  paid_at?: string;
+  created_at: string;
+  items: ApisOrderItem[];
+}
+
+interface ApisDiningSession {
+  id: string;
+  restaurant_id: string;
+  table_id: string;
+  status: string;
+  created_at: string;
+  orders?: ApisOrder[];
+}
+
+interface ProcessedTable extends ApisTable {
+  session: ApisDiningSession | null;
+  unpaidTotal: number;
+  hasUnpaid: boolean;
+  mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null;
+}
+
 export function PosPayments() {
   const { restId } = useParams();
   const { t } = useLanguageStore();
   const { user, loading: loadingAuth } = useAuthStore();
-  const [tables, setTables] = useState<any[]>([]);
+  const [tables, setTables] = useState<ProcessedTable[]>([]);
   const [filter, setFilter] = useState<'all' | 'outstanding'>('outstanding');
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [loading, setLoading] = useState(true);
-  const [settlingSession, setSettlingSession] = useState<any | null>(null);
+  const [settlingSession, setSettlingSession] = useState<ProcessedTable | null>(null);
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -47,10 +94,13 @@ export function PosPayments() {
         if (restRes.ok) {
           const restData = await restRes.json();
           setRestaurant({
-            ...restData,
+            id: restData.id,
+            name: restData.name,
+            currency: restData.currency || 'RM',
             serviceCharge: parseFloat(restData.service_charge || 0) / 100,
-            sst: parseFloat(restData.sst || 0) / 100
-          } as any);
+            sst: parseFloat(restData.sst || 0) / 100,
+            franchiseId: restData.franchise_id
+          });
         }
 
         // Fetch all tables
@@ -60,26 +110,32 @@ export function PosPayments() {
         ]);
         
         if (tablesData && sessionsData && !tablesData.error && !sessionsData.error) {
-          const processedTables = tablesData.map((t: any) => {
-            const activeSession = sessionsData.find((s: any) => s.table_id === t.id);
+          const processedTables: ProcessedTable[] = (tablesData as ApisTable[]).map((t) => {
+            const activeSession = (sessionsData as ApisDiningSession[]).find((s) => s.table_id === t.id) || null;
             let unpaidTotal = 0;
-            let mainOrder = null;
+            let mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null = null;
 
             if (activeSession) {
               const allOrders = activeSession.orders || [];
-              const unpaidOrders = allOrders.filter((o: any) => !o.paid_at && o.status !== 'cancelled');
-              unpaidTotal = unpaidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price), 0);
-              const sessionTotal = allOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price), 0);
+              const unpaidOrders = allOrders.filter((o) => !o.paid_at && o.status !== 'cancelled');
+              unpaidTotal = unpaidOrders.reduce((sum: number, o) => sum + parseFloat(o.total_price), 0);
+              const sessionTotal = allOrders.reduce((sum: number, o) => sum + parseFloat(o.total_price), 0);
               
               const mOrder = allOrders[0];
               if (mOrder) {
                 mainOrder = {
-                  ...mOrder,
+                  id: mOrder.id,
+                  tableId: t.id,
                   tableName: t.name,
+                  orderType: 'dine_in',
+                  status: mOrder.status,
+                  paymentMethod: 'counter',
                   totalPrice: parseFloat(mOrder.total_price),
                   sessionTotal,
                   sessionUnpaid: unpaidTotal,
-                  createdAt: mOrder.created_at || new Date().toISOString()
+                  createdAt: mOrder.created_at || new Date().toISOString(),
+                  updatedAt: mOrder.created_at || new Date().toISOString(),
+                  items: mOrder.items as any
                 };
               }
             }
@@ -199,7 +255,7 @@ export function PosPayments() {
               <div className="flex justify-between items-center">
                  <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Unpaid</span>
                  <span className={`text-base font-black tracking-tighter tabular-nums ${table.hasUnpaid ? 'text-orange-600' : 'text-gray-900'}`}>
-                   RM {parseFloat(table.unpaidTotal || 0).toFixed(2)}
+                   RM {(table.unpaidTotal || 0).toFixed(2)}
                  </span>
               </div>
               
@@ -212,7 +268,7 @@ export function PosPayments() {
 
               <div className="mt-auto pt-2">
                  <button 
-                  onClick={() => setSettlingSession({ ...table.session, mainOrder: table.mainOrder })}
+                  onClick={() => setSettlingSession(table)}
                   disabled={!table.hasUnpaid}
                   className={`w-full h-8 rounded-md font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                     table.hasUnpaid 
@@ -238,7 +294,7 @@ export function PosPayments() {
 
       {settlingSession && restaurant && (
          <PaymentWorkspace 
-           order={settlingSession.mainOrder}
+           order={settlingSession.mainOrder!}
            restaurant={restaurant}
            onClose={() => setSettlingSession(null)}
            onPaymentSuccess={() => {

@@ -72,7 +72,7 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
       `
     });
 
-    const rawText = response.text.trim();
+    const rawText = (response.text || "").trim();
     const cleanText = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const result = JSON.parse(cleanText);
     
@@ -136,7 +136,7 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
       `
     });
 
-    const translatedText = response.text.trim();
+    const translatedText = (response.text || "").trim();
     
     // 2. Write to cache
     setInCache(translationCache, cacheKey, translatedText);

@@ -388,7 +388,7 @@ menuRoutes.post('/api/translate', authenticate, async (c) => {
       `
     });
     
-    const translatedText = response.text.trim();
+    const translatedText = (response.text || "").trim();
     return c.json({ translatedText });
   } catch (error: any) {
     console.error("Worker translation error:", error);

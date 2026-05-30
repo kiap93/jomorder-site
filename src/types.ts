@@ -212,6 +212,17 @@ export interface OrderItem {
     receipt?: string[];
     customer?: string[];
   };
+  voided?: boolean;
+  voidReason?: string;
+  voidedBy?: string;
+  voidedAt?: string;
+  voidApprovedBy?: string;
+  discount?: {
+    type: 'percentage' | 'fixed';
+    value: number;
+    reason?: string;
+    appliedBy?: string;
+  } | null;
 }
 
 export type BasketStatus = 'active' | 'locked' | 'submitted' | 'abandoned' | 'expired' | 'merged';
@@ -249,6 +260,12 @@ export interface Order {
   total_price?: string | number;
   paymentMethod: 'counter' | 'online';
   items: OrderItem[];
+  discount?: {
+    type: 'percentage' | 'fixed';
+    value: number;
+    reason?: string;
+    appliedBy?: string;
+  } | null;
   createdAt: string;
   created_at?: string;
   updatedAt: string;
@@ -256,6 +273,11 @@ export interface Order {
   confirmed_at?: string;
   restaurant_id?: string;
   table_id?: string;
+  voided?: boolean;
+  voidReason?: string;
+  voidedBy?: string;
+  voidedAt?: string;
+  voidApprovedBy?: string;
 }
 
 export type PaymentStatus = 'pending' | 'processing' | 'authorized' | 'paid' | 'failed' | 'cancelled' | 'expired' | 'refunded' | 'partially_refunded';

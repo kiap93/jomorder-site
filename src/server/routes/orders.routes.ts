@@ -77,6 +77,9 @@ router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePe
       }
     }
 
+    const auditAction = req.body.auditAction;
+    delete req.body.auditAction;
+
     const { data, error } = await supabaseAdmin
       .from('orders')
       .update(req.body)
@@ -87,7 +90,7 @@ router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePe
     if (error) return res.status(500).json({ error: error.message });
 
     if (caller && caller.email) {
-      let action = `Updated Order ${orderId}`;
+      let action = auditAction || `Updated Order ${orderId}`;
       if (req.body.status && req.body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
       }

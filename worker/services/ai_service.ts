@@ -36,7 +36,7 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
       `
     });
 
-    const rawText = response.text.trim();
+    const rawText = (response.text || "").trim();
     const cleanText = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const result = JSON.parse(cleanText);
     return {
@@ -77,7 +77,7 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
       Return ONLY the translated text, no explanation or quotes.
       `
     });
-    return response.text.trim();
+    return (response.text || "").trim();
   } catch (error) {
     console.error(`[Background Translation Job] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
     return null;

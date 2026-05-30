@@ -1,6 +1,21 @@
 import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { guestSupabase as supabase } from '../lib/supabase';
-import { Order, OrderItem, ThermalPrinter, PrinterRoute, PrintJob, KOTPayload, KOTItem } from '../types';
+import { Order, OrderItem, ThermalPrinter, PrinterRoute, PrintJob, KOTPayload, KOTItem, ProductSelection } from '../types';
+
+interface ExtendedOrderItem extends OrderItem {
+  product?: { categoryId?: string };
+  categoryId?: string;
+  configuration?: ProductSelection;
+}
+
+interface ExtendedOrder extends Order {
+  specialInstructions?: string;
+}
+
+interface DbMenuItem {
+  id: string;
+  category_id: string;
+}
 
 class PrinterService {
   private printersKey = 'kot_printers';
@@ -323,7 +338,7 @@ class PrinterService {
           .eq('restaurant_id', restaurantId);
         
         if (dbItems && !dbErr) {
-          dbItems.forEach((it: any) => {
+          dbItems.forEach((it: DbMenuItem) => {
             if (it.id && it.category_id) {
               itemCategoryMap.set(it.id, it.category_id);
             }
@@ -338,7 +353,7 @@ class PrinterService {
       const unroutedItems: OrderItem[] = [];
 
       (order.items || []).forEach(item => {
-        const itemAny = item as any;
+        const itemAny = item as ExtendedOrderItem;
         const catId = itemCategoryMap.get(item.menuItemId) || itemAny.product?.categoryId || itemAny.categoryId || item.menuItemId;
         const mappedPrinterId = routeMap.get(catId);
         
@@ -377,14 +392,14 @@ class PrinterService {
             }
 
             // From rich customizable nested product selections
-            const siAny = si as any;
+            const siAny = si as ExtendedOrderItem;
             const configurationSelection = si.selection || siAny.configuration;
             if (configurationSelection?.selections) {
-              Object.values(configurationSelection.selections).forEach((selList: any[]) => {
+              Object.values(configurationSelection.selections).forEach((selList) => {
                 (selList || []).forEach(sel => {
                   modifiers.push(`+ ${sel.name}`);
                   if (sel.nestedSelections) {
-                    Object.values(sel.nestedSelections).forEach((nestedList: any[]) => {
+                    Object.values(sel.nestedSelections).forEach((nestedList) => {
                       (nestedList || []).forEach(nSel => {
                         modifiers.push(`  + ${nSel.name}`);
                       });
@@ -402,7 +417,7 @@ class PrinterService {
               specialInstructions: si.specialInstructions
             };
           }),
-          notes: notes || (order as any).specialInstructions || undefined
+          notes: notes || (order as ExtendedOrder).specialInstructions || undefined
         };
       };
 

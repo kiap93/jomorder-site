@@ -1,3 +1,4 @@
+"use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -302,7 +303,7 @@ async function detectLanguageAndTranslate(text, apiKey) {
       }
       `
     });
-    const rawText = response.text.trim();
+    const rawText = (response.text || "").trim();
     const cleanText = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
     const result = JSON.parse(cleanText);
     const parsedResult = {
@@ -356,7 +357,7 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
       Return ONLY the translated text, no explanation or quotes.
       `
     });
-    const translatedText = response.text.trim();
+    const translatedText = (response.text || "").trim();
     setInCache(translationCache, cacheKey, translatedText);
     return translatedText;
   } catch (error) {
@@ -3063,10 +3064,12 @@ router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireP
         return res.status(403).json({ error: "Forbidden: Runners cannot confirm orders." });
       }
     }
+    const auditAction = req.body.auditAction;
+    delete req.body.auditAction;
     const { data, error } = await supabaseAdmin.from("orders").update(req.body).eq("id", orderId).select().single();
     if (error) return res.status(500).json({ error: error.message });
     if (caller && caller.email) {
-      let action = `Updated Order ${orderId}`;
+      let action = auditAction || `Updated Order ${orderId}`;
       if (req.body.status && req.body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${req.body.status}]`;
       }
