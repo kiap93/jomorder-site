@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom';
 import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { Order } from '../types';
 import { OrderStatus, OrderType } from '../enums';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
@@ -11,10 +10,54 @@ import { useLanguageStore } from '../store/useLanguageStore';
 
 import { flattenSelections } from '../lib/configEngine';
 
+interface KitchenOrderItemOption {
+  optionName: string;
+  valueName: string;
+  priceDelta: number;
+}
+
+interface KitchenOrderItem {
+  id?: string;
+  name: string;
+  quantity: number;
+  kitchenName?: string;
+  smartRenderedLines?: {
+    kds?: string[];
+  };
+  selection?: any;
+  options: KitchenOrderItemOption[];
+}
+
+interface KitchenOrder {
+  id: string;
+  tableId: string;
+  tableName: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  totalPrice: number;
+  items: KitchenOrderItem[];
+  paidAt?: string;
+  createdAt: {
+    toDate: () => Date;
+  };
+}
+
+interface ApiKitchenOrder {
+  id: string;
+  table_id: string;
+  tables?: { name?: string };
+  order_type: OrderType;
+  status: string;
+  total_price: string;
+  items: KitchenOrderItem[];
+  paid_at?: string;
+  created_at: string;
+}
+
 export function KitchenDisplay() {
   const { restId } = useParams();
   const { user, loading: loadingAuth } = useAuthStore();
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const { t } = useLanguageStore();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -23,12 +66,16 @@ export function KitchenDisplay() {
     if (!user) return;
 
     let fetchTimeout: NodeJS.Timeout;
+    let activeFetchTimeout: NodeJS.Timeout | null = null;
 
     const fetchOrders = async () => {
       const token = useAuthStore.getState().token;
       if (!token) return;
 
-      const timeoutTimer = setTimeout(() => {
+      if (activeFetchTimeout) {
+        clearTimeout(activeFetchTimeout);
+      }
+      activeFetchTimeout = setTimeout(() => {
         if (orders.length === 0) {
           console.warn("Kitchen orders fetch taking too long...");
         }
@@ -48,32 +95,35 @@ export function KitchenDisplay() {
           throw new Error(`Failed to fetch kitchen orders (Status ${response.status})`);
         }
 
-        let data;
+        let data: ApiKitchenOrder[];
         try {
           data = JSON.parse(bodyText);
         } catch (e) {
           console.error("KDS JSON parse failed. Body snippet:", bodyText.slice(0, 100));
           throw new Error("Invalid response from server");
         }
-        const filteredData = data.filter((o: any) => [OrderStatus.PENDING as string, OrderStatus.CONFIRMED as string, OrderStatus.COOKING as string, OrderStatus.READY as string].includes(o.status));
+        const filteredData = data.filter((o) => [OrderStatus.PENDING as string, OrderStatus.CONFIRMED as string, OrderStatus.COOKING as string, OrderStatus.READY as string].includes(o.status));
 
-        clearTimeout(timeoutTimer);
-
-        if (data) {
-          setOrders(data.map((o: any) => ({
+        if (filteredData) {
+          setOrders(filteredData.map((o) => ({
             id: o.id,
             tableId: o.table_id,
-            tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+            tableName: o.tables?.name || o.table_id.slice(-4).toUpperCase(),
             orderType: o.order_type,
             status: o.status as OrderStatus,
             totalPrice: parseFloat(o.total_price),
             items: o.items,
             paidAt: o.paid_at,
             createdAt: { toDate: () => new Date(o.created_at) }
-          })) as any);
+          })));
         }
       } catch (err) {
         console.error("KDS fetch exception:", err);
+      } finally {
+        if (activeFetchTimeout) {
+          clearTimeout(activeFetchTimeout);
+          activeFetchTimeout = null;
+        }
       }
     };
 
@@ -110,6 +160,9 @@ export function KitchenDisplay() {
 
     return () => {
       clearTimeout(fetchTimeout);
+      if (activeFetchTimeout) {
+        clearTimeout(activeFetchTimeout);
+      }
       supabase.removeChannel(subscription);
       window.removeEventListener('focus', handleFocus);
     };
@@ -190,7 +243,7 @@ export function KitchenDisplay() {
                     }`}>
                       {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
                     </span>
-                    {(order as any).paidAt && (
+                    {order.paidAt && (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase italic shadow-sm shadow-emerald-500/20">
                         {t('pos.paid')}
                       </span>
@@ -198,7 +251,7 @@ export function KitchenDisplay() {
                   </div>
                   <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
                     <Clock size={12} />
-                    {(order.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {order.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
                 <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[10px] font-bold font-mono">

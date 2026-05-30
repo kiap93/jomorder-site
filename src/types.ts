@@ -1,6 +1,19 @@
 import { OrderStatus as OrderStatusEnum } from './enums';
 export type OrderStatus = OrderStatusEnum;
 
+export interface Organization {
+  id: string;
+  name: string;
+  max_outlets: number | string;
+}
+
+export interface WorkspaceRestaurant {
+  id: string;
+  name: string;
+  organization_id: string;
+  role?: string;
+}
+
 export interface Restaurant {
   id: string;
   name: string;

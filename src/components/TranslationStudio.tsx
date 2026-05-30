@@ -4,6 +4,16 @@ import { LanguageCode, MenuItem, Category } from '../types';
 import { Globe, Search, Save, History, Sparkles, Filter, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+interface TranslationVersion {
+  id: string;
+  translation_id: string;
+  language_code: string;
+  field_name: string;
+  new_text: string;
+  created_at: string;
+  entityName: string;
+}
+
 interface TranslationStudioProps {
   restaurantId: string;
   menuItems: MenuItem[];
@@ -38,7 +48,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
   const [saving, setSaving] = useState(false);
   const [predictingField, setPredictingField] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [versions, setVersions] = useState<any[]>([]);
+  const [versions, setVersions] = useState<TranslationVersion[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showGlobalHistory, setShowGlobalHistory] = useState(false);
 

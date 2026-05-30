@@ -17,6 +17,31 @@ const shouldHideForCustomer = (behavior?: DisplayBehavior, parentBehavior?: Disp
   return b === 'hidden' || b === 'kitchen_only' || b === 'kitchen' || b === 'receipt_only' || b === 'receipt';
 };
 
+interface ConfigGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+  type: 'legacy' | 'combo' | 'modifier';
+  items?: any[];
+  modifiers?: any[];
+}
+
+interface ConfigItem {
+  id: string;
+  childProductId?: string;
+  customName?: string;
+  name?: string;
+  priceDelta: number;
+  defaultSelected?: boolean;
+  displayBehavior?: DisplayBehavior;
+  sortOrder: number;
+  childProduct?: Product;
+}
+
 interface Props {
   product: Product;
   selection: ProductSelection;
@@ -26,7 +51,7 @@ interface Props {
 }
 
 export const ProductConfigurator: React.FC<Props> = ({ product, selection, onChange, currency, depth = 0 }) => {
-  const toggleItem = (group: any, item: any, type: 'combo' | 'modifier' | 'legacy') => {
+  const toggleItem = (group: ConfigGroup, item: ConfigItem, type: 'combo' | 'modifier' | 'legacy') => {
     const currentSelected = selection.selections[group.id] || [];
     const isSelected = currentSelected.some(i => i.id === item.id || i.groupItemId === item.id);
 
@@ -91,7 +116,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
 
   if (depth > 5) return <div className="p-4 text-zinc-500 text-[10px]">Maximum configuration depth reached.</div>;
 
-  const allGroups = [
+  const allGroups: ConfigGroup[] = [
     ...(product.groups || []).map(g => ({ ...g, type: 'legacy' as const })),
     ...(product.comboGroups || []).map(g => ({ ...g, type: 'combo' as const })),
     ...(product.modifierGroups || []).map(g => ({ ...g, type: 'modifier' as const }))
@@ -105,12 +130,12 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
         const selectedCount = selection.selections[group.id]?.length || 0;
         const isSatisfied = selectedCount >= group.minSelect;
         
-        let items: any[] = [];
-        if (group.type === 'legacy') items = (group as any).items || [];
-        else if (group.type === 'combo') items = (group as any).items || [];
-        else if (group.type === 'modifier') items = (group as any).modifiers || [];
+        let items: ConfigItem[] = [];
+        if (group.type === 'legacy') items = group.items || [];
+        else if (group.type === 'combo') items = group.items || [];
+        else if (group.type === 'modifier') items = group.modifiers || [];
 
-        const visibleItems = items.filter((i: any) => !shouldHideForCustomer(i.displayBehavior, group.displayBehavior)) || [];
+        const visibleItems = items.filter((i) => !shouldHideForCustomer(i.displayBehavior, group.displayBehavior)) || [];
 
         return (
           <section key={group.id} className="space-y-3">
@@ -144,7 +169,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
             </div>
 
             <div className="grid gap-2 grid-cols-1">
-              {visibleItems.sort((a: any, b: any) => a.sortOrder - b.sortOrder).map((item: any) => {
+              {visibleItems.sort((a, b) => a.sortOrder - b.sortOrder).map((item) => {
                 const isSelected = (selection.selections[group.id] || []).some(i => i.id === item.id || i.groupItemId === item.id);
                 const isMaxReached = selectedCount >= group.maxSelect && !isSelected && group.maxSelect > 1;
                 
@@ -201,7 +226,7 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
                             <ProductConfigurator
                               product={item.childProduct as Product}
                               selection={{
-                                productId: item.childProductId,
+                                productId: item.childProductId || '',
                                 selections: selectedItemState?.nestedSelections || {}
                               }}
                               onChange={(nested) => updateNestedSelection(group.id, item.id, nested)}

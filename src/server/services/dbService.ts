@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { OAuth2Client } from "google-auth-library";
 import dotenv from "dotenv";
 import path from "path";
@@ -27,11 +27,11 @@ export const INVESTIGATING_ORDERS = new Set<string>();
 
 // --- FALLBACK DATABASE FOR LOCAL PERSISTENCE RESILIENCY ---
 export interface FallbackDB {
-  organizations: any[];
-  organization_users: any[];
-  restaurants: any[];
-  restaurant_users: any[];
-  profiles: any[];
+  organizations: Record<string, any>[];
+  organization_users: Record<string, any>[];
+  restaurants: Record<string, any>[];
+  restaurant_users: Record<string, any>[];
+  profiles: Record<string, any>[];
 }
 
 const FALLBACK_DB_FILE = './db_fallbacks.json';
@@ -106,7 +106,7 @@ export function writeRegistry(data: Record<string, RegistryEntry>) {
   }
 }
 
-export async function getOrganizationSettings(supabase: any, orgId: string): Promise<RegistryEntry> {
+export async function getOrganizationSettings(supabase: SupabaseClient, orgId: string): Promise<RegistryEntry> {
   try {
     const { data: settings, error } = await supabase
       .from('organization_settings')
@@ -164,13 +164,13 @@ export async function getOrganizationSettings(supabase: any, orgId: string): Pro
   const reg = registry[orgId];
   return {
     ...reg,
-    multi_outlet_enabled: (reg as any).multi_outlet_enabled !== undefined ? (reg as any).multi_outlet_enabled : false,
-    max_outlets: (reg as any).max_outlets !== undefined ? (reg as any).max_outlets : 1,
-    franchise_mode: (reg as any).franchise_mode !== undefined ? (reg as any).franchise_mode : false,
+    multi_outlet_enabled: reg.multi_outlet_enabled !== undefined ? reg.multi_outlet_enabled : false,
+    max_outlets: reg.max_outlets !== undefined ? reg.max_outlets : 1,
+    franchise_mode: reg.franchise_mode !== undefined ? reg.franchise_mode : false,
   };
 }
 
-export async function saveOrganizationSettings(supabase: any, orgId: string, payload: Partial<RegistryEntry>): Promise<RegistryEntry> {
+export async function saveOrganizationSettings(supabase: SupabaseClient, orgId: string, payload: Partial<RegistryEntry>): Promise<RegistryEntry> {
   const current = await getOrganizationSettings(supabase, orgId);
   const updated = {
     ...current,
@@ -188,9 +188,9 @@ export async function saveOrganizationSettings(supabase: any, orgId: string, pay
         organization_id: orgId,
         subscription_plan: updated.subscription_plan,
         status: updated.status,
-        multi_outlet_enabled: (updated as any).multi_outlet_enabled,
-        max_outlets: (updated as any).max_outlets,
-        franchise_mode: (updated as any).franchise_mode,
+        multi_outlet_enabled: updated.multi_outlet_enabled,
+        max_outlets: updated.max_outlets,
+        franchise_mode: updated.franchise_mode,
         features: updated.features,
         updated_at: new Date().toISOString()
       }, { onConflict: 'organization_id' });

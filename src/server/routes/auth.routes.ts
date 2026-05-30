@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { supabaseAdmin, googleClient, JWT_SECRET, getStaffSettings } from "../services/dbService";
@@ -35,7 +35,7 @@ router.post("/login", async (req, res) => {
       let authUserId: string | null = null;
       try {
         const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
-        const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
         if (existingAuthUser) {
           authUserId = existingAuthUser.id;
         } else {
@@ -240,7 +240,16 @@ router.post("/google-login", async (req, res) => {
     }
 
     const email = payload.email;
-    let userPayload: any = null;
+    let userPayload: {
+      id: string;
+      email: string;
+      role: string;
+      platform_role?: string;
+      is_platform_admin?: boolean;
+      restaurantId: string | null;
+      status?: string;
+      permissions?: Record<string, boolean>;
+    } | null = null;
 
     const isSuperAdminEmail = (process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL) || 
                              email === "admin@saas.com" || 
@@ -259,7 +268,7 @@ router.post("/google-login", async (req, res) => {
         let authUserId: string | null = null;
         try {
           const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
-          const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+          const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
           if (existingAuthUser) {
             authUserId = existingAuthUser.id;
           } else {
@@ -359,7 +368,7 @@ router.post("/google-login", async (req, res) => {
 });
 
 router.get("/me", authenticateJWT, (req, res) => {
-  const user = (req as any).user;
+  const user = (req as Request & { user?: any }).user;
   if (user && user.is_platform_admin !== true) {
     const settings = getStaffSettings(user.id, user.role);
     if (settings.status === 'suspended') {

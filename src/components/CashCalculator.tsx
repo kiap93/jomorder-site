@@ -41,9 +41,10 @@ interface CashCalculatorProps {
     remainingBalance: number;
   }) => void;
   onCancel: () => void;
+  inline?: boolean;
 }
 
-export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDetails, onComplete, onCancel }: CashCalculatorProps) {
+export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDetails, onComplete, onCancel, inline = false }: CashCalculatorProps) {
   const { profile } = useAuthStore();
   const [cashReceived, setCashReceived] = useState<string>('');
   const [status, setStatus] = useState<CashCalculatorStatus>('calculating');
@@ -137,12 +138,20 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
     }
   };
 
+  const outerClass = inline 
+    ? "w-full h-full bg-zinc-950 relative flex flex-col overflow-y-auto" 
+    : "fixed inset-0 z-50 flex items-start md:items-center justify-center p-0 md:p-2 bg-zinc-950/95 backdrop-blur-md overflow-y-auto";
+
+  const innerClass = inline
+    ? "w-full h-full bg-zinc-950 flex flex-col md:flex-row"
+    : "w-full max-w-[850px] min-h-full md:min-h-0 h-auto md:h-[90vh] md:max-h-[600px] bg-zinc-950 border-b md:border border-zinc-800/50 md:rounded-xl shadow-2xl flex flex-col md:flex-row shadow-black";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-0 md:p-2 bg-zinc-950/95 backdrop-blur-md overflow-y-auto">
+    <div className={outerClass}>
       <motion.div 
         initial={{ opacity: 0, scale: 0.99 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-[850px] min-h-full md:min-h-0 h-auto md:h-[90vh] md:max-h-[600px] bg-zinc-950 border-b md:border border-zinc-800/50 md:rounded-xl shadow-2xl flex flex-col md:flex-row shadow-black"
+        className={innerClass}
       >
         {/* 1️⃣ Total Summary & Calculation Zone (Left) */}
         <div className="w-full md:w-[280px] bg-zinc-900/30 border-b md:border-b-0 md:border-r border-zinc-800/50 flex flex-col shrink-0">

@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { getApiUrl } from '../lib/api';
 import { offlineService } from '../lib/offlineService';
 import { hasPermission } from '../lib/rbac';
+import { Organization, WorkspaceRestaurant } from '../types';
 
 export function Navbar() {
   const location = useLocation();
@@ -15,8 +16,8 @@ export function Navbar() {
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [restaurants, setRestaurants] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [restaurants, setRestaurants] = useState<WorkspaceRestaurant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Offline states
@@ -87,7 +88,7 @@ export function Navbar() {
     navigate(`/workspace-select?orgId=${orgId}`);
   };
 
-  const handleSelectBranch = async (branchId: string, role: string) => {
+  const handleSelectBranch = async (branchId: string, role?: string) => {
     setIsDropdownOpen(false);
     try {
       await switchWorkspace(branchId);

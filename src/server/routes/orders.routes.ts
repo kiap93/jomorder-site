@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
 import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
 import { logToAudit } from "../services/auditService";
@@ -28,7 +28,7 @@ router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolatio
 
 // Update order
 router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('orders.view'), async (req, res) => {
-  const caller = (req as any).user;
+  const caller = (req as Request & { user?: any }).user;
   const orderId = req.params.id;
 
   try {

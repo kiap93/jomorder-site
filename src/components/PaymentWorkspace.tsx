@@ -672,7 +672,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       {/* 2️⃣ Main Workspace Center */}
       <div className="flex-1 bg-zinc-950 flex flex-col relative md:overflow-hidden min-h-[420px] md:min-h-0 shrink-0 md:shrink">
         {/* Workspace Top Bar */}
-        <div className="h-12 bg-zinc-950 border-b border-zinc-800/50 flex items-center justify-between px-4 shrink-0">
+        <div className="h-12 bg-zinc-950 border-b border-zinc-800/50 flex flex-col items-center justify-between px-4 shrink-0">
            <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-2 py-0.5 bg-zinc-900 rounded border border-zinc-800">
                 <LayoutGrid size={10} className="text-zinc-600" />
@@ -685,11 +685,11 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
            </div>
  
            {/* Core Workspace Tab Toggle Switch */}
-           <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-805 shrink-0">
+           <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 shrink-0">
              <button
                onClick={() => setCenterTab('payment')}
                className={`px-3 py-1 text-[9px] font-black uppercase tracking-wider rounded-md transition-all flex items-center gap-1.5 leading-none ${
-                 centerTab === 'payment' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-355'
+                 centerTab === 'payment' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                }`}
              >
                <CreditCard size={10} />
@@ -701,7 +701,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                  fetchAuditLogs();
                }}
                className={`px-3 py-1 text-[9px] font-black uppercase tracking-wider rounded-md transition-all flex items-center gap-1.5 relative leading-none ${
-                 centerTab === 'financial_ops' ? 'bg-zinc-805 text-white shadow' : 'text-zinc-500 hover:text-zinc-355'
+                 centerTab === 'financial_ops' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                }`}
              >
                <Terminal size={10} />
@@ -724,7 +724,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
              </div>
            </div>
                 {/* Dynamic Panel Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           <AnimatePresence mode="wait">
             {centerTab === 'financial_ops' ? (
               <motion.div
@@ -784,7 +784,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       </div>
                     </div>
 
-                    <div className="text-center mt-5 text-[8px] font-black uppercase text-zinc-650 tracking-[0.1em] border-t border-zinc-850 pt-4 leading-none">
+                    <div className="text-center mt-5 text-[8px] font-black uppercase text-zinc-500 tracking-[0.1em] border-t border-zinc-800 pt-4 leading-none">
                       Evaluation PIN: <span className="text-orange-500 font-black">1234</span>
                     </div>
                   </div>
@@ -825,7 +825,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
                         <div className="space-y-3">
                           {order.status === 'cancelled' || order.voided ? (
-                            <div className="p-3 bg-zinc-950 border border-zinc-805 rounded-lg text-center">
+                            <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg text-center">
                               <span className="text-[8px] font-black text-red-500 uppercase tracking-widest block mb-1">ORDER VOID COMPLETE</span>
                               <p className="text-[10px] text-zinc-400 font-bold leading-relaxed">
                                 Reason: {order.voidReason || 'Manager cancelled'}
@@ -1005,17 +1005,17 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                 key={idx} 
                                 className={`p-2.5 rounded border transition-all ${
                                   isItemVoided 
-                                    ? 'bg-red-500/5 border-red-500/20 text-zinc-650 opacity-60' 
-                                    : 'bg-zinc-950 border-zinc-850 text-zinc-200'
+                                    ? 'bg-red-500/5 border-red-500/20 text-zinc-500 opacity-60' 
+                                    : 'bg-zinc-950 border-zinc-800 text-zinc-200'
                                 }`}
                               >
                                 <div className="flex justify-between items-start gap-3">
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
-                                      <span className={`text-[10px] font-black truncate leading-none ${isItemVoided ? 'line-through text-zinc-555' : 'text-zinc-200'}`}>
+                                      <span className={`text-[10px] font-black truncate leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>
                                         {it.name}
                                       </span>
-                                      <span className="text-[8px] font-bold text-zinc-500 px-1 py-0.2 bg-zinc-900 border border-zinc-850 rounded tabular-nums leading-none">
+                                      <span className="text-[8px] font-bold text-zinc-500 px-1 py-0.2 bg-zinc-900 border border-zinc-800 rounded tabular-nums leading-none">
                                         x{itemQty}
                                       </span>
                                     </div>
@@ -1039,7 +1039,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                   </div>
 
                                   <div className="text-right shrink-0">
-                                    <p className={`text-[10px] font-black tabular-nums leading-none ${isItemVoided ? 'line-through text-zinc-650' : 'text-white'}`}>
+                                    <p className={`text-[10px] font-black tabular-nums leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-white'}`}>
                                       RM {itemFinalTotal.toFixed(2)}
                                     </p>
                                     
@@ -1100,7 +1100,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                           </button>
                         </div>
 
-                        <div className="h-32 overflow-y-auto bg-zinc-950/80 border border-zinc-850 p-2 rounded-lg font-mono text-[8px] space-y-1.5 scrollbar-thin flex-1 scroll-smooth">
+                        <div className="h-32 overflow-y-auto bg-zinc-950/80 border border-zinc-800 p-2 rounded-lg font-mono text-[8px] space-y-1.5 scrollbar-thin flex-1 scroll-smooth">
                           {auditLogs.length === 0 ? (
                             <div className="text-zinc-700 py-4 text-center leading-relaxed">
                               &gt; SYSTEM RESTING. NO AUDIT THREADS SPAWNED YET.
@@ -1129,33 +1129,79 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                 className="h-full"
               >
                 {selectedMethod === 'cash' ? (
-                  <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-950">
-                    <div className="w-full max-w-sm space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-emerald-500/5 blur-[60px] rounded-full" />
-                        <div className="relative w-24 h-24 bg-zinc-900 rounded-2xl border border-zinc-800 flex items-center justify-center mx-auto shadow-2xl">
-                          <Banknote size={32} className="text-emerald-500 animate-pulse" />
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-1">
-                        <h3 className="text-xl font-black text-white tracking-tight uppercase italic">Cash Hub</h3>
-                        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">Active Cash Settlement Session</p>
-                      </div>
+                  <CashCalculator 
+                    inline={true}
+                    amountDue={remainingBalance}
+                    orderId={order.id}
+                    orderDetails={{
+                      subtotal,
+                      serviceCharge: scAmount,
+                      sst: sstAmount,
+                      currency: restaurant.currency
+                    }}
+                    onCancel={() => setSelectedMethod('card')}
+                    onComplete={async (data) => {
+                      const token = useAuthStore.getState().token;
+                      if (!token) return;
 
-                      <div className="p-3 bg-zinc-900/50 rounded-lg border border-zinc-800 text-center">
-                        <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1 leading-none">Net Due</p>
-                        <p className="text-base font-black text-white leading-none">RM {remainingBalance.toFixed(2)}</p>
-                      </div>
+                      setIsProcessing(true);
+                      try {
+                        const remainingAmount = totalAmount - paidAmount;
+                        const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
+                        
+                        const pRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify({
+                            restaurant_id: restaurant.id,
+                            amount: amountPaid,
+                            payment_method: 'cash',
+                            provider: 'pos_cash',
+                            status: 'paid',
+                            currency: restaurant.currency || 'MYR'
+                          })
+                        });
 
-                      <button
-                        onClick={() => setSelectedMethod('cash')}
-                        className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white rounded font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
-                      >
-                        <span>Active Overlay Opened</span>
-                      </button>
-                    </div>
-                  </div>
+                        if (!pRes.ok) throw new Error("Payment record failed");
+                        const payment = await pRes.json();
+
+                        const deviceId = await indexedDbStorage.getItem<string>('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
+                        
+                        await fetch(getApiUrl(`/api/cash-transactions`), {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify({
+                            payment_id: payment.id,
+                            order_id: order.id,
+                            cashier_id: profile?.id,
+                            restaurant_id: restaurant.id,
+                            device_id: deviceId,
+                            amount_due: remainingAmount,
+                            cash_received: data.cashReceived,
+                            change_given: data.changeGiven,
+                            rounding_adjustment: data.rounding,
+                            status: 'completed',
+                            metadata: {
+                              is_partial: data.isPartial,
+                              remaining_balance: data.remainingBalance
+                            }
+                          })
+                        });
+
+                        await handlePaymentComplete(payment);
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                  />
                 ) : selectedMethod === 'card' ? (
                   <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-950">
                     <div className="w-full max-w-sm space-y-6">
@@ -1222,7 +1268,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                   </div>
                 ) : selectedMethod === 'split' ? (
                   <div className="h-full flex flex-col items-center justify-center bg-zinc-950 p-4">
-                    <div className="w-full max-w-xl bg-zinc-900 rounded-2xl border border-zinc-850 p-6 shadow-2xl">
+                    <div className="w-full max-w-xl bg-zinc-900 rounded-2xl border border-zinc-800 p-6 shadow-2xl">
                       <div className="mb-6 text-center">
                          <h3 className="text-xl font-black text-white tracking-tight uppercase italic leading-none mb-1">Bill Partition</h3>
                          <p className="text-zinc-600 text-[10px] font-black uppercase tracking-widest leading-none mt-2">Allocation for <span className="text-white">RM {remainingBalance.toFixed(2)}</span></p>
@@ -1232,20 +1278,20 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         <button 
                           onClick={() => setSplitMethod('equal')}
                           className={`p-4 rounded-lg border transition-all flex flex-col items-center gap-1.5 ${
-                            splitMethod === 'equal' ? 'bg-orange-500/5 border-orange-500/30' : 'bg-transparent border-zinc-800 hover:border-zinc-750'
+                            splitMethod === 'equal' ? 'bg-orange-500/5 border-orange-500/30' : 'bg-transparent border-zinc-800 hover:border-zinc-700'
                           }`}
                         >
                           <LayoutGrid size={18} className={splitMethod === 'equal' ? 'text-orange-500' : 'text-zinc-700'} />
-                          <span className={`text-[9px] font-black uppercase tracking-widest leading-none mt-1 ${splitMethod === 'equal' ? 'text-white' : 'text-zinc-650'}`}>Equal Divide</span>
+                          <span className={`text-[9px] font-black uppercase tracking-widest leading-none mt-1 ${splitMethod === 'equal' ? 'text-white' : 'text-zinc-500'}`}>Equal Divide</span>
                         </button>
                         <button 
                           onClick={() => setSplitMethod('custom')}
                           className={`p-4 rounded-lg border transition-all flex flex-col items-center gap-1.5 ${
-                            splitMethod === 'custom' ? 'bg-orange-500/5 border-orange-500/30' : 'bg-transparent border-zinc-800 hover:border-zinc-750'
+                            splitMethod === 'custom' ? 'bg-orange-500/5 border-orange-500/30' : 'bg-transparent border-zinc-800 hover:border-zinc-700'
                           }`}
                         >
                           <UserCircle size={18} className={splitMethod === 'custom' ? 'text-orange-500' : 'text-zinc-700'} />
-                          <span className={`text-[9px] font-black uppercase tracking-widest leading-none mt-1 ${splitMethod === 'custom' ? 'text-white' : 'text-zinc-650'}`}>Matrix Allocation</span>
+                          <span className={`text-[9px] font-black uppercase tracking-widest leading-none mt-1 ${splitMethod === 'custom' ? 'text-white' : 'text-zinc-500'}`}>Matrix Allocation</span>
                         </button>
                       </div>
 
@@ -1304,7 +1350,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       
                       <div className="mb-4">
                          <h3 className="text-base font-black text-white uppercase tracking-tighter italic">Dynamic Pay-QR</h3>
-                         <p className="text-zinc-650 text-[8px] font-black uppercase tracking-widest mt-1">Live Traffic Token</p>
+                         <p className="text-zinc-500 text-[8px] font-black uppercase tracking-widest mt-1">Live Traffic Token</p>
                       </div>
 
                       <div className="aspect-square bg-white rounded-xl p-4 shadow-2xl mb-4 relative group">
@@ -1342,14 +1388,14 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             handlePaymentComplete(pData);
                           }
                         }}
-                        className="w-full h-10 bg-zinc-800 hover:bg-zinc-705 text-zinc-400 rounded font-black text-[9px] uppercase tracking-widest transition-all"
+                        className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded font-black text-[9px] uppercase tracking-widest transition-all"
                       >
                         Verify Call
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center p-4 text-center text-zinc-650 bg-zinc-950">
+                  <div className="h-full flex items-center justify-center p-4 text-center text-zinc-500 bg-zinc-950">
                     <div className="space-y-3">
                       <div className="w-12 h-12 bg-zinc-900 rounded-full flex items-center justify-center mx-auto border border-zinc-800">
                         <ShieldCheck size={18} className="text-zinc-700" />
@@ -1589,80 +1635,6 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
         </div>
       </div>
 
-      {selectedMethod === 'cash' && (
-        <CashCalculator 
-          amountDue={remainingBalance}
-          orderId={order.id}
-          orderDetails={{
-            subtotal,
-            serviceCharge: scAmount,
-            sst: sstAmount,
-            currency: restaurant.currency
-          }}
-          onCancel={() => setSelectedMethod('card')}
-          onComplete={async (data) => {
-            const token = useAuthStore.getState().token;
-            if (!token) return;
-
-            setIsProcessing(true);
-            try {
-              const remainingAmount = totalAmount - paidAmount;
-              const amountPaid = data.isPartial ? data.cashReceived : (remainingAmount + data.rounding);
-              
-              const pRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  restaurant_id: restaurant.id,
-                  amount: amountPaid,
-                  payment_method: 'cash',
-                  provider: 'pos_cash',
-                  status: 'paid',
-                  currency: restaurant.currency || 'MYR'
-                })
-              });
-
-              if (!pRes.ok) throw new Error("Payment record failed");
-              const payment = await pRes.json();
-
-              const deviceId = await indexedDbStorage.getItem<string>('pos_device_id') || `T_ADM_${navigator.userAgent.slice(0, 5)}`;
-              
-              await fetch(getApiUrl(`/api/cash-transactions`), {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  payment_id: payment.id,
-                  order_id: order.id,
-                  cashier_id: profile?.id,
-                  restaurant_id: restaurant.id,
-                  device_id: deviceId,
-                  amount_due: remainingAmount,
-                  cash_received: data.cashReceived,
-                  change_given: data.changeGiven,
-                  rounding_adjustment: data.rounding,
-                  status: 'completed',
-                  metadata: {
-                    is_partial: data.isPartial,
-                    remaining_balance: data.remainingBalance
-                  }
-                })
-              });
-
-              await handlePaymentComplete(payment);
-            } catch (err) {
-              console.error(err);
-            } finally {
-              setIsProcessing(false);
-            }
-          }}
-        />
-      )}
     </div>
   );
 }

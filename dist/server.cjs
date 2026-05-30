@@ -2384,8 +2384,10 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
       });
     } else {
       const existing = db3.profiles.find((p) => p.id === user.id);
-      existing.restaurant_id = restaurant.id;
-      existing.role = "owner";
+      if (existing) {
+        existing.restaurant_id = restaurant.id;
+        existing.role = "owner";
+      }
     }
     if (!db3.restaurant_users.some((ru) => ru.restaurant_id === restaurant.id && ru.user_id === user.id)) {
       db3.restaurant_users.push({

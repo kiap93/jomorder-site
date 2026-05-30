@@ -503,6 +503,9 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
       }
     }
 
+    const auditAction = body.auditAction;
+    delete body.auditAction;
+
     const { data, error } = await supabase
       .from('orders')
       .update(body)
@@ -513,7 +516,7 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
     if (error) return c.json({ error: error.message }, 500);
 
     if (caller && caller.email) {
-      let action = `Updated Order ${orderId}`;
+      let action = auditAction || `Updated Order ${orderId}`;
       if (body.status && body.status !== order.status) {
         action = `Changed Order ${orderId} status from [${order.status}] to [${body.status}]`;
       }

@@ -38,19 +38,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     initializationPromise = (async () => {
       // Set up worker listener for cross-tab sync
       const channelListener = (event: MessageEvent) => {
-        if (event.data.type === 'AUTH_STATE_CHANGED') {
-          if (event.data.sourceTab === currentTabId) return;
-
-          const now = Date.now();
-          if (now - lastProcessedChangeTime < 1500) {
-            console.log("AuthStore (Worker): Throttling redundant sync broadcast");
-            return;
-          }
-          lastProcessedChangeTime = now;
-
-          console.log("AuthStore (Worker): Syncing auth state from another tab...");
-          get().refreshSession();
+        if (!event.data || typeof event.data !== 'object' || event.data.type !== 'AUTH_STATE_CHANGED') {
+          return;
         }
+        if (event.data.sourceTab === currentTabId) return;
+
+        const now = Date.now();
+        if (now - lastProcessedChangeTime < 1500) {
+          console.log("AuthStore (Worker): Throttling redundant sync broadcast");
+          return;
+        }
+        lastProcessedChangeTime = now;
+
+        console.log("AuthStore (Worker): Syncing auth state from another tab...");
+        get().refreshSession();
       };
       authChannel.addEventListener('message', channelListener);
 
