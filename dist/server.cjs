@@ -259,6 +259,50 @@ function setInCache(cache, key, value, limit = 5e3) {
 function getHash(text) {
   return import_crypto.default.createHash("sha256").update(text.trim().toLowerCase()).digest("hex");
 }
+var PROTECTED_BRANDS = [
+  "mcdonald",
+  "mcchicken",
+  "mcnugget",
+  "coca cola",
+  "coca-cola",
+  "coke",
+  "pepsi",
+  "sprite",
+  "fanta",
+  "starbucks",
+  "heineken",
+  "guinness",
+  "tiger beer",
+  "red bull",
+  "nutella",
+  "oreo",
+  "kitkat",
+  "milo",
+  "nescafe",
+  "7up",
+  "seven up",
+  "dr pepper",
+  "mountain dew"
+];
+function checkBrandSafety(text, translated, targetLang) {
+  const trimmedOriginal = text.trim();
+  const trimmedTranslated = (translated || "").trim();
+  if (!trimmedTranslated) return trimmedOriginal;
+  const lowerOriginal = trimmedOriginal.toLowerCase();
+  for (const brand of PROTECTED_BRANDS) {
+    if (lowerOriginal === brand || lowerOriginal.includes(brand)) {
+      if (trimmedTranslated.toLowerCase() !== lowerOriginal) {
+        console.warn("Translation fallback applied", {
+          sourceText: trimmedOriginal,
+          language: targetLang,
+          reason: `Brand name protection triggered for: ${brand}`
+        });
+        return trimmedOriginal;
+      }
+    }
+  }
+  return trimmedTranslated;
+}
 async function detectLanguageAndTranslate(text, apiKey) {
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
@@ -296,6 +340,13 @@ async function detectLanguageAndTranslate(text, apiKey) {
       If the language is not one of these, but is non-English, use the closest ISO 2-letter code.
       3. Translate the text from its original language to natural, appealing English.
       
+      Mandatory AI Translation Fallback Rules:
+      - If you are uncertain about the translation, return the original text.
+      - Do not invent, guess, or construct unverified translations.
+      - Preserve brand names, product names, restaurant names, and trademarks (e.g. McChicken, Coca Cola, Starbucks, Heineken, Pepsi). Keep them exactly in their original spelling and format.
+      - Preserve proper nouns exactly.
+      - Return original text if translation confidence or quality is low.
+      
       Return ONLY a JSON object (no markdown formatting, no code blocks, just raw JSON) with the following structure:
       {
         "isEnglish": boolean,
@@ -307,32 +358,62 @@ async function detectLanguageAndTranslate(text, apiKey) {
     const rawText = (response.text || "").trim();
     const cleanText = rawText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
     const result = JSON.parse(cleanText);
+    let englishTrans = result.englishTranslation ? result.englishTranslation.trim() : null;
+    if (englishTrans) {
+      englishTrans = checkBrandSafety(sanitizedText, englishTrans, "en");
+    }
     const parsedResult = {
       isEnglish: !!result.isEnglish,
       languageCode: result.languageCode || null,
-      englishTranslation: result.englishTranslation ? result.englishTranslation.trim() : null
+      englishTranslation: englishTrans
     };
     setInCache(detectionCache, textHash, parsedResult);
     return parsedResult;
   } catch (error) {
-    console.error(`[Language Detection] Gemini language detection/translation failed for "${sanitizedText}":`, error);
-    return null;
+    console.warn("Translation fallback applied", {
+      sourceText: sanitizedText,
+      language: "en",
+      reason: `Language detection/translation failed: ${error?.message || error}`
+    });
+    return {
+      isEnglish: true,
+      languageCode: null,
+      englishTranslation: sanitizedText
+    };
   }
 }
 async function translateTextWithGemini(text, targetLang, restaurantContext) {
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
-    return null;
+    return "";
   }
   const contextStr = (restaurantContext || "General").trim();
   const cacheKey = `${getHash(sanitizedText)}:${targetLang.toLowerCase()}:${getHash(contextStr)}`;
+  const protectResult = (translated) => {
+    const finalTranslation = translated?.trim() ? translated.trim() : sanitizedText;
+    if (!translated || !translated.trim() || translated.trim().toLowerCase() === "null" || translated.trim().toLowerCase() === "undefined") {
+      console.warn("Translation fallback applied", {
+        sourceText: sanitizedText,
+        language: targetLang,
+        reason: "Machine translation returned null/empty/undefined"
+      });
+      return sanitizedText;
+    }
+    const brandProtected = checkBrandSafety(sanitizedText, finalTranslation, targetLang);
+    return brandProtected;
+  };
   if (translationCache.has(cacheKey)) {
     console.log(`[Translation Cache] HIT! Saved translateTextWithGemini API cost for cache key: ${cacheKey.substring(0, 12)} ("${sanitizedText.substring(0, 20)}...")`);
-    return translationCache.get(cacheKey) || null;
+    return protectResult(translationCache.get(cacheKey));
   }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return null;
+    console.warn("Translation fallback applied", {
+      sourceText: sanitizedText,
+      language: targetLang,
+      reason: "GEMINI_API_KEY is not configured on the server."
+    });
+    return sanitizedText;
   }
   try {
     const ai = new import_genai.GoogleGenAI({
@@ -355,15 +436,36 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
       - Aim for appetite appeal and accuracy.
       - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "\u6930\u6D46\u996D\uFF08\u6930\u9999\u7C73\u996D\uFF09"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
       
-      Return ONLY the translated text, no explanation or quotes.
+      Mandatory AI Translation Fallback Rules:
+      - If you are uncertain about the translation, return the original text.
+      - Do not invent, guess, or construct unverified translations.
+      - Preserve brand names, product names, restaurant names, and trademarks (e.g., McChicken, Coca Cola, Starbucks, Heineken, Pepsi, etc.). Keep them exactly in their original spelling and format.
+      - Preserve proper nouns and trademarks exactly.
+      - Return the original text if translation confidence or quality is low.
+      
+      Return ONLY the translated text, no explanation, no quotes, no metadata.
       `
     });
     const translatedText = (response.text || "").trim();
-    setInCache(translationCache, cacheKey, translatedText);
-    return translatedText;
+    const lowerOutput = translatedText.toLowerCase();
+    if (lowerOutput.includes("failed") || lowerOutput.includes("error") || lowerOutput.includes("uncertain") || lowerOutput.includes("unknown")) {
+      console.warn("Translation fallback applied", {
+        sourceText: sanitizedText,
+        language: targetLang,
+        reason: `AI output indicates uncertainty/failure: "${translatedText}"`
+      });
+      return sanitizedText;
+    }
+    const finalVal = protectResult(translatedText);
+    setInCache(translationCache, cacheKey, finalVal);
+    return finalVal;
   } catch (error) {
-    console.error(`[Gemini Translation] Gemini Translation failed for "${sanitizedText}" to ${targetLang}:`, error);
-    return null;
+    console.warn("Translation fallback applied", {
+      sourceText: sanitizedText,
+      language: targetLang,
+      reason: `Gemini translation call failed: ${error?.message || error}`
+    });
+    return sanitizedText;
   }
 }
 
@@ -3770,27 +3872,73 @@ router11.post("/batch-translate", async (req, res) => {
     return res.json({ items, categories });
   }
   try {
+    const { data: restSetting } = await supabaseAdmin.from("restaurants").select("fallback_to_original").eq("id", restaurantId).maybeSingle();
+    const fallbackToOriginalSetting = restSetting?.fallback_to_original !== false;
+    const isValidTranslation = (text) => {
+      if (text === null || text === void 0) return false;
+      if (typeof text !== "string") return false;
+      const trimmed = text.trim();
+      if (trimmed === "") return false;
+      if (trimmed === "null" || trimmed === "undefined") return false;
+      if (trimmed.toLowerCase() === "[translation failed]" || trimmed.toLowerCase().includes("translation failed")) return false;
+      return true;
+    };
     const resolveSingle = async (entityId, entityType, fieldName, defaultText) => {
-      const { data: branchData } = await supabaseAdmin.from("branch_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
-      if (branchData?.translated_text) return branchData.translated_text;
-      if (franchiseId) {
-        const { data: franchiseData } = await supabaseAdmin.from("franchise_translations").select("translated_text").eq("franchise_id", franchiseId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
-        if (franchiseData?.translated_text) return franchiseData.translated_text;
+      const originalText = (defaultText || "").trim();
+      try {
+        const { data: branchData } = await supabaseAdmin.from("branch_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
+        if (branchData && isValidTranslation(branchData.translated_text)) {
+          return branchData.translated_text.trim();
+        }
+        if (franchiseId) {
+          const { data: franchiseData } = await supabaseAdmin.from("franchise_translations").select("translated_text").eq("franchise_id", franchiseId).eq("entity_id", entityId).eq("language_code", targetLanguage).maybeSingle();
+          if (franchiseData && isValidTranslation(franchiseData.translated_text)) {
+            return franchiseData.translated_text.trim();
+          }
+        }
+        const { data: tenantData } = await supabaseAdmin.from("tenant_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("entity_type", entityType).eq("field_name", fieldName).eq("language_code", targetLanguage).maybeSingle();
+        if (tenantData && isValidTranslation(tenantData.translated_text)) {
+          return tenantData.translated_text.trim();
+        }
+        const { data: globalData } = await supabaseAdmin.from("global_translations").select("translated_text").eq("term_key", fieldName === "name" || fieldName === "description" ? originalText : `${entityType}_${fieldName}`).eq("language_code", targetLanguage).maybeSingle();
+        if (globalData && isValidTranslation(globalData.translated_text)) {
+          return globalData.translated_text.trim();
+        }
+      } catch (err) {
+        console.warn("Translation fallback applied", {
+          sourceText: originalText,
+          language: targetLanguage,
+          reason: `Database queries failed: ${err?.message || err}`
+        });
       }
-      const { data: tenantData } = await supabaseAdmin.from("tenant_translations").select("translated_text").eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("entity_type", entityType).eq("field_name", fieldName).eq("language_code", targetLanguage).maybeSingle();
-      if (tenantData?.translated_text) return tenantData.translated_text;
-      const { data: globalData } = await supabaseAdmin.from("global_translations").select("translated_text").eq("term_key", fieldName === "name" || fieldName === "description" ? defaultText ? defaultText.trim() : "" : `${entityType}_${fieldName}`).eq("language_code", targetLanguage).maybeSingle();
-      if (globalData?.translated_text) return globalData.translated_text;
-      return defaultText;
+      const reasonStr = "Translation lookup returned no result";
+      if (fallbackToOriginalSetting) {
+        console.warn("Translation fallback applied", {
+          sourceText: originalText,
+          language: targetLanguage,
+          reason: reasonStr
+        });
+      }
+      return originalText;
     };
     const translatedItems = items ? await Promise.all(items.map(async (item) => {
-      const name = await resolveSingle(item.id, "menu_item", "name", item.name);
-      const description = item.description ? await resolveSingle(item.id, "menu_item", "description", item.description) : item.description;
-      return { ...item, name, description };
+      try {
+        const name = await resolveSingle(item.id, "menu_item", "name", item.name);
+        const description = item.description ? await resolveSingle(item.id, "menu_item", "description", item.description) : item.description;
+        return { ...item, name, description };
+      } catch (err) {
+        console.warn("Batch item translation failed, skipping and continuing:", err);
+        return item;
+      }
     })) : null;
     const translatedCats = categories ? await Promise.all(categories.map(async (cat) => {
-      const name = await resolveSingle(cat.id, "category", "name", cat.name);
-      return { ...cat, name };
+      try {
+        const name = await resolveSingle(cat.id, "category", "name", cat.name);
+        return { ...cat, name };
+      } catch (err) {
+        console.warn("Batch category translation failed, skipping and continuing:", err);
+        return cat;
+      }
     })) : null;
     res.json({ items: translatedItems, categories: translatedCats });
   } catch (err) {

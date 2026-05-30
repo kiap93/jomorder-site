@@ -687,58 +687,112 @@ router.post("/batch-translate", async (req, res) => {
   }
 
   try {
-    const resolveSingle = async (entityId: string, entityType: string, fieldName: string, defaultText: string) => {
-      const { data: branchData } = await supabaseAdmin
-        .from('branch_translations')
-        .select('translated_text')
-        .eq('restaurant_id', restaurantId)
-        .eq('entity_id', entityId)
-        .eq('language_code', targetLanguage)
-        .maybeSingle();
-      if (branchData?.translated_text) return branchData.translated_text;
+    const { data: restSetting } = await supabaseAdmin
+      .from('restaurants')
+      .select('fallback_to_original')
+      .eq('id', restaurantId)
+      .maybeSingle();
 
-      if (franchiseId) {
-        const { data: franchiseData } = await supabaseAdmin
-          .from('franchise_translations')
+    const fallbackToOriginalSetting = restSetting?.fallback_to_original !== false;
+
+    const isValidTranslation = (text: any): boolean => {
+      if (text === null || text === undefined) return false;
+      if (typeof text !== 'string') return false;
+      const trimmed = text.trim();
+      if (trimmed === '') return false;
+      if (trimmed === 'null' || trimmed === 'undefined') return false;
+      if (trimmed.toLowerCase() === '[translation failed]' || trimmed.toLowerCase().includes('translation failed')) return false;
+      return true;
+    };
+
+    const resolveSingle = async (entityId: string, entityType: string, fieldName: string, defaultText: string) => {
+      const originalText = (defaultText || '').trim();
+
+      try {
+        const { data: branchData } = await supabaseAdmin
+          .from('branch_translations')
           .select('translated_text')
-          .eq('franchise_id', franchiseId)
+          .eq('restaurant_id', restaurantId)
           .eq('entity_id', entityId)
           .eq('language_code', targetLanguage)
           .maybeSingle();
-        if (franchiseData?.translated_text) return franchiseData.translated_text;
+        if (branchData && isValidTranslation(branchData.translated_text)) {
+          return branchData.translated_text.trim();
+        }
+
+        if (franchiseId) {
+          const { data: franchiseData } = await supabaseAdmin
+            .from('franchise_translations')
+            .select('translated_text')
+            .eq('franchise_id', franchiseId)
+            .eq('entity_id', entityId)
+            .eq('language_code', targetLanguage)
+            .maybeSingle();
+          if (franchiseData && isValidTranslation(franchiseData.translated_text)) {
+            return franchiseData.translated_text.trim();
+          }
+        }
+
+        const { data: tenantData } = await supabaseAdmin
+          .from('tenant_translations')
+          .select('translated_text')
+          .eq('restaurant_id', restaurantId)
+          .eq('entity_id', entityId)
+          .eq('entity_type', entityType)
+          .eq('field_name', fieldName)
+          .eq('language_code', targetLanguage)
+          .maybeSingle();
+        if (tenantData && isValidTranslation(tenantData.translated_text)) {
+          return tenantData.translated_text.trim();
+        }
+
+        const { data: globalData } = await supabaseAdmin
+          .from('global_translations')
+          .select('translated_text')
+          .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? originalText : `${entityType}_${fieldName}`)
+          .eq('language_code', targetLanguage)
+          .maybeSingle();
+        if (globalData && isValidTranslation(globalData.translated_text)) {
+          return globalData.translated_text.trim();
+        }
+      } catch (err: any) {
+        console.warn("Translation fallback applied", {
+          sourceText: originalText,
+          language: targetLanguage,
+          reason: `Database queries failed: ${err?.message || err}`
+        });
       }
 
-      const { data: tenantData } = await supabaseAdmin
-        .from('tenant_translations')
-        .select('translated_text')
-        .eq('restaurant_id', restaurantId)
-        .eq('entity_id', entityId)
-        .eq('entity_type', entityType)
-        .eq('field_name', fieldName)
-        .eq('language_code', targetLanguage)
-        .maybeSingle();
-      if (tenantData?.translated_text) return tenantData.translated_text;
-
-      const { data: globalData } = await supabaseAdmin
-        .from('global_translations')
-        .select('translated_text')
-        .eq('term_key', (fieldName === 'name' || fieldName === 'description') ? (defaultText ? defaultText.trim() : '') : `${entityType}_${fieldName}`)
-        .eq('language_code', targetLanguage)
-        .maybeSingle();
-      if (globalData?.translated_text) return globalData.translated_text;
-
-      return defaultText;
+      const reasonStr = "Translation lookup returned no result";
+      if (fallbackToOriginalSetting) {
+        console.warn("Translation fallback applied", {
+          sourceText: originalText,
+          language: targetLanguage,
+          reason: reasonStr
+        });
+      }
+      return originalText;
     };
 
     const translatedItems = items ? await Promise.all(items.map(async (item: any) => {
-      const name = await resolveSingle(item.id, 'menu_item', 'name', item.name);
-      const description = item.description ? await resolveSingle(item.id, 'menu_item', 'description', item.description) : item.description;
-      return { ...item, name, description };
+      try {
+        const name = await resolveSingle(item.id, 'menu_item', 'name', item.name);
+        const description = item.description ? await resolveSingle(item.id, 'menu_item', 'description', item.description) : item.description;
+        return { ...item, name, description };
+      } catch (err: any) {
+        console.warn("Batch item translation failed, skipping and continuing:", err);
+        return item;
+      }
     })) : null;
 
     const translatedCats = categories ? await Promise.all(categories.map(async (cat: any) => {
-      const name = await resolveSingle(cat.id, 'category', 'name', cat.name);
-      return { ...cat, name };
+      try {
+        const name = await resolveSingle(cat.id, 'category', 'name', cat.name);
+        return { ...cat, name };
+      } catch (err: any) {
+        console.warn("Batch category translation failed, skipping and continuing:", err);
+        return cat;
+      }
     })) : null;
 
     res.json({ items: translatedItems, categories: translatedCats });

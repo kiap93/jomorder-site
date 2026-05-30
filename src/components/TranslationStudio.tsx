@@ -51,6 +51,44 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
   const [versions, setVersions] = useState<TranslationVersion[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showGlobalHistory, setShowGlobalHistory] = useState(false);
+  const [fallbackToOriginal, setFallbackToOriginal] = useState(true);
+  const [saveStatus, setSaveStatus] = useState(false);
+
+  useEffect(() => {
+    const fetchFallbackSetting = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('restaurants')
+          .select('fallback_to_original')
+          .eq('id', restaurantId)
+          .maybeSingle();
+        if (error) throw error;
+        if (data && data.fallback_to_original !== undefined) {
+          setFallbackToOriginal(data.fallback_to_original);
+        }
+      } catch (err) {
+        console.error("Failed to load fallback_to_original setting:", err);
+      }
+    };
+    fetchFallbackSetting();
+  }, [restaurantId]);
+
+  const handleToggleFallback = async (checked: boolean) => {
+    setFallbackToOriginal(checked);
+    setSaveStatus(false);
+    try {
+      const { error } = await supabase
+        .from('restaurants')
+        .update({ fallback_to_original: checked })
+        .eq('id', restaurantId);
+      if (error) throw error;
+      setSaveStatus(true);
+      setTimeout(() => setSaveStatus(false), 2000);
+    } catch (err: any) {
+      console.error("Failed to update fallbackToOriginal setting:", err);
+      setError("Failed to save setting to database.");
+    }
+  };
 
   const handleAiPredict = async (field: 'name' | 'description') => {
     if (!selectedEntity) return;
@@ -174,68 +212,51 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         // Only proceed if the text has changed
         if (text === originalText) continue;
 
-        if (text) {
-          // 1. Create version record
-          await supabase.from('translation_versions').insert({
-            translation_type: 'tenant',
-            translation_id: selectedEntity.id,
-            field_name: field,
-            language_code: targetLang,
-            previous_text: originalText,
-            new_text: text,
-            change_reason: 'Dashboard Edit'
-          });
+        // Apply fallback logic and database protection snippet:
+        // Never overwrite existing translations with: null, undefined, or empty string/whitespace.
+        const finalTranslation = text?.trim() ? text.trim() : originalText;
+        if (!finalTranslation) {
+          continue;
+        }
 
-          // 2. Upsert translation
-          const { error: upsertError } = await supabase
-            .from('tenant_translations')
-            .upsert({
-              restaurant_id: restaurantId,
-              entity_type: entityType,
-              entity_id: selectedEntity.id,
-              field_name: field,
-              language_code: targetLang,
-              translated_text: text,
-              override_global: true
-            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+        // 1. Create version record
+        await supabase.from('translation_versions').insert({
+          translation_type: 'tenant',
+          translation_id: selectedEntity.id,
+          field_name: field,
+          language_code: targetLang,
+          previous_text: originalText,
+          new_text: finalTranslation,
+          change_reason: 'Dashboard Edit'
+        });
 
-          if (upsertError) throw upsertError;
-
-          // 3. Create/Update translation job for review flow
-          await supabase.from('translation_jobs').upsert({
+        // 2. Upsert translation
+        const { error: upsertError } = await supabase
+          .from('tenant_translations')
+          .upsert({
             restaurant_id: restaurantId,
             entity_type: entityType,
             entity_id: selectedEntity.id,
             field_name: field,
-            source_language: 'en',
-            target_language: targetLang,
-            status: 'completed',
-            reviewed_text: text,
-            review_status: 'draft'
-          }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
-        } else if (originalText) {
-          // If text is empty AND there was original text, remove it
-          const { error: deleteError } = await supabase
-            .from('tenant_translations')
-            .delete()
-            .eq('restaurant_id', restaurantId)
-            .eq('entity_id', selectedEntity.id)
-            .eq('language_code', targetLang)
-            .eq('field_name', field);
-
-          if (deleteError) throw deleteError;
-
-          // Record removal in history
-          await supabase.from('translation_versions').insert({
-            translation_type: 'tenant',
-            translation_id: selectedEntity.id,
-            field_name: field,
             language_code: targetLang,
-            previous_text: originalText,
-            new_text: '[Translation Removed]',
-            change_reason: 'Dashboard Delete'
-          });
-        }
+            translated_text: finalTranslation,
+            override_global: true
+          }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+        if (upsertError) throw upsertError;
+
+        // 3. Create/Update translation job for review flow
+        await supabase.from('translation_jobs').upsert({
+          restaurant_id: restaurantId,
+          entity_type: entityType,
+          entity_id: selectedEntity.id,
+          field_name: field,
+          source_language: 'en',
+          target_language: targetLang,
+          status: 'completed',
+          reviewed_text: finalTranslation,
+          review_status: 'draft'
+        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
       }
       
       // Update original translations to current state after successful save
@@ -256,7 +277,40 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
   };
 
   return (
-    <div className="grid grid-cols-12 gap-8 h-[calc(100vh-200px)]">
+    <div className="flex flex-col gap-6 w-full">
+      {/* Fallback to original text setting toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+        <div className="flex flex-col">
+          <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+            Fallback to original text when translation is unavailable
+          </span>
+          <span className="text-[11px] font-semibold text-gray-400 mt-0.5">
+            If translation fails, customers will see the original text instead of empty content.
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {saveStatus && (
+            <span className="text-[10px] font-bold text-green-500 uppercase flex items-center gap-1 mr-2 animate-fade-in">
+              <CheckCircle2 size={12} />
+              Saved
+            </span>
+          )}
+          <button
+            onClick={() => handleToggleFallback(!fallbackToOriginal)}
+            className={`w-11 h-6 rounded-full transition-all relative ${
+              fallbackToOriginal ? 'bg-green-500' : 'bg-gray-200'
+            }`}
+          >
+            <div
+              className={`w-5 h-5 bg-white rounded-full absolute top-[0.125rem] transition-all shadow-sm ${
+                fallbackToOriginal ? 'left-[1.375rem]' : 'left-[0.125rem]'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-8 h-[calc(100vh-200px)]">
       {/* Entity Sidebar */}
       <div className="col-span-4 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col overflow-hidden">
         <div className="p-6 border-b border-gray-50 flex flex-col gap-4">
@@ -502,5 +556,6 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         )}
       </div>
     </div>
+  </div>
   );
 };
