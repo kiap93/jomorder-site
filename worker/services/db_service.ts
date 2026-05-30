@@ -18,10 +18,10 @@ export async function getStaffSettingsFromDb(supabase: any, userId: string, role
         .maybeSingle();
 
       if (!ruError && ruMapping) {
-        const selectedRole = ruMapping.role || role;
-        const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
-        const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
-        const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
+        const selectedRole = (ruMapping.role || role || '').toLowerCase();
+        const isOwner = selectedRole === 'owner' || selectedRole === 'admin';
+        const isManager = selectedRole === 'manager';
+        const isCashier = selectedRole === 'cashier';
 
         const defaultPerms = {
           can_refund: isOwner || isManager,
@@ -52,10 +52,10 @@ export async function getStaffSettingsFromDb(supabase: any, userId: string, role
       .maybeSingle();
 
     if (!error && profile) {
-      const selectedRole = profile.role || role;
-      const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
-      const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
-      const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
+      const selectedRole = (profile.role || role || '').toLowerCase();
+      const isOwner = selectedRole === 'owner' || selectedRole === 'admin';
+      const isManager = selectedRole === 'manager';
+      const isCashier = selectedRole === 'cashier';
 
       const defaultPerms = {
         can_refund: isOwner || isManager,
@@ -85,10 +85,10 @@ export async function getStaffSettingsFromDb(supabase: any, userId: string, role
       .eq('id', userId)
       .maybeSingle();
 
-    const selectedRole = profile?.role || role;
-    const isOwner = selectedRole === 'owner' || selectedRole === 'admin' || selectedRole === 'OWNER';
-    const isManager = selectedRole === 'manager' || selectedRole === 'MANAGER';
-    const isCashier = selectedRole === 'cashier' || selectedRole === 'CASHIER';
+    const selectedRole = (profile?.role || role || '').toLowerCase();
+    const isOwner = selectedRole === 'owner' || selectedRole === 'admin';
+    const isManager = selectedRole === 'manager';
+    const isCashier = selectedRole === 'cashier';
 
     return {
       status: 'active',
@@ -102,9 +102,10 @@ export async function getStaffSettingsFromDb(supabase: any, userId: string, role
     };
   } catch (err) {
     console.error("Critical fallback in getStaffSettingsFromDb, hardcoding defaults:", err);
-    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
-    const isManager = role === 'manager' || role === 'MANAGER';
-    const isCashier = role === 'cashier' || role === 'CASHIER';
+    const selectedRole = (role || '').toLowerCase();
+    const isOwner = selectedRole === 'owner' || selectedRole === 'admin';
+    const isManager = selectedRole === 'manager';
+    const isCashier = selectedRole === 'cashier';
     return {
       status: 'active',
       permissions: {

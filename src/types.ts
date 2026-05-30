@@ -330,7 +330,7 @@ export interface CashTransaction {
 export interface UserProfile {
   id: string;
   email: string;
-  role: 'admin' | 'staff' | 'kitchen' | 'owner' | 'manager' | 'cashier' | 'waiter' | 'runner' | 'OWNER' | 'MANAGER' | 'CASHIER' | 'KITCHEN' | 'WAITER' | 'RUNNER';
+  role: 'superadmin' | 'admin' | 'staff' | 'owner' | 'manager' | 'cashier' | 'waiter' | 'kitchen' | 'runner';
   restaurantId: string;
   platform_role?: string | null;
   organizationId?: string | null;
@@ -394,7 +394,7 @@ export interface SessionEpoch {
 export interface WorkspaceMembership {
   id: string;
   email: string;
-  role: 'OWNER' | 'MANAGER' | 'CASHIER' | 'KITCHEN' | 'WAITER' | 'RUNNER';
+  role: 'owner' | 'manager' | 'cashier' | 'waiter' | 'kitchen' | 'runner';
   restaurantId: string;
   status: 'active' | 'suspended';
   created_at?: string;

@@ -4,15 +4,13 @@
  */
 
 export type UserRole =
-  | 'super_admin'
   | 'superadmin'
   | 'owner'
-  | 'OWNER'
-  | 'manager' | 'MANAGER'
-  | 'cashier' | 'CASHIER'
-  | 'waiter'  | 'WAITER'
-  | 'kitchen' | 'KITCHEN'
-  | 'runner'  | 'RUNNER';
+  | 'manager'
+  | 'cashier'
+  | 'waiter'
+  | 'kitchen'
+  | 'runner';
 
 export type PermissionCode =
   | 'orders.view'
@@ -126,8 +124,8 @@ export function hasPermission(
     }
   }
 
-  const roleMapKey = role.toLowerCase() as string;
-  const permissions = ROLE_PERMISSIONS[roleMapKey] || ROLE_PERMISSIONS[roleMapKey.replace('_', '')] || [];
+  const roleMapKey = role.toLowerCase();
+  const permissions = ROLE_PERMISSIONS[roleMapKey] || [];
   
   return permissions.includes(permission);
 }

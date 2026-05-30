@@ -93,12 +93,13 @@ staffRoutes.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
 staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
   const restId = c.req.param('restId');
   const body = await c.req.json();
-  const { email, password, role, permissions } = body;
+  let { email, password, role, permissions } = body;
+  if (role) role = role.toLowerCase();
   const caller = c.get('user');
   const supabase = getSupabase(c.env);
 
   const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {
@@ -296,12 +297,13 @@ staffRoutes.put("/api/restaurants/:restId/staff/:staffId", authenticate, async (
   const restId = c.req.param('restId');
   const staffId = c.req.param('staffId');
   const body = await c.req.json();
-  const { role, status, permissions } = body;
+  let { role, status, permissions } = body;
+  if (role) role = role.toLowerCase();
   const caller = c.get('user');
   const supabase = getSupabase(c.env);
 
   const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {
@@ -414,7 +416,7 @@ staffRoutes.delete("/api/restaurants/:restId/staff/:staffId", authenticate, asyn
   const supabase = getSupabase(c.env);
 
   const callerSettings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, restId);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {

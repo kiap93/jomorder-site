@@ -198,11 +198,23 @@ export const ProductConfigurator: React.FC<Props> = ({ product, selection, onCha
                           <p className={`text-sm font-semibold transition-colors truncate ${isSelected ? 'text-zinc-900' : 'text-zinc-700'}`}>
                             {item.name || item.customName || item.childProduct?.name || 'Option'}
                           </p>
-                          {item.priceDelta !== 0 && (
-                            <p className={`text-xs font-bold ${isSelected ? 'text-orange-600' : 'text-zinc-400'}`}>
-                              {item.priceDelta > 0 ? '+' : '-'}{currency}{Math.abs(item.priceDelta).toFixed(2)}
-                            </p>
-                          )}
+                          {(() => {
+                            const rawDelta: any = item.priceDelta;
+                            const deltaNum = Number(rawDelta);
+                            const hasPriceDelta = rawDelta !== undefined && 
+                              rawDelta !== null && 
+                              rawDelta !== '' && 
+                              String(rawDelta).trim().toLowerCase() !== 'null' && 
+                              String(rawDelta).trim().toLowerCase() !== 'undefined' && 
+                              !isNaN(deltaNum) && 
+                              deltaNum !== 0;
+                            if (!hasPriceDelta) return null;
+                            return (
+                              <p className={`text-xs font-bold ${isSelected ? 'text-orange-600' : 'text-zinc-400'}`}>
+                                {deltaNum > 0 ? '+' : '-'}{currency}{Math.abs(deltaNum).toFixed(2)}
+                              </p>
+                            );
+                          })()}
                         </div>
                       </div>
                       

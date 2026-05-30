@@ -3,6 +3,7 @@ import { UserProfile } from '../types';
 import { getApiUrl } from '../lib/api';
 import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { offlineService, clearTenantScopedIndexedDB } from '../lib/offlineService';
+import { useWorkspaceStore } from './useWorkspaceStore';
 
 interface AuthState {
   user: { id: string; email: string } | null;
@@ -98,7 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           profile: {
             id: profile.id,
             email: profile.email,
-            role: profile.role,
+            role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
             restaurantId: profile.restaurantId || profile.restaurant_id,
             organizationId: profile.organizationId || profile.organization_id || null,
             status: profile.status,
@@ -149,7 +150,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profile: {
           id: profile.id,
           email: profile.email,
-          role: profile.role,
+          role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
@@ -197,7 +198,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profile: {
           id: profile.id,
           email: profile.email,
-          role: profile.role,
+          role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
@@ -247,7 +248,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profile: {
           id: profile.id,
           email: profile.email,
-          role: profile.role,
+          role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
@@ -285,6 +286,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     set({ user: null, profile: null, token: null, loading: false });
+    useWorkspaceStore.getState().clearWorkspaces();
     
     // Notify other tabs via worker channel
     authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
@@ -324,7 +326,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profile: {
           id: enrichedUser.id,
           email: enrichedUser.email,
-          role: enrichedUser.role,
+          role: enrichedUser.role ? (enrichedUser.role.toLowerCase() as any) : 'owner',
           restaurantId: enrichedUser.restaurantId || enrichedUser.restaurant_id,
           organizationId: enrichedUser.organizationId || enrichedUser.organization_id || null,
           status: enrichedUser.status,
@@ -333,6 +335,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         token,
         loading: false 
       });
+
+      useWorkspaceStore.getState().clearWorkspaces();
 
       // Notify other tabs via worker channel
       authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });

@@ -1366,15 +1366,15 @@ export function AdminPanel() {
   );
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
-      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center">
+    <div className="max-w-7xl mx-auto space-y-4 pb-12 p-3 sm:p-5 md:p-6">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">{t('admin.management')}</h1>
-          <p className="text-gray-500 font-medium">{t('admin.controlCenter').replace('{name}', restaurant?.name || 'Branch')}</p>
+          <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">{t('admin.management')}</h1>
+          <p className="text-xs text-gray-500 font-medium">{t('admin.controlCenter').replace('{name}', restaurant?.name || 'Branch')}</p>
         </div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+      <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
         {[
           { id: 'menu', icon: UtensilsCrossed, key: 'admin.menuItems' },
           { id: 'categories', icon: List, key: 'admin.categories' },
@@ -1390,11 +1390,11 @@ export function AdminPanel() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all whitespace-nowrap ${
-              activeTab === tab.id ? 'bg-gray-900 text-white shadow-xl' : 'bg-white text-gray-500 hover:bg-gray-50'
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-bold text-xs transition-all whitespace-nowrap ${
+              activeTab === tab.id ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
             }`}
           >
-            <tab.icon size={20} />
+            <tab.icon size={16} />
             {(tab as any).name || t(tab.key)}
           </button>
         ))}
@@ -1402,33 +1402,33 @@ export function AdminPanel() {
 
       {/* Main Content Area */}
       {activeTab === 'menu' && (
-        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100">
-           <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-black text-gray-900">{t('admin.itemsList')}</h2>
+        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
+           <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-black text-gray-900">{t('admin.itemsList')}</h2>
             <button
               onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', comboGroups: [], modifierGroups: [], productType: 'single' })}
-              className="bg-gray-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-lg"
+              className="bg-gray-900 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1.5 hover:bg-black transition-all shadow-md"
             >
-              <Plus size={20} /> {t('admin.addDish')}
+              <Plus size={16} /> {t('admin.addDish')}
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {menuItems.map(item => (
-              <div key={item.id} className="bg-white border rounded-3xl overflow-hidden group hover:shadow-md transition-all">
-                <div className="h-40 bg-gray-100 relative">
+              <div key={item.id} className="bg-white border rounded-xl overflow-hidden group hover:shadow-sm transition-all border-gray-150">
+                <div className="h-32 bg-gray-100 relative">
                   {item.imageUrl ? (
                     <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-300">
-                      <ImageIcon size={40} />
+                      <ImageIcon size={30} />
                     </div>
                   )}
-                  <div className="absolute top-4 right-4 flex gap-2">
-                    <button onClick={() => setEditingItem(item)} className="bg-white/90 backdrop-blur p-2 rounded-xl shadow-sm text-gray-600 hover:text-orange-600"><Edit2 size={16} /></button>
-                    <button onClick={() => deleteMenuItem(item.id)} className="bg-white/90 backdrop-blur p-2 rounded-xl shadow-sm text-gray-600 hover:text-red-600"><Trash2 size={16} /></button>
+                  <div className="absolute top-2 right-2 flex gap-1.5">
+                    <button onClick={() => setEditingItem(item)} className="bg-white/90 backdrop-blur p-1.5 rounded-lg shadow-sm text-gray-600 hover:text-orange-600 border border-gray-200/50"><Edit2 size={13} /></button>
+                    <button onClick={() => deleteMenuItem(item.id)} className="bg-white/90 backdrop-blur p-1.5 rounded-lg shadow-sm text-gray-600 hover:text-red-600 border border-gray-200/50"><Trash2 size={13} /></button>
                   </div>
-                  <div className="absolute bottom-4 left-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm border ${
+                  <div className="absolute bottom-2 left-2">
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider shadow-sm border ${
                       item.status === 'Available' ? 'bg-green-500 text-white border-green-400' :
                       item.status === 'Low Stock' ? 'bg-yellow-500 text-white border-yellow-400' :
                       item.status === 'Out of Stock' ? 'bg-red-500 text-white border-red-400' :
@@ -1441,17 +1441,17 @@ export function AdminPanel() {
                     </span>
                   </div>
                 </div>
-                <div className="p-5">
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-black text-gray-900 line-clamp-1">{item.name}</h3>
-                    <span className="font-mono font-bold text-orange-600">RM{item.price.toFixed(2)}</span>
+                <div className="p-3">
+                  <div className="flex justify-between items-start mb-0.5">
+                    <h3 className="font-black text-gray-900 line-clamp-1 text-sm">{item.name}</h3>
+                    <span className="font-mono font-bold text-orange-600 text-xs">RM{item.price.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between items-end">
-                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
                       {categories.find(c => c.id === item.categoryId)?.name || 'Uncategorized'}
                     </p>
                     {item.description && (
-                      <p className="text-[10px] text-gray-400 italic line-clamp-1 max-w-[60%]">{item.description}</p>
+                      <p className="text-[9px] text-gray-400 italic line-clamp-1 max-w-[60%]">{item.description}</p>
                     )}
                   </div>
                 </div>
@@ -1462,45 +1462,45 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'categories' && (
-        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-black text-gray-900">{t('admin.categories')}</h2>
+        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-black text-gray-900">{t('admin.categories')}</h2>
             <button
               onClick={() => setIsAddingCategory(true)}
-              className="bg-orange-50 text-orange-600 p-3 rounded-2xl hover:bg-orange-100 transition-colors"
+              className="bg-orange-50 text-orange-600 p-2 rounded-xl hover:bg-orange-100 transition-colors"
             >
-              <Plus size={24} />
+              <Plus size={18} />
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <AnimatePresence>
               {isAddingCategory && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  className="bg-orange-50 p-4 rounded-3xl border-2 border-dashed border-orange-200 flex gap-2"
+                  className="bg-orange-50 p-2.5 rounded-xl border-2 border-dashed border-orange-200 flex gap-2"
                 >
                   <input
                     autoFocus
                     value={newCategoryName}
                     onChange={e => setNewCategoryName(e.target.value)}
-                    className="bg-white px-4 rounded-xl flex-1 font-bold text-sm"
+                    className="bg-white px-3 rounded-lg flex-1 font-bold text-xs"
                     placeholder={t('admin.categoryName')}
                   />
-                  <button onClick={addCategory} className="bg-orange-600 text-white p-2 rounded-xl"><Plus size={18} /></button>
-                  <button onClick={() => setIsAddingCategory(false)} className="text-gray-400 p-2"><X size={18} /></button>
+                  <button onClick={addCategory} className="bg-orange-600 text-white p-1.5 rounded-lg"><Plus size={16} /></button>
+                  <button onClick={() => setIsAddingCategory(false)} className="text-gray-400 p-1.5"><X size={16} /></button>
                 </motion.div>
               )}
             </AnimatePresence>
             {categories.map(cat => (
-              <div key={cat.id} className="bg-gray-50 p-4 rounded-3xl flex justify-between items-center group border border-transparent hover:border-orange-100 transition-all">
-                <span className="font-bold text-gray-700">{cat.name}</span>
+              <div key={cat.id} className="bg-gray-55 p-2.5 rounded-xl flex justify-between items-center group border border-gray-100 hover:border-orange-100 transition-all text-sm">
+                <span className="font-bold text-gray-705">{cat.name}</span>
                 <button
                   onClick={() => deleteCategory(cat.id)}
                   className="text-gray-300 hover:text-red-500 transition-colors"
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={15} />
                 </button>
               </div>
             ))}
@@ -1509,88 +1509,88 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'tables' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
             <div>
-              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+              <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
                 <span>{t('admin.tablesQR')}</span>
-                <span className="text-xs bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full font-bold">Total: {tables.length}</span>
+                <span className="text-[10px] bg-orange-100 text-orange-700 px-2.5 py-0.5 rounded-full font-bold">Total: {tables.length}</span>
               </h2>
-              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">Generate physical table standees, print receipts/stickers, or download high-resolution QR vectors</p>
+              <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mt-0.5">Generate physical table standees, print receipts/stickers, or download high-resolution QR vectors</p>
             </div>
             {tables.length > 0 && (
               <button
                 onClick={printAllQRCodes}
-                className="h-11 px-5 bg-zinc-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm"
+                className="h-9 px-4 bg-zinc-900 text-white rounded-lg font-black text-[10px] uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <Printer size={14} />
+                <Printer size={13} />
                 <span>Print All QR Codes</span>
               </button>
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {tables.map(table => {
               const activeSession = table.dining_sessions;
 
               return (
-                <div key={table.id} className={`p-8 rounded-[2.5rem] shadow-sm border transition-all ${
-                  activeSession ? 'bg-orange-50/30 border-orange-100' : 'bg-white border-zinc-100'
+                <div key={table.id} className={`p-4 rounded-xl shadow-sm border transition-all ${
+                  activeSession ? 'bg-orange-50/20 border-orange-100' : 'bg-white border-zinc-100'
                 }`}>
                   <div 
                     id={`qr-container-${table.id}`}
-                    className="mb-6 bg-white p-4 rounded-3xl shadow-inner border border-zinc-50 flex flex-col items-center"
+                    className="mb-4 bg-white p-3 rounded-2xl shadow-inner border border-zinc-50 flex flex-col items-center"
                   >
                     <QRCodeSVG 
                       value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
-                      size={150}
+                      size={120}
                       level="H"
                       includeMargin={true}
                     />
                     
-                    <div className="flex gap-2 mt-4 pt-3 border-t border-zinc-100/50 w-full justify-center">
+                    <div className="flex gap-2 mt-2 pt-2 border-t border-zinc-150/50 w-full justify-center">
                       <button
                         onClick={() => downloadQRCode(table.id, `Table ${table.name}`)}
                         title="Download high-quality PNG"
-                        className="px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border border-zinc-200/50"
+                        className="px-2 py-1 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-lg font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 border border-zinc-200/50"
                       >
-                        <Download size={11} />
+                        <Download size={10} />
                         <span>Download</span>
                       </button>
                       <button
                         onClick={() => printQRCode(table.id, `Table ${table.name}`)}
                         title="Print 80mm Table Card"
-                        className="px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border border-zinc-200/50"
+                        className="px-2 py-1 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-lg font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 border border-zinc-200/50"
                       >
-                        <Printer size={11} />
+                        <Printer size={10} />
                         <span>Print</span>
                       </button>
                     </div>
                   </div>
                   
-                  <div className="text-center mb-6">
-                    <h3 className="font-bold text-xl text-zinc-900 leading-none mb-2">{t('kds.table').replace('{table}', table.name)}</h3>
-                    <div className="flex items-center justify-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
+                  <div className="text-center mb-4">
+                    <h3 className="font-bold text-base text-zinc-900 leading-none mb-1.5">{t('kds.table').replace('{table}', table.name)}</h3>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
+                      <span className={`text-[9px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
                         {activeSession ? t('admin.activeSession') : t('admin.available')}
                       </span>
                     </div>
                   </div>
                   
-                  <div className="flex flex-col gap-3 w-full">
+                  <div className="flex flex-col gap-2 w-full">
                     {activeSession ? (
-                      <div className="space-y-3">
-                        <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm">
-                          <div className="flex justify-between items-center mb-1">
+                      <div className="space-y-2">
+                        <div className="bg-white p-2.5 rounded-xl border border-orange-100 shadow-sm">
+                          <div className="flex justify-between items-center mb-0.5">
                             <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Started</span>
-                            <span className="text-[10px] font-bold text-zinc-600">
+                            <span className="text-[9px] font-bold text-zinc-600">
                               {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
-                            <span className="text-[10px] font-mono font-bold text-orange-600">
+                            <span className="text-[9px] font-mono font-bold text-orange-600">
                               {activeSession.sessionToken ? `${activeSession.sessionToken.slice(0, 8)}...` : 'N/A'}
                             </span>
                           </div>
@@ -1598,17 +1598,17 @@ export function AdminPanel() {
                         
                         <button 
                           onClick={() => closeDiningSession(activeSession)}
-                          className="w-full h-11 bg-zinc-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-2"
+                          className="w-full h-9 bg-zinc-900 text-white rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-1.5"
                         >
-                          <X size={14} />
+                          <X size={12} />
                           {t('admin.closeSession')}
                         </button>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-2 bg-zinc-100 p-1 rounded-xl">
+                      <div className="grid grid-cols-2 gap-1 bg-zinc-100 p-0.5 rounded-lg mr-0.5">
                         <button
                           onClick={() => updateTableStatus(table.id, 'available')}
-                          className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          className={`py-1.5 rounded-md text-[9px] font-bold uppercase transition-all ${
                             table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
                           }`}
                         >
@@ -1616,7 +1616,7 @@ export function AdminPanel() {
                         </button>
                         <button
                           onClick={() => updateTableStatus(table.id, 'occupied')}
-                          className={`py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          className={`py-1.5 rounded-md text-[9px] font-bold uppercase transition-all ${
                             table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
                           }`}
                         >
@@ -1625,13 +1625,13 @@ export function AdminPanel() {
                       </div>
                     )}
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5">
                       <button 
                         onClick={() => deleteTable(table.id)} 
-                        className="flex-1 h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                        className="flex-1 h-9 rounded-lg bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-1.5 border border-zinc-150"
                       >
-                        <Trash2 size={13} />
-                        <span className="text-[10px] font-bold uppercase">{t('admin.delete')}</span>
+                        <Trash2 size={12} />
+                        <span className="text-[9px] font-bold uppercase">{t('admin.delete')}</span>
                       </button>
                       <div className="relative flex-1">
                         <button 
@@ -1720,63 +1720,63 @@ export function AdminPanel() {
     )}
 
       {activeTab === 'orders' && (
-        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 min-h-[60vh]">
-          <div className="flex justify-between items-center mb-8">
+        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100 min-h-[50vh]">
+          <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 className="text-xl font-black text-gray-900">{t('admin.recentTransactions')}</h2>
-              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1">{t('admin.liveOrderArchive')}</p>
+              <h2 className="text-lg font-black text-gray-900">{t('admin.recentTransactions')}</h2>
+              <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mt-0.5">{t('admin.liveOrderArchive')}</p>
             </div>
             <button
                onClick={() => fetchData()}
-               className="p-3 bg-zinc-100 text-zinc-600 rounded-2xl hover:bg-zinc-200"
+               className="p-2 bg-zinc-100 text-zinc-600 rounded-xl hover:bg-zinc-200"
             >
-              <RefreshCw size={20} />
+              <RefreshCw size={16} />
             </button>
           </div>
 
-          <div className="overflow-x-auto -mx-8">
+          <div className="overflow-x-auto -mx-4 sm:-mx-5">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-zinc-100">
-                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.orderId')}</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.table')}</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.items')}</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.total')}</th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.status')}</th>
-                  <th className="px-8 py-4 text-left text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.time')}</th>
+                <tr className="border-b border-zinc-100 bg-zinc-50/50">
+                  <th className="px-4 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.orderId')}</th>
+                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.table')}</th>
+                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.items')}</th>
+                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.total')}</th>
+                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.status')}</th>
+                  <th className="px-4 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.time')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-50">
                 {orders.map(order => (
                   <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-8 py-4">
+                    <td className="px-4 py-2">
                       <span className="font-mono font-bold text-xs text-zinc-400">#{getOrderDisplayNo(order.id, order.created_at || (order as any).createdAt)}</span>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2">
                       <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col gap-1">
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col gap-0.5">
                         {order.items?.map((item: OrderItem, i: number) => (
-                          <span key={i} className="text-[10px] font-bold text-zinc-600">
+                          <span key={i} className="text-[10px] font-bold text-zinc-600 leading-tight">
                             {item.quantity}x {item.name}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2">
                       <span className="text-xs font-black text-orange-600">RM {(parseFloat(String(order.total_price || order.totalPrice || 0)) || 0).toFixed(2)}</span>
                     </td>
-                    <td className="px-4 py-4">
-                      <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider ${
-                        order.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
-                        order.status === 'cancelled' ? 'bg-red-50 text-red-600' :
-                        'bg-blue-50 text-blue-600'
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
+                        order.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                        order.status === 'cancelled' ? 'bg-red-50 text-red-600 border border-red-100' :
+                        'bg-blue-50 text-blue-600 border border-blue-100'
                       }`}>
                         {order.status}
                       </span>
                     </td>
-                    <td className="px-8 py-4">
+                    <td className="px-4 py-2">
                       <span className="text-[10px] font-bold text-zinc-400">
                         {order.created_at ? new Date(order.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
                       </span>
@@ -1786,9 +1786,9 @@ export function AdminPanel() {
               </tbody>
             </table>
             {orders.length === 0 && (
-              <div className="py-20 text-center">
-                <div className="bg-zinc-50 w-16 h-16 rounded-3xl flex items-center justify-center text-zinc-300 mx-auto mb-4">
-                  <ShoppingBag size={32} />
+              <div className="py-12 text-center">
+                <div className="bg-zinc-50 w-12 h-12 rounded-2xl flex items-center justify-center text-zinc-300 mx-auto mb-3">
+                  <ShoppingBag size={24} />
                 </div>
                 <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{t('admin.noTransactionsYet')}</p>
               </div>
@@ -1798,93 +1798,93 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'analytics' && (
-        <div className="space-y-8">
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-black text-gray-900 mb-1">{t('admin.performanceOverview')}</h2>
-              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">{t('admin.realTimeInsights')}</p>
+              <h2 className="text-lg font-black text-gray-900 mb-0.5">{t('admin.performanceOverview')}</h2>
+              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest">{t('admin.realTimeInsights')}</p>
             </div>
-            <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl">
+            <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-100 text-xs">
               <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-2">{t('admin.from')}</label>
+                <label className="text-[8px] font-black uppercase text-gray-400 px-1">{t('admin.from')}</label>
                 <input 
                   type="date"
                   value={dateRange.start}
                   onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
-                  className="bg-transparent border-none focus:ring-0 text-sm font-bold text-gray-700"
+                  className="bg-transparent border-none p-0 focus:ring-0 text-xs font-bold text-gray-700"
                 />
               </div>
-              <div className="w-px h-8 bg-gray-200" />
+              <div className="w-px h-6 bg-gray-200" />
               <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-2">{t('admin.to')}</label>
+                <label className="text-[8px] font-black uppercase text-gray-400 px-1">{t('admin.to')}</label>
                 <input 
                   type="date"
                   value={dateRange.end}
                   onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
-                  className="bg-transparent border-none focus:ring-0 text-sm font-bold text-gray-700"
+                  className="bg-transparent border-none p-0 focus:ring-0 text-xs font-bold text-gray-700"
                 />
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.totalRevenue')}</div>
-              <div className="text-4xl font-black text-gray-900">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
+              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.totalRevenue')}</div>
+              <div className="text-xl sm:text-2xl font-black text-gray-900">
                 {restaurant?.currency} {analyticsData.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
             </div>
-            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.totalOrders')}</div>
-              <div className="text-4xl font-black text-gray-900">{analyticsData.orders}</div>
+            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
+              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.totalOrders')}</div>
+              <div className="text-xl sm:text-2xl font-black text-gray-900">{analyticsData.orders}</div>
             </div>
-            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-4">{t('admin.avgTicket')}</div>
-              <div className="text-4xl font-black text-gray-900">
+            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
+              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.avgTicket')}</div>
+              <div className="text-xl sm:text-2xl font-black text-gray-900">
                 {restaurant?.currency} {analyticsData.avgTicket.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
             </div>
           </div>
 
-          <section className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-gray-100">
-            <div className="flex justify-between items-center mb-10">
-              <h2 className="text-xl font-black text-gray-900">{t('admin.topSellingItems')}</h2>
-              <div className="bg-orange-50 text-orange-600 text-[10px] font-black px-4 py-2 rounded-full uppercase tracking-wider">
+          <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-black text-gray-900">{t('admin.topSellingItems')}</h2>
+              <div className="bg-orange-50 text-orange-600 text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider">
                 {t('admin.sortedByPopularity')}
               </div>
             </div>
             
             {isAnalyticsLoading ? (
-              <div className="flex justify-center py-20">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-600"></div>
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
               </div>
             ) : analyticsData.topItems.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('admin.rank')}</th>
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Item Name</th>
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">{t('admin.ordersCount')}</th>
-                      <th className="pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">{t('admin.revenue')}</th>
+                    <tr className="border-b border-gray-150">
+                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">{t('admin.rank')}</th>
+                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">Item Name</th>
+                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center">{t('admin.ordersCount')}</th>
+                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right">{t('admin.revenue')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-gray-50 text-sm">
                     {analyticsData.topItems.map((item, idx) => (
-                      <tr key={idx} className="group">
-                        <td className="py-6">
-                          <span className={`w-8 h-8 flex items-center justify-center rounded-xl font-black text-xs ${
+                      <tr key={idx} className="group hover:bg-gray-50/50">
+                        <td className="py-2.5">
+                          <span className={`w-6 h-6 flex items-center justify-center rounded-lg font-black text-[11px] ${
                             idx === 0 ? 'bg-orange-100 text-orange-600' : 
                             idx === 1 ? 'bg-gray-100 text-gray-600' :
-                            idx === 2 ? 'bg-orange-50 text-orange-400' : 
+                            idx === 2 ? 'bg-orange-55 text-orange-400 border border-orange-100' : 
                             'text-gray-300'
                           }`}>
                             {idx + 1}
                           </span>
                         </td>
-                        <td className="py-6 font-black text-gray-900 mb-1">{item.name}</td>
-                        <td className="py-6 text-center font-bold text-gray-600 bg-gray-50/0 group-hover:bg-gray-50/50 transition-colors rounded-xl mx-4">{item.count}</td>
-                        <td className="py-6 text-right font-black text-gray-900">
+                        <td className="py-2.5 font-bold text-gray-900">{item.name}</td>
+                        <td className="py-2.5 text-center font-bold text-gray-600">{item.count}</td>
+                        <td className="py-2.5 text-right font-black text-gray-950">
                           {restaurant?.currency} {item.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -1893,13 +1893,13 @@ export function AdminPanel() {
                 </table>
               </div>
             ) : (
-              <div className="py-20 text-center space-y-4">
-                <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto text-gray-300">
-                  <BarChart2 size={32} />
+              <div className="py-12 text-center space-y-3">
+                <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-gray-300">
+                  <BarChart2 size={24} />
                 </div>
                 <div>
-                  <p className="font-black text-gray-900">{t('admin.noDataFound')}</p>
-                  <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">{t('admin.trySelectingDifferent')}</p>
+                  <p className="font-black text-gray-900 text-sm">{t('admin.noDataFound')}</p>
+                  <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-0.5">{t('admin.trySelectingDifferent')}</p>
                 </div>
               </div>
             )}
@@ -1908,8 +1908,8 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'settings' && restaurant && (
-        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 max-w-2xl">
-          <h2 className="text-xl font-black text-gray-900 mb-8">{t('admin.branchSettings')}</h2>
+        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100 max-w-2xl">
+          <h2 className="text-base sm:text-lg font-black text-gray-900 mb-4">{t('admin.branchSettings')}</h2>
           
           <AnimatePresence>
             {settingsError && (
@@ -1917,62 +1917,62 @@ export function AdminPanel() {
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600"
+                className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-red-600"
               >
-                <AlertCircle size={18} />
-                <span className="text-sm font-bold">{settingsError}</span>
+                <AlertCircle size={15} />
+                <span className="text-xs font-bold">{settingsError}</span>
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="space-y-6">
+          <div className="space-y-4 text-xs">
             <div>
-              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.restaurantName')}</label>
+              <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.restaurantName')}</label>
               <input
                 value={restaurant.name}
                 onChange={e => setRestaurant({ ...restaurant, name: e.target.value })}
-                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.serviceCharge')}</label>
+                <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.serviceCharge')}</label>
                 <div className="relative">
                   <input
                     type="number"
                     step="0.01"
                     value={restaurant.serviceCharge * 100}
                     onChange={e => setRestaurant({ ...restaurant, serviceCharge: parseFloat(e.target.value) / 100 })}
-                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
                     placeholder="10"
                   />
-                  <span className="absolute right-5 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.sst')}</label>
+                <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.sst')}</label>
                 <div className="relative">
                   <input
                     type="number"
                     step="0.01"
                     value={restaurant.sst * 100}
                     onChange={e => setRestaurant({ ...restaurant, sst: parseFloat(e.target.value) / 100 })}
-                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
                     placeholder="6"
                   />
-                  <span className="absolute right-5 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
                 </div>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.currency')}</label>
+              <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.currency')}</label>
               <input
                 value={restaurant.currency}
                 onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
-                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
                 placeholder="RM"
               />
             </div>
@@ -1980,13 +1980,13 @@ export function AdminPanel() {
             <button
               onClick={updateRestaurantSettings}
               disabled={savingSettings}
-              className="w-full mt-4 bg-gray-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all shadow-xl disabled:bg-gray-400"
+              className="w-full mt-2 bg-gray-900 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all shadow-md disabled:bg-gray-400 text-xs"
             >
               {savingSettings ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
               ) : (
                 <>
-                  <Save size={20} />
+                  <Save size={16} />
                   {t('admin.saveSettings')}
                 </>
               )}
@@ -2015,76 +2015,76 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'staff' && canManageStaff && (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Left side: Staff List */}
-            <div className="md:col-span-2 bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+            <div className="md:col-span-2 bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-xl font-black text-gray-900">{t('admin.staffDirectory')}</h2>
-                  <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">{t('admin.rbacProfiles')}</p>
+                  <h2 className="text-base sm:text-lg font-black text-gray-900">{t('admin.staffDirectory')}</h2>
+                  <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">{t('admin.rbacProfiles')}</p>
                 </div>
                 <button
                   onClick={fetchStaffData}
-                  className="p-3 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded-2xl transition"
+                  className="p-2 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded-lg transition"
                   title="Refresh List"
                 >
-                  <RefreshCw size={16} className={isStaffLoading ? 'animate-spin' : ''} />
+                  <RefreshCw size={14} className={isStaffLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
 
               {isStaffLoading && staffList.length === 0 ? (
-                <div className="flex h-48 items-center justify-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                <div className="flex h-36 items-center justify-center">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
                 </div>
               ) : staffList.length === 0 ? (
-                <div className="flex h-48 flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-3xl p-6 text-center text-gray-400">
-                  <Users size={40} className="mb-2 text-gray-200" />
-                  <p className="font-bold text-gray-700">{t('admin.noStaffProfiles')}</p>
-                  <p className="text-xs mt-1">{t('admin.createUniqueLogins')}</p>
+                <div className="flex h-36 flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-xl p-4 text-center text-gray-400">
+                  <Users size={28} className="mb-1 text-gray-200" />
+                  <p className="font-bold text-sm text-gray-700">{t('admin.noStaffProfiles')}</p>
+                  <p className="text-[10px] mt-0.5">{t('admin.createUniqueLogins')}</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {staffList.map((st: StaffMember) => (
                     <div 
                       key={st.id} 
-                      className={`p-6 rounded-2xl border transition-all ${
+                      className={`p-3.5 rounded-xl border transition-all ${
                         st.status === 'suspended' ? 'bg-red-50/40 border-red-100' : 'bg-gray-50/50 border-gray-100 hover:border-gray-200'
                       }`}
                     >
-                      <div className="flex justify-between items-start gap-4">
+                      <div className="flex justify-between items-start gap-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-gray-900">{st.email}</span>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              st.status === 'suspended' ? 'bg-red-200 text-red-800' : 'bg-green-100 text-green-800'
+                            <span className="font-black text-xs text-gray-900">{st.email}</span>
+                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${
+                              st.status === 'suspended' ? 'bg-red-200 text-red-00' : 'bg-green-100 text-green-800'
                             }`}>
                               {st.status}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs bg-gray-900 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider">
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span className="bg-gray-900 text-white font-black px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider">
                               {st.role}
                             </span>
-                            <span className="text-xs text-gray-400 font-medium font-mono">
+                            <span className="text-[9px] text-gray-400 font-medium font-mono">
                               ID: {st.id ? `${st.id.slice(0, 8)}...` : 'N/A'}
                             </span>
                           </div>
                         </div>
 
                         {canManageStaff && (
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5">
                             <button
                               onClick={() => setEditingStaff(st)}
-                              className="p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                              className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition"
                             >
-                              <Edit2 size={16} />
+                              <Edit2 size={13} />
                             </button>
                             <button
                               onClick={() => handleDeleteStaff(st.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={13} />
                             </button>
                           </div>
                         )}
@@ -2092,12 +2092,12 @@ export function AdminPanel() {
 
                       {/* Display active permissions chips */}
                       {st.permissions && (
-                        <div className="mt-4 pt-4 border-t border-gray-200/50 flex flex-wrap gap-1.5">
+                        <div className="mt-2.5 pt-2.5 border-t border-gray-200/50 flex flex-wrap gap-1">
                           {Object.entries(st.permissions).map(([perm, val]) => (
                             <span 
                               key={perm}
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                                val ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-gray-100 text-gray-400'
+                              className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                                val ? 'bg-orange-50 text-orange-700 border border-orange-100/50' : 'bg-gray-100/50 text-gray-400'
                               }`}
                             >
                               {perm.replace('can_', '')}: {val ? 'YES' : 'NO'}
@@ -2112,7 +2112,7 @@ export function AdminPanel() {
             </div>
 
             {/* Right side: Add/Edit Account view */}
-            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6 self-start">
+            <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4 self-start">
               {!canManageStaff ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 w-full">
                   <Shield size={40} className="mb-4 text-orange-600/30" />
@@ -2122,23 +2122,23 @@ export function AdminPanel() {
                   </p>
                 </div>
               ) : editingStaff ? (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   <div>
                     <div className="flex justify-between items-center">
-                      <h3 className="text-lg font-black text-gray-900">{t('admin.editSettings')}</h3>
+                      <h3 className="text-sm font-black text-gray-900">{t('admin.editSettings')}</h3>
                       <button 
                         onClick={() => setEditingStaff(null)}
                         className="text-gray-400 hover:text-black"
                       >
-                        <X size={18} />
+                        <X size={15} />
                       </button>
                     </div>
-                    <p className="text-xs text-brand-dark/60 font-medium font-mono truncate mt-1">{editingStaff.email}</p>
+                    <p className="text-[10px] text-brand-dark/60 font-medium font-mono truncate mt-0.5">{editingStaff.email}</p>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.staffRole')}</label>
+                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.staffRole')}</label>
                       <select
                         value={editingStaff.role}
                         onChange={e => {
@@ -2158,7 +2158,7 @@ export function AdminPanel() {
                             }
                           });
                         }}
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-sm focus:bg-white focus:border-brand"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
                       >
                         {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
                           <option key={r} value={r}>{r}</option>
@@ -2167,11 +2167,11 @@ export function AdminPanel() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">{t('admin.accountStatus')}</label>
+                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">{t('admin.accountStatus')}</label>
                       <select
                         value={editingStaff.status}
                         onChange={e => setEditingStaff({ ...editingStaff, status: e.target.value as any })}
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-sm focus:bg-white focus:border-brand"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
                       >
                         <option value="active">Active (Access Allowed)</option>
                         <option value="suspended">Suspended (Access Revoked)</option>
@@ -2179,10 +2179,10 @@ export function AdminPanel() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">{t('admin.customOverrules')}</label>
-                      <div className="space-y-2.5 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.customOverrules')}</label>
+                      <div className="space-y-1.5 bg-gray-50 p-3 rounded-xl border border-gray-100">
                         {Object.entries(editingStaff.permissions || {}).map(([perm, val]) => (
-                          <label key={perm} className="flex items-center gap-3 cursor-pointer">
+                          <label key={perm} className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={!!val}
@@ -2195,7 +2195,7 @@ export function AdminPanel() {
                                   }
                                 });
                               }}
-                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4.5 w-4.5"
+                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-3.5 w-3.5"
                             />
                             <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
                           </label>
@@ -2203,16 +2203,16 @@ export function AdminPanel() {
                       </div>
                     </div>
 
-                    <div className="pt-2 flex gap-3">
+                    <div className="pt-1 flex gap-2">
                       <button
                         onClick={() => setEditingStaff(null)}
-                        className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs hover:bg-gray-200 transition"
+                        className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 font-bold rounded-lg text-xs hover:bg-gray-200 transition"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleSaveStaffEdit}
-                        className="flex-1 px-4 py-3 bg-gray-900 text-white font-bold rounded-xl text-xs hover:bg-black transition shadow-lg"
+                        className="flex-1 px-3 py-2 bg-gray-900 text-white font-bold rounded-lg text-xs hover:bg-black transition shadow-md"
                       >
                         {t('admin.saveSettings')}
                       </button>
@@ -2220,42 +2220,42 @@ export function AdminPanel() {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleCreateStaff} className="space-y-4">
+                <form onSubmit={handleCreateStaff} className="space-y-3">
                   <div>
-                    <h3 className="text-lg font-black text-gray-900">{t('admin.registerStaff')}</h3>
-                    <p className="text-xs text-gray-400 mt-1">{t('admin.provisionNewUser')}</p>
+                    <h3 className="text-sm font-black text-gray-900">{t('admin.registerStaff')}</h3>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{t('admin.provisionNewUser')}</p>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.emailAddress')}</label>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.emailAddress')}</label>
                     <input
                       type="email"
                       required
                       placeholder="name@restaurant.com"
                       value={newStaffEmail}
                       onChange={e => setNewStaffEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 font-bold text-xs"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 font-bold text-xs"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.temporalPassword')}</label>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.temporalPassword')}</label>
                     <input
                       type="password"
                       required
                       placeholder="Minimum 6 characters"
                       value={newStaffPassword}
                       onChange={e => setNewStaffPassword(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 font-bold text-xs"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-155 focus:bg-white focus:border-orange-500 font-bold text-xs"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.staffRole')}</label>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.staffRole')}</label>
                     <select
                       value={newStaffRole}
                       onChange={e => handleRoleChangeForNewStaff(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border-transparent font-bold capitalize text-xs focus:bg-white focus:border-brand"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
                     >
                       {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
                         <option key={r} value={r}>{r}</option>
@@ -2264,10 +2264,10 @@ export function AdminPanel() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1 text-xs">{t('admin.systemPermissions')}</label>
-                    <div className="space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1.5 ml-1 text-xs">{t('admin.systemPermissions')}</label>
+                    <div className="space-y-1.5 bg-gray-50 p-3 rounded-lg border border-gray-100">
                       {Object.entries(newStaffPermissions).map(([perm, val]) => (
-                        <label key={perm} className="flex items-center gap-3 cursor-pointer">
+                        <label key={perm} className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={val}
@@ -2277,7 +2277,7 @@ export function AdminPanel() {
                                 [perm]: e.target.checked
                               });
                             }}
-                            className="rounded border-gray-355 text-orange-600 focus:ring-orange-500 h-4 w-4"
+                            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-3.5 w-3.5"
                           />
                           <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
                         </label>
@@ -2287,9 +2287,9 @@ export function AdminPanel() {
 
                   <button
                     type="submit"
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition"
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition"
                   >
-                    <Plus size={16} />
+                    <Plus size={14} />
                     {t('admin.deployStaffAccount')}
                   </button>
                 </form>
@@ -2298,47 +2298,47 @@ export function AdminPanel() {
           </div>
 
           {/* Bottom Section: Audit Trail Hub */}
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+          <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4">
             <div>
-              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                <Shield className="text-orange-600" size={24} />
+              <h2 className="text-base sm:text-lg font-black text-gray-900 flex items-center gap-2">
+                <Shield className="text-orange-600" size={20} />
                 {t('admin.orgAuditTrail')}
               </h2>
-              <p className="text-xs text-gray-400 mt-1">{t('admin.immutableSessionHistory')}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{t('admin.immutableSessionHistory')}</p>
             </div>
 
             {auditLogs.length === 0 ? (
-              <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-3xl p-6 text-center text-gray-400">
-                <Shield size={32} className="mb-2 text-gray-200" />
+              <div className="h-24 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-xl p-4 text-center text-gray-400">
+                <Shield size={24} className="mb-1 text-gray-200" />
                 <p className="text-xs font-bold">No Audit Log Data Registered</p>
               </div>
             ) : (
-              <div className="border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="border border-gray-100 rounded-lg overflow-hidden shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase text-gray-400 tracking-wider">
-                      <th className="p-4 pl-6">Timestamp</th>
-                      <th className="p-4">Staff Member</th>
-                      <th className="p-4">Role</th>
-                      <th className="p-4 pr-6">Action / Secure Log Payload</th>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-[9px] font-black uppercase text-gray-400 tracking-wider">
+                      <th className="px-4 py-2 text-left">Timestamp</th>
+                      <th className="px-3 py-2 text-left">Staff Member</th>
+                      <th className="px-3 py-2 text-left">Role</th>
+                      <th className="px-4 py-2 text-left">Action / Secure Log Payload</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-100">
                     {auditLogs.map((log: AuditLogEntry) => (
-                      <tr key={log.id} className="border-b border-gray-150/50 hover:bg-gray-50/50 text-xs">
-                        <td className="p-4 pl-6 text-gray-400 font-mono">
+                      <tr key={log.id} className="hover:bg-gray-50/50 text-[11px] transition-colors">
+                        <td className="px-4 py-2 text-gray-400 font-mono">
                           {new Date(log.timestamp).toLocaleString()}
                         </td>
-                        <td className="p-4 font-bold text-gray-800">
+                        <td className="px-3 py-2 font-bold text-gray-800">
                           {log.user_email}
-                          <div className="text-[10px] text-gray-400 font-mono">ID: {log.user_id ? `${log.user_id.slice(0, 8)}...` : 'N/A'}</div>
+                          <div className="text-[9px] text-gray-400 font-mono">ID: {log.user_id ? `${log.user_id.slice(0, 8)}...` : 'N/A'}</div>
                         </td>
-                        <td className="p-4">
-                          <span className="text-[10px] bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-black uppercase tracking-wider">
+                        <td className="px-3 py-2">
+                          <span className="text-[8px] bg-gray-50 border border-gray-150 text-gray-800 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                             {log.role}
                           </span>
                         </td>
-                        <td className="p-4 pr-6 font-bold text-gray-700">
+                        <td className="px-4 py-2 font-bold text-gray-700">
                           {log.action}
                         </td>
                       </tr>
@@ -2352,31 +2352,31 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'offline-sync' && (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           {/* Header Description */}
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-orange-500/10 text-orange-600 rounded-2xl">
-                <RefreshCw size={24} className="animate-spin duration-3000" />
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-orange-500/10 text-orange-600 rounded-lg">
+                <RefreshCw size={18} className="animate-spin duration-3000" />
               </div>
               <div>
-                <h2 className="text-xl font-black text-gray-900">Offline Sync & Conflict Engine</h2>
-                <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-0.5">Distributed State Integrity & Edge Case Safeguards</p>
+                <h2 className="text-base font-black text-gray-900">Offline Sync & Conflict Engine</h2>
+                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Distributed State Integrity & Edge Case Safeguards</p>
               </div>
             </div>
-            <p className="text-sm font-medium text-gray-500 max-w-3xl leading-relaxed">
+            <p className="text-xs font-semibold text-gray-500 max-w-3xl leading-relaxed">
               When working offline or in poor network conditions, different staff members may modify the same order or table concurrently. This engine enforces strict, deterministic policy hierarchies to prevent <strong>phantom orders, uncoordinated double updates, or disappearing items</strong>.
             </p>
           </div>
 
           {/* 1. Policy Settings Grid */}
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
             <div>
-              <h3 className="text-lg font-black text-gray-900">1. Conflict Resolution Settings</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Choose which policy is automatically triggered when concurrent modifications clash</p>
+              <h3 className="text-sm font-black text-gray-900">1. Conflict Resolution Settings</h3>
+              <p className="text-[9px] text-gray-400 mt-0.5">Choose which policy is automatically triggered when concurrent modifications clash</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
               {[
                 {
                   id: 'smart',
@@ -2415,16 +2415,16 @@ export function AdminPanel() {
                       offlineService.setConflictPolicy(policy.id as any);
                       setActiveConflictPolicy(policy.id as any);
                     }}
-                    className={`text-left p-6 rounded-2xl border-2 transition-all flex flex-col justify-between h-full hover:scale-[1.01] active:scale-[0.99] group ${
+                    className={`text-left p-4 rounded-xl border-2 transition-all flex flex-col justify-between h-full hover:scale-[1.002] active:scale-[0.99] group cursor-pointer ${
                       isActive 
-                        ? 'border-orange-500 bg-orange-500/5 shadow-md shadow-orange-500/5' 
+                        ? 'border-orange-500 bg-orange-500/5 shadow-sm shadow-orange-500/5' 
                         : 'border-gray-100 bg-gray-50 hover:bg-gray-100/70 hover:border-gray-200'
                     }`}
                   >
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-start gap-2">
-                        <h4 className="font-black text-sm text-gray-800 leading-tight">{policy.title}</h4>
-                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded leading-none ${
+                    <div className="space-y-1.5ClassName bg-transparent">
+                      <div className="flex justify-between items-start gap-1.5">
+                        <h4 className="font-black text-xs text-gray-800 leading-tight">{policy.title}</h4>
+                        <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded leading-none ${
                           isActive 
                             ? 'bg-orange-500 text-white' 
                             : 'bg-zinc-200 text-zinc-600'
@@ -2432,12 +2432,12 @@ export function AdminPanel() {
                           {policy.badge}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-400 font-medium leading-relaxed group-hover:text-gray-500 transition-colors">
+                      <p className="text-[10px] text-gray-400 font-semibold leading-normal group-hover:text-gray-500 transition-colors">
                         {policy.desc}
                       </p>
                     </div>
                     {isActive && (
-                      <div className="mt-4 flex items-center gap-1.5 text-xs text-orange-600 font-extrabold font-mono">
+                      <div className="mt-2 text-[9px] flex items-center gap-1 text-orange-600 font-extrabold font-mono">
                         <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping" />
                         ACTIVE STRATEGY
                       </div>
@@ -2449,19 +2449,19 @@ export function AdminPanel() {
           </div>
 
           {/* 2. Interactive Conflict Simulator */}
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
             <div>
-              <h3 className="text-lg font-black text-gray-900">2. Conflict Sandbox & Simulation Controls</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Safely test concurrent offline race conditions to understand how the active policy resolves them</p>
+              <h3 className="text-sm font-black text-gray-900">2. Conflict Sandbox & Simulation Controls</h3>
+              <p className="text-[9px] text-gray-400 mt-0.5">Safely test concurrent offline race conditions to understand how the active policy resolves them</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Card A: Status Precedence */}
-              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
                 <div className="space-y-1">
-                  <span className="text-[9px] bg-red-100 text-red-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Waiters vs Kitchen</span>
-                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">Status Mismatch Battle</h4>
-                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                  <span className="text-[8px] bg-red-100 text-red-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Waiters vs Kitchen</span>
+                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">Status Mismatch Battle</h4>
+                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
                     Simulates non-coordinated actions: Waiter marks order <strong>Completed</strong> while offline, but Kitchen marks it <strong>Cancelled</strong> online due to stock exhaustion.
                   </p>
                 </div>
@@ -2489,18 +2489,18 @@ export function AdminPanel() {
                     offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
                     setConflictLogs(offlineService.getConflictLogs());
                   }}
-                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
                 >
                   Trigger Status Battle
                 </button>
               </div>
 
               {/* Card B: Disappearing Items */}
-              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
                 <div className="space-y-1">
-                  <span className="text-[9px] bg-blue-100 text-blue-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Waiter A vs Waiter B</span>
-                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">No-Disappearing Item Union</h4>
-                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                  <span className="text-[8px] bg-blue-100 text-blue-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Waiter A vs Waiter B</span>
+                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">No-Disappearing Item Union</h4>
+                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
                     Simulates item edits: Client A modifies Rice quantity to 2 while offline, while Client B appends a Laksa Soup online concurrently. Prevents items from vanishing.
                   </p>
                 </div>
@@ -2529,18 +2529,18 @@ export function AdminPanel() {
                     offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
                     setConflictLogs(offlineService.getConflictLogs());
                   }}
-                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
                 >
                   Trigger Item Edit Battle
                 </button>
               </div>
 
               {/* Card C: Seating Overlap */}
-              <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col justify-between space-y-4">
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
                 <div className="space-y-1">
-                  <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-2 py-0.5 rounded">Concurrent Check-Ins</span>
-                  <h4 className="font-extrabold text-sm text-gray-900 pt-1">Safe Double Seating Avoidance</h4>
-                  <p className="text-xs text-gray-400 leading-relaxed font-semibold">
+                  <span className="text-[8px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Concurrent Check-Ins</span>
+                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">Safe Double Seating Avoidance</h4>
+                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
                     Simulates Table statuses: Local device clears a table state to vacant while another device registers a new active guest session concurrently.
                   </p>
                 </div>
@@ -2564,7 +2564,7 @@ export function AdminPanel() {
                     offlineService.resolveTableConflict(localTable as any, remoteTable as any);
                     setConflictLogs(offlineService.getConflictLogs());
                   }}
-                  className="w-full bg-gray-900 text-white font-bold py-3 px-4 rounded-xl text-xs hover:bg-black transition-all shadow-sm"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
                 >
                   Trigger Seating Battle
                 </button>
@@ -2573,11 +2573,11 @@ export function AdminPanel() {
           </div>
 
           {/* 3. Conflict Resolution Log Audit Trail */}
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="text-lg font-black text-gray-900">3. Automated Conflict Resolution Audit Logs</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Immutable record of client-server auto merges executed on other devices or simulated sandbox runs</p>
+                <h3 className="text-sm font-black text-gray-900">3. Automated Conflict Resolution Audit Logs</h3>
+                <p className="text-[9px] text-gray-400 mt-0.5">Immutable record of client-server auto merges executed on other devices or simulated sandbox runs</p>
               </div>
               {conflictLogs.length > 0 && (
                 <button
@@ -2585,65 +2585,61 @@ export function AdminPanel() {
                     offlineService.clearConflictLogs();
                     setConflictLogs([]);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
                 >
-                  <Trash2 size={13} /> Clear Logs
+                  <Trash2 size={12} /> Clear Logs
                 </button>
               )}
             </div>
 
             {conflictLogs.length === 0 ? (
-              <div className="h-48 border-2 border-dashed border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center">
-                <RefreshCw size={36} className="text-gray-200 mb-3 animate-pulse" />
-                <h4 className="font-extrabold text-sm text-gray-600">No Conflict Resolutions Logged</h4>
-                <p className="text-xs text-gray-400 font-medium max-w-xs mt-1">
+              <div className="h-28 border border-dashed border-gray-100 rounded-xl p-4 flex flex-col items-center justify-center text-center">
+                <RefreshCw size={24} className="text-gray-200 mb-2 animate-pulse" />
+                <h4 className="font-extrabold text-xs text-gray-600">No Conflict Resolutions Logged</h4>
+                <p className="text-[10px] text-gray-400 font-medium max-w-xs mt-0.5">
                   Use the quick sandbox simulator above to test conflicts and confirm policies in real time!
                 </p>
               </div>
             ) : (
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+              <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-2">
                 {conflictLogs.map(log => {
                   const dateStr = new Date(log.timestamp).toLocaleTimeString();
                   return (
-                    <div key={log.id} className="p-6 rounded-2xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-all space-y-4 text-left">
+                    <div key={log.id} className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-all space-y-3 text-left">
                       <div className="flex justify-between items-start gap-4">
-                        <div className="space-y-1">
+                        <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono font-black uppercase text-gray-400 bg-gray-200/60 px-2 py-0.5 rounded">
+                            <span className="text-[9px] font-mono font-black uppercase text-gray-400 bg-gray-200/60 px-1.5 py-0.5 rounded leading-none">
                               {log.entityType} ID: {log.entityId}
                             </span>
-                            <span className="text-[10px] text-gray-400 font-mono font-bold">
+                            <span className="text-[9.5px] text-gray-400 font-mono font-bold leading-none">
                               Triggered at {dateStr}
                             </span>
                           </div>
-                          <h4 className="font-extrabold text-sm text-gray-800">{log.issue}</h4>
+                          <h4 className="font-extrabold text-xs text-gray-800">{log.issue}</h4>
                         </div>
-                        <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full ${
-                          log.policyApplied === 'smart' 
-                            ? 'bg-orange-500 text-white' 
-                            : 'bg-zinc-800 text-white'
-                        }`}>
+                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500 text-white leading-none">
                           POLICY: {log.policyApplied.replace('-', ' ')}
                         </span>
                       </div>
 
                       {/* Side-by-side data indicators */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-white p-3 rounded-xl border border-gray-100 text-xs">
-                          <span className="block text-[9px] font-black uppercase text-gray-400 mb-1 font-mono">Waiter Local Cache (IDB)</span>
-                          <pre className="font-mono text-[10px] bg-gray-50 p-2 rounded text-zinc-600 block max-h-24 overflow-y-auto select-all">
+                        <div className="bg-white p-2 text-[10px] rounded-lg border border-gray-100 text-xs">
+                          <span className="block text-[8px] font-black uppercase text-gray-400 mb-1 font-mono leading-none">Waiter Local Cache (IDB)</span>
+                          <pre className="font-mono text-[9px] bg-gray-50 p-1.5 rounded text-zinc-600 block max-h-16 overflow-y-auto select-all leading-tight">
                             {JSON.stringify(log.localValue, null, 2)}
                           </pre>
                         </div>
-                        <div className="bg-white p-3 rounded-xl border border-gray-100 text-xs">
-                          <span className="block text-[9px] font-black uppercase text-gray-400 mb-1 font-mono">Central Server DB state</span>
-                          <pre className="font-mono text-[10px] bg-gray-50 p-2 rounded text-zinc-600 block max-h-24 overflow-y-auto select-all">
+                        <div className="bg-white p-2 text-[10px] rounded-lg border border-gray-100 text-xs">
+                          <span className="block text-[8px] font-black uppercase text-gray-400 mb-1 font-mono leading-none">Central Server DB state</span>
+                          <pre className="font-mono text-[9px] bg-gray-50 p-1.5 rounded text-zinc-600 block max-h-16 overflow-y-auto select-all leading-tight">
                             {JSON.stringify(log.remoteValue, null, 2)}
                           </pre>
                         </div>
-                        <div className="bg-white p-3 rounded-xl border-orange-200 bg-orange-500/[0.01] text-xs">
-                          <span className="block text-[9px] font-black uppercase text-orange-600 mb-1 font-mono">Automerge Result</span>
-                          <pre className="font-mono text-[10px] bg-orange-500/5 border border-orange-100 p-2 rounded text-orange-900 block max-h-24 overflow-y-auto font-bold select-all">
+                        <div className="bg-white p-2 text-[10px] rounded-lg border border-orange-200 bg-orange-500/[0.01] text-xs">
+                          <span className="block text-[8px] font-black uppercase text-orange-600 mb-1 font-mono leading-none">Automerge Result</span>
+                          <pre className="font-mono text-[9px] bg-orange-500/5 border border-orange-100 p-1.5 rounded text-orange-900 block max-h-16 overflow-y-auto font-bold select-all leading-tight">
                             {JSON.stringify(log.resolvedValue, null, 2)}
                           </pre>
                         </div>
@@ -2679,11 +2675,11 @@ export function AdminPanel() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-[3rem] w-full max-w-xl overflow-hidden shadow-2xl"
+              className="bg-white rounded-xl w-full max-w-xl overflow-hidden shadow-2xl border border-gray-100 flex flex-col max-h-[90vh]"
             >
-              <div className="p-8 border-b flex justify-between items-center">
-                <h3 className="text-xl font-black text-gray-900">{editingItem.id ? 'Edit Dish' : 'New Dish'}</h3>
-                <button onClick={() => { setEditingItem(null); setSaveError(null); }} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
+              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="text-base font-black text-gray-900">{editingItem.id ? t('admin.editDish') : t('admin.newDish')}</h3>
+                <button onClick={() => { setEditingItem(null); setSaveError(null); }} className="text-gray-400 hover:text-gray-600 cursor-pointer"><X size={18} /></button>
               </div>
               
               <AnimatePresence>
@@ -2692,73 +2688,73 @@ export function AdminPanel() {
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="bg-red-50 px-8 py-4 flex items-center gap-3 text-red-600 border-b border-red-100"
+                    className="bg-red-50 px-6 py-3 flex items-center gap-2.5 text-red-600 border-b border-red-100"
                   >
-                    <AlertCircle size={18} />
+                    <AlertCircle size={15} />
                     <span className="text-xs font-bold">{saveError}</span>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto scrollbar-thin">
+              <div className="p-6 space-y-4 flex-1 overflow-y-auto scrollbar-thin">
                 <div>
-                  <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Dish Name</label>
+                  <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.dishName')}</label>
                   <input
                     value={editingItem.name || ''}
                     onChange={e => setEditingItem({ ...editingItem, name: e.target.value })}
-                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                     placeholder="e.g. Nasi Lemak Ayam Goreng"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Price (MYR)</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.priceMyr')}</label>
                     <input
                       type="number"
                       value={editingItem.price || ''}
                       onChange={e => setEditingItem({ ...editingItem, price: parseFloat(e.target.value) })}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                       placeholder="0.00"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Category</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.categories')}</label>
                     <select
                       value={editingItem.categoryId || ''}
                       onChange={e => setEditingItem({ ...editingItem, categoryId: e.target.value })}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                     >
-                      <option value="">Select Category</option>
+                      <option value="">{t('admin.selectCategory')}</option>
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                      <option value="CREATE_NEW" className="text-orange-600 font-bold">+ Create New Category</option>
+                      <option value="CREATE_NEW" className="text-orange-600 font-bold">{t('admin.createNewCategory')}</option>
                     </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Product Type</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.productType')}</label>
                     <select
                       value={editingItem.productType || 'single'}
                       onChange={e => setEditingItem({ ...editingItem, productType: e.target.value as any })}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold mb-2"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs mb-1"
                     >
-                      <option value="single">Single Item</option>
-                      <option value="combo">Combo Meal</option>
-                      <option value="configurable">Configurable</option>
+                      <option value="single">{t('admin.singleItem')}</option>
+                      <option value="combo">{t('admin.comboMeal')}</option>
+                      <option value="configurable">{t('admin.configurable')}</option>
                     </select>
-                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider px-1">
+                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-wider px-1 leading-normal">
                       {editingItem.productType === 'single' ? '• Standalone product, fixed price, no options' :
                        editingItem.productType === 'combo' ? '• Bundle with selection groups (e.g. Set Lunch)' :
                        '• Single product with modifiers (e.g. Sugar/Ice levels)'}
                     </p>
                   </div>
                   <div>
-                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Status</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.status')}</label>
                     <select
                       value={editingItem.status || 'Available'}
                       onChange={e => setEditingItem({ ...editingItem, status: e.target.value as any })}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                     >
                       {['Available', 'Low Stock', 'Out of Stock', 'Paused', 'Hidden', 'Scheduled', 'Seasonal'].map(status => (
                         <option key={status} value={status}>{status}</option>
@@ -2773,47 +2769,47 @@ export function AdminPanel() {
                     animate={{ opacity: 1, height: 'auto' }}
                     className="overflow-hidden"
                   >
-                    <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">New Category Name</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.categoryName')}</label>
                     <input
                       autoFocus
                       value={(editingItem as any).newCategoryName || ''}
                       onChange={e => setEditingItem({ ...editingItem, newCategoryName: e.target.value } as any)}
-                      className="w-full px-5 py-4 rounded-2xl bg-orange-50 border-2 border-orange-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                      className="w-full px-3 py-2 rounded-lg bg-orange-50 border border-orange-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                       placeholder="e.g. Signature Mains"
                     />
                   </motion.div>
                 )}
                 <div>
-                  <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Image URL</label>
+                  <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.imageUrl')}</label>
                   <input
                     value={editingItem.imageUrl || ''}
                     onChange={e => setEditingItem({ ...editingItem, imageUrl: e.target.value })}
-                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                     placeholder="https://images.unsplash.com/..."
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-black uppercase text-gray-400 mb-2 ml-1">Description</label>
+                  <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.description')}</label>
                   <textarea
                     value={editingItem.description || ''}
                     onChange={e => setEditingItem({ ...editingItem, description: e.target.value })}
-                    className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-transparent focus:bg-white focus:border-orange-500 focus:ring-0 font-bold h-24"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs h-20"
                     placeholder="Freshly prepared coconut rice with crispy chicken..."
                   />
                 </div>
 
                 {editingItem.productType !== 'single' && (
-                  <div className={`pt-6 border-t ${editingItem.productType === 'combo' ? 'border-blue-100' : 'border-purple-100'}`}>
-                    <div className="flex justify-between items-center mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-3 rounded-2xl ${editingItem.productType === 'combo' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-                          {editingItem.productType === 'combo' ? <ShoppingBag size={20} /> : <Settings2 size={20} />}
+                  <div className={`pt-4 border-t ${editingItem.productType === 'combo' ? 'border-blue-100' : 'border-purple-100'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${editingItem.productType === 'combo' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                          {editingItem.productType === 'combo' ? <ShoppingBag size={14} /> : <Settings2 size={14} />}
                         </div>
                         <div>
-                          <label className="block text-sm font-black uppercase text-gray-900 leading-none">
+                          <label className="block text-xs font-black uppercase text-gray-900 leading-none">
                             {editingItem.productType === 'combo' ? 'Combo Bundle Engine' : 'Modifier Engine'}
                           </label>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-0.5 font-mono">
                             {editingItem.productType === 'combo' ? 'Define selectable bundle items' : 'Define customization groups (Sugar, Ice, etc.)'}
                           </p>
                         </div>
@@ -2853,27 +2849,27 @@ export function AdminPanel() {
                             });
                           }
                         }}
-                        className={`text-xs font-black px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-sm ${
+                        className={`text-[10px] font-black px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
                           editingItem.productType === 'combo' 
                             ? 'bg-blue-600 text-white hover:bg-blue-700' 
                             : 'bg-purple-600 text-white hover:bg-purple-700'
                         }`}
                       >
-                        <Plus size={16} /> Add {editingItem.productType === 'combo' ? 'Selection' : 'Modifier'} Group
+                        <Plus size={13} /> Add {editingItem.productType === 'combo' ? 'Selection' : 'Modifier'} Group
                       </button>
                     </div>
 
-                    <div className="space-y-8">
+                    <div className="space-y-4">
                       {(editingItem.productType === 'combo' ? editingItem.comboGroups : editingItem.modifierGroups)?.map((group, groupIdx) => (
-                        <div key={groupIdx} className={`p-8 rounded-[2.5rem] border-2 transition-all ${
+                        <div key={groupIdx} className={`p-4 rounded-xl border transition-all ${
                           editingItem.productType === 'combo' 
-                            ? 'bg-blue-50/30 border-blue-100/50 hover:border-blue-200' 
-                            : 'bg-purple-50/30 border-purple-100/50 hover:border-purple-200'
+                            ? 'bg-blue-50/10 border-blue-100 hover:border-blue-200' 
+                            : 'bg-purple-50/10 border-purple-100 hover:border-purple-200'
                         }`}>
-                          <div className="flex gap-4 items-start mb-6">
-                            <div className="flex-1 space-y-4">
-                              <div className="flex items-center gap-3">
-                                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white text-[10px] font-black text-gray-400 border border-gray-100">{groupIdx + 1}</span>
+                          <div className="flex gap-2.5 items-start mb-3">
+                            <div className="flex-1 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded-full bg-white text-[9px] font-black text-gray-400 border border-gray-100">{groupIdx + 1}</span>
                                 <input 
                                   value={group.name}
                                   onChange={e => {
@@ -2887,13 +2883,13 @@ export function AdminPanel() {
                                       setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                     }
                                   }}
-                                  className="flex-1 bg-white px-5 py-3.5 rounded-2xl border-transparent focus:border-orange-500 focus:ring-0 font-black text-sm uppercase tracking-wider shadow-sm"
+                                  className="flex-1 bg-white px-3 py-1.5 rounded-lg border border-gray-150 focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-black text-xs uppercase tracking-wider shadow-sm"
                                   placeholder={editingItem.productType === 'combo' ? "e.g. Choose your Side" : "e.g. Ice Level"}
                                 />
                               </div>
-                              <div className="space-y-4">
-                                <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Display Mode</label>
+                              <div className="space-y-2">
+                                <div className="space-y-1">
+                                  <label className="text-[8px] font-black uppercase text-gray-400 ml-1.5">Display Mode</label>
                                   <VisibilityManager 
                                     value={group.displayBehavior}
                                     onChange={val => {
@@ -2909,9 +2905,9 @@ export function AdminPanel() {
                                     }}
                                   />
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Min Select</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-black uppercase text-gray-400 ml-1.5">Min Select</label>
                                     <input 
                                       type="number"
                                       value={group.minSelect}
@@ -2926,11 +2922,11 @@ export function AdminPanel() {
                                           setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                         }
                                       }}
-                                      className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
+                                      className="w-full bg-white px-2.5 py-1.5 rounded-lg border border-gray-150 text-[10px] font-black shadow-sm"
                                     />
                                   </div>
-                                  <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase text-gray-400 ml-2">Max Select</label>
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-black uppercase text-gray-400 ml-1.5">Max Select</label>
                                     <input 
                                       type="number"
                                       value={group.maxSelect}
@@ -2945,7 +2941,7 @@ export function AdminPanel() {
                                           setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                         }
                                       }}
-                                      className="w-full bg-white px-4 py-2.5 rounded-xl border-transparent text-[10px] font-black shadow-sm"
+                                      className="w-full bg-white px-2.5 py-1.5 rounded-lg border border-gray-150 text-[10px] font-black shadow-sm"
                                     />
                                   </div>
                                 </div>
@@ -2962,25 +2958,25 @@ export function AdminPanel() {
                                   setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                 }
                               }}
-                              className="p-4 text-gray-300 hover:text-red-500 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all mt-1"
+                              className="p-2 cursor-pointer text-gray-300 hover:text-red-500 bg-white border border-gray-150 rounded-lg shadow-sm hover:shadow-md transition-all mt-0.5"
                             >
-                              <Trash2 size={20} />
+                              <Trash2 size={13} />
                             </button>
                           </div>
                           
-                          <div className="space-y-3 pl-6 border-l-2 border-gray-100 ml-3">
-                            <label className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-3 block">
+                          <div className="space-y-2.5 pl-4 border-l-2 border-gray-200/50 ml-2">
+                            <label className="text-[10px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2 block font-sans">
                               {editingItem.productType === 'combo' ? 'Available Items' : 'Modifier Options'}
                             </label>
                             
-                            <div className="grid gap-2">
+                            <div className="grid gap-1.5">
                               {(editingItem.productType === 'combo' ? (group as ComboGroup).items : (group as ModifierGroup).modifiers)?.map((item: any, itemIdx) => (
-                                <div key={itemIdx} className="flex gap-3 items-start bg-white p-4 rounded-3xl shadow-sm border border-gray-50 group/item">
-                                  <div className="w-8 h-8 shrink-0 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-300 group-hover/item:text-orange-500 transition-colors mt-1">
+                                <div key={itemIdx} className="flex gap-2.5 items-start bg-white p-3 rounded-xl shadow-sm border border-gray-150 group/item">
+                                  <div className="w-6 h-6 shrink-0 rounded-md bg-gray-50 flex items-center justify-center text-[9px] font-black text-gray-400 group-hover/item:text-orange-500 transition-colors mt-0.5">
                                     {itemIdx + 1}
                                   </div>
-                                  <div className="flex-1 space-y-2.5">
-                                    <div className="flex gap-2 items-center">
+                                  <div className="flex-1 space-y-2 bg-transparent">
+                                    <div className="flex gap-1.5 items-center">
                                       {editingItem.productType === 'combo' ? (
                                         <select
                                           value={item.childProductId || ''}
@@ -2996,7 +2992,7 @@ export function AdminPanel() {
                                             newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                             setEditingItem({ ...editingItem, comboGroups: newGroups });
                                           }}
-                                          className="flex-1 bg-gray-50 px-4 py-2.5 rounded-xl border-transparent text-[11px] font-black uppercase tracking-wider"
+                                          className="flex-1 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-150 text-[10px] font-black uppercase tracking-wider font-sans focus:outline-none"
                                         >
                                           <option value="">Choose Item...</option>
                                           {menuItems.filter(mi => mi.id !== editingItem.id).map(mi => (
@@ -3016,13 +3012,13 @@ export function AdminPanel() {
                                             newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
                                             setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                           }}
-                                          className="flex-1 bg-white border border-purple-100 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider shadow-sm"
+                                          className="flex-1 bg-white border border-purple-100 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm focus:outline-none"
                                           placeholder="Modifier Name (e.g. 50% Sugar)"
                                         />
                                       )}
 
-                                      <div className="relative w-24 shrink-0">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">+$</span>
+                                      <div className="relative w-20 shrink-0">
+                                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-400 font-sans">+$</span>
                                         <input 
                                           type="number"
                                           value={item.priceDelta}
@@ -3042,7 +3038,7 @@ export function AdminPanel() {
                                               setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                             }
                                           }}
-                                          className="w-full bg-gray-50 pl-8 pr-3 py-2.5 rounded-xl border-transparent text-xs font-mono font-black text-orange-600"
+                                          className="w-full bg-gray-50 border border-gray-150 pl-6 pr-1.5 py-1.5 rounded-lg text-2xs font-mono font-black text-orange-600 focus:outline-none"
                                           placeholder="0.00"
                                         />
                                       </div>
@@ -3062,14 +3058,14 @@ export function AdminPanel() {
                                             setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                           }
                                         }}
-                                        className="p-2.5 text-gray-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all shrink-0"
+                                        className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-all shrink-0 cursor-pointer"
                                       >
-                                        <X size={16} />
+                                        <X size={14} />
                                       </button>
                                     </div>
-                                    <div className="space-y-3 pt-2">
+                                    <div className="space-y-2 pt-1">
                                       <div className="w-full">
-                                        <label className="text-[7px] font-black uppercase text-gray-400 ml-1 mb-1 block">Context Visibility</label>
+                                        <label className="text-[7px] font-black uppercase text-gray-400 mb-0.5 block">Context Visibility</label>
                                         <VisibilityManager
                                           value={item.displayBehavior}
                                           onChange={val => {
@@ -3089,9 +3085,9 @@ export function AdminPanel() {
                                           }}
                                         />
                                       </div>
-                                      <div className="flex gap-3 items-end w-full">
-                                        <div className="shrink-0">
-                                          <label className="text-[7px] font-black uppercase text-gray-400 ml-1 mb-1 block">Importance</label>
+                                      <div className="flex gap-2 items-end w-full">
+                                        <div className="shrink-0 animate-none">
+                                          <label className="text-[7px] font-black uppercase text-gray-400 mb-0.5 block">Importance</label>
                                           <select
                                             value={(item.importance || item.renderImportance) || ''}
                                             onChange={e => {
@@ -3109,7 +3105,7 @@ export function AdminPanel() {
                                                 setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                               }
                                             }}
-                                            className="bg-gray-50 px-2 py-2 rounded-xl border-transparent text-[8px] font-bold uppercase tracking-tighter w-20 shrink-0"
+                                            className="bg-gray-50 border border-gray-150 px-1.5 py-1.5 rounded-lg text-[8px] font-bold uppercase tracking-tighter w-16 shrink-0"
                                             title="Importance"
                                           >
                                             <option value="">Imp.</option>
@@ -3143,10 +3139,10 @@ export function AdminPanel() {
                                               setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                             }
                                           }}
-                                          className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all border-2 flex-1 h-[34px] flex items-center justify-center ${
+                                          className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all border flex-1 h-[28px] flex items-center justify-center cursor-pointer ${
                                             (item.defaultSelected || item.isDefault)
                                               ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
-                                              : 'bg-white text-gray-400 border-gray-100 hover:border-orange-200'
+                                              : 'bg-white text-gray-400 border-gray-150 hover:border-orange-200'
                                           }`}
                                         >
                                           {(item.defaultSelected || item.isDefault) ? 'Default' : 'Set Default'}
@@ -3158,7 +3154,7 @@ export function AdminPanel() {
                               ))}
                             </div>
 
-                            <div className="flex gap-2 mt-3">
+                            <div className="flex gap-2 mt-2 h-[34px]">
                               <button 
                                 type="button"
                                 onClick={() => {
@@ -3193,13 +3189,13 @@ export function AdminPanel() {
                                     setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                   }
                                 }}
-                                className={`flex-1 py-3 rounded-2xl border-2 border-dashed transition-all text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 ${
+                                className={`flex-1 py-1.5 rounded-lg border border-dashed transition-all text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
                                   editingItem.productType === 'combo'
-                                    ? 'border-blue-100 text-blue-400 hover:border-blue-400 hover:text-blue-600 bg-blue-50/20'
-                                    : 'border-purple-100 text-purple-400 hover:border-purple-400 hover:text-purple-600 bg-purple-50/20'
+                                    ? 'border-blue-200 text-blue-500 hover:border-blue-400 hover:text-blue-600 bg-blue-50/10'
+                                    : 'border-purple-200 text-purple-500 hover:border-purple-400 hover:text-purple-600 bg-purple-50/10'
                                 }`}
                               >
-                                <Plus size={16} /> Add {editingItem.productType === 'combo' ? 'Option' : 'Modifier'}
+                                <Plus size={13} /> Add {editingItem.productType === 'combo' ? 'Option' : 'Modifier'}
                               </button>
                               
                               {editingItem.productType === 'configurable' && (
@@ -3224,10 +3220,10 @@ export function AdminPanel() {
                                       setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                     }
                                   }}
-                                  className="h-full px-4 rounded-2xl bg-gray-900 text-white hover:bg-black transition-all shadow-lg flex items-center justify-center"
+                                  className="px-3 rounded-lg bg-gray-900 text-white hover:bg-black transition-all shadow-sm flex items-center justify-center cursor-pointer"
                                   title="Quick add modifiers (e.g. Sugar levels)"
                                 >
-                                  <Zap size={16} />
+                                  <Zap size={13} />
                                 </button>
                               )}
                             </div>
@@ -3238,18 +3234,18 @@ export function AdminPanel() {
                   </div>
                 )}
               </div>
-              <div className="p-8 bg-gray-50 flex gap-3">
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-2">
                 <button
                   onClick={() => setEditingItem(null)}
-                  className="flex-1 px-6 py-4 rounded-2xl font-bold bg-white text-gray-500 hover:bg-gray-100 transition-all border border-gray-200"
+                  className="flex-1 px-4 py-2.5 rounded-lg text-xs font-bold bg-white text-gray-500 hover:bg-gray-100 transition-all border border-gray-200 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveMenuItem}
-                  className="flex-1 px-6 py-4 rounded-2xl font-bold bg-gray-900 text-white hover:bg-black transition-all shadow-xl flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-1.5 rounded-lg text-xs font-bold bg-gray-900 text-white hover:bg-black transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer h-9"
                 >
-                  <Save size={20} /> Save Product
+                  <Save size={14} /> {t('admin.saveProduct')}
                 </button>
               </div>
             </motion.div>

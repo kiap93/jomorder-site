@@ -261,9 +261,10 @@ export function writeStaffRegistry(data: Record<string, StaffSettings>) {
 export function getStaffSettings(userId: string, role: string): StaffSettings {
   const registry = readStaffRegistry();
   if (!registry[userId]) {
-    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
-    const isManager = role === 'manager' || role === 'MANAGER';
-    const isCashier = role === 'cashier' || role === 'CASHIER';
+    const lowerRole = role ? role.toLowerCase() : '';
+    const isOwner = lowerRole === 'owner' || lowerRole === 'admin';
+    const isManager = lowerRole === 'manager';
+    const isCashier = lowerRole === 'cashier';
 
     registry[userId] = {
       status: 'active',

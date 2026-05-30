@@ -82,7 +82,7 @@ authRoutes.post('/api/login', async (c) => {
     const enrichedUser = {
       id: profile.id,
       email: profile.email,
-      role: profile.role || 'admin',
+      role: (profile.role || 'admin').toLowerCase(),
       platform_role: 'superadmin',
       is_platform_admin: true,
       restaurantId: profile.restaurant_id || null,
@@ -119,7 +119,7 @@ authRoutes.post('/api/login', async (c) => {
         const enrichedUser = {
           id: profile.id, 
           email: profile.email, 
-          role: profile.role,
+          role: (profile.role || '').toLowerCase(),
           restaurantId: profile.restaurant_id,
           status: settings.status,
           permissions: settings.permissions
@@ -173,7 +173,7 @@ authRoutes.post('/api/register', async (c) => {
     const token = await signJWT({ 
       id: profile.id, 
       email: profile.email, 
-      role: profile.role,
+      role: (profile.role || '').toLowerCase(),
       restaurantId: profile.restaurant_id 
     }, c.env.JWT_SECRET);
 
@@ -261,7 +261,7 @@ authRoutes.post('/api/google-login', async (c) => {
     userPayload = {
       id: profile.id,
       email: profile.email,
-      role: profile.role || 'admin',
+      role: (profile.role || 'admin').toLowerCase(),
       platform_role: 'superadmin',
       is_platform_admin: true,
       restaurantId: profile.restaurant_id || null,
@@ -332,7 +332,7 @@ authRoutes.post('/api/google-login', async (c) => {
       userPayload = {
         id: profile.id,
         email: profile.email,
-        role: profile.role,
+        role: (profile.role || '').toLowerCase(),
         restaurantId: profile.restaurant_id,
         status: settings.status,
         permissions: settings.permissions
@@ -414,7 +414,7 @@ authRoutes.get('/api/my-workspaces', authenticate, async (c) => {
         if (m.restaurants) {
           workspacesMap.set(m.restaurant_id, {
             ...m.restaurants,
-            role: m.role,
+            role: (m.role || '').toLowerCase(),
             status: m.status,
             permissions: m.custom_permissions || {}
           });
@@ -426,7 +426,7 @@ authRoutes.get('/api/my-workspaces', authenticate, async (c) => {
       if (!workspacesMap.has(profile.restaurant_id)) {
         workspacesMap.set(profile.restaurant_id, {
           ...profile.restaurants,
-          role: profile.role,
+          role: (profile.role || '').toLowerCase(),
           status: profile.status || 'active',
           permissions: profile.custom_permissions || {}
         });
@@ -545,9 +545,10 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
       return c.json({ error: "Your account is suspended in this workspace." }, 403);
     }
 
-    const isOwner = role === 'owner' || role === 'admin' || role === 'OWNER';
-    const isManager = role === 'manager' || role === 'MANAGER';
-    const isCashier = role === 'cashier' || role === 'CASHIER';
+    const userRole = (role || '').toLowerCase();
+    const isOwner = userRole === 'owner' || userRole === 'admin';
+    const isManager = userRole === 'manager';
+    const isCashier = userRole === 'cashier';
 
     const permissions = {
       can_refund: isOwner || isManager,
@@ -561,7 +562,7 @@ authRoutes.post('/api/switch-workspace/:restaurantId', authenticate, async (c) =
     const enriched = {
       id: dbUserId,
       email: user.email,
-      role: role,
+      role: userRole,
       restaurantId: restaurantId,
       status: status,
       permissions: permissions

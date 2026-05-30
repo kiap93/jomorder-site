@@ -17,10 +17,14 @@ export const authenticate: MiddlewareHandler<{ Bindings: Bindings; Variables: Va
   }
 
   try {
-    const payload = await verifyJWT(token, c.env.JWT_SECRET);
+    const payload = await verifyJWT(token, c.env.JWT_SECRET) as any;
     if (!payload) {
       console.warn(`[SECURITY] Authentication failed: JWT verify returned null for token`);
       return c.json({ error: 'Unauthorized: Invalid or expired token' }, 401);
+    }
+
+    if (payload && payload.role && typeof payload.role === 'string') {
+      payload.role = payload.role.toLowerCase();
     }
 
     c.set('user', payload);
@@ -115,9 +119,9 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
       // Safe default mappings for general lookups
       if (!hasPerm) {
         // High level fallback roles checking
-        const isOwnerOrManager = user.role === 'owner' || user.role === 'OWNER' || user.role === 'manager' || user.role === 'MANAGER';
-        const isCashier = user.role === 'cashier' || user.role === 'CASHIER';
-        const isKitchen = user.role === 'kitchen' || user.role === 'KITCHEN';
+        const isOwnerOrManager = user.role === 'owner' || user.role === 'admin' || user.role === 'manager';
+        const isCashier = user.role === 'cashier';
+        const isKitchen = user.role === 'kitchen';
 
         if (capability === 'order:write') {
           hasPerm = true; // Everyone can generate/write orders in a workspace

@@ -223,9 +223,10 @@ function writeStaffRegistry(data) {
 function getStaffSettings(userId, role) {
   const registry = readStaffRegistry();
   if (!registry[userId]) {
-    const isOwner = role === "owner" || role === "admin" || role === "OWNER";
-    const isManager = role === "manager" || role === "MANAGER";
-    const isCashier = role === "cashier" || role === "CASHIER";
+    const lowerRole = role ? role.toLowerCase() : "";
+    const isOwner = lowerRole === "owner" || lowerRole === "admin";
+    const isManager = lowerRole === "manager";
+    const isCashier = lowerRole === "cashier";
     registry[userId] = {
       status: "active",
       permissions: {
@@ -449,10 +450,10 @@ async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
     if (restaurantId) {
       const { data: ruMapping, error: ruError } = await supabase.from("restaurant_users").select("role, status, custom_permissions").eq("user_id", userId).eq("restaurant_id", restaurantId).maybeSingle();
       if (!ruError && ruMapping) {
-        const selectedRole = ruMapping.role || role;
-        const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
-        const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
-        const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+        const selectedRole = (ruMapping.role || role || "").toLowerCase();
+        const isOwner = selectedRole === "owner" || selectedRole === "admin";
+        const isManager = selectedRole === "manager";
+        const isCashier = selectedRole === "cashier";
         const defaultPerms = {
           can_refund: isOwner || isManager,
           can_edit_menu: isOwner || isManager,
@@ -475,10 +476,10 @@ async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
   try {
     const { data: profile, error } = await supabase.from("profiles").select("status, custom_permissions, role").eq("id", userId).maybeSingle();
     if (!error && profile) {
-      const selectedRole = profile.role || role;
-      const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
-      const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
-      const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+      const selectedRole = (profile.role || role || "").toLowerCase();
+      const isOwner = selectedRole === "owner" || selectedRole === "admin";
+      const isManager = selectedRole === "manager";
+      const isCashier = selectedRole === "cashier";
       const defaultPerms = {
         can_refund: isOwner || isManager,
         can_edit_menu: isOwner || isManager,
@@ -499,10 +500,10 @@ async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
   }
   try {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-    const selectedRole = profile?.role || role;
-    const isOwner = selectedRole === "owner" || selectedRole === "admin" || selectedRole === "OWNER";
-    const isManager = selectedRole === "manager" || selectedRole === "MANAGER";
-    const isCashier = selectedRole === "cashier" || selectedRole === "CASHIER";
+    const selectedRole = (profile?.role || role || "").toLowerCase();
+    const isOwner = selectedRole === "owner" || selectedRole === "admin";
+    const isManager = selectedRole === "manager";
+    const isCashier = selectedRole === "cashier";
     return {
       status: "active",
       permissions: {
@@ -515,9 +516,10 @@ async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
     };
   } catch (err) {
     console.error("Critical fallback in getStaffSettingsFromDb, hardcoding defaults:", err);
-    const isOwner = role === "owner" || role === "admin" || role === "OWNER";
-    const isManager = role === "manager" || role === "MANAGER";
-    const isCashier = role === "cashier" || role === "CASHIER";
+    const selectedRole = (role || "").toLowerCase();
+    const isOwner = selectedRole === "owner" || selectedRole === "admin";
+    const isManager = selectedRole === "manager";
+    const isCashier = selectedRole === "cashier";
     return {
       status: "active",
       permissions: {
@@ -638,7 +640,7 @@ function hasPermission(role, permission, customPermissions) {
     }
   }
   const roleMapKey = role.toLowerCase();
-  const permissions = ROLE_PERMISSIONS[roleMapKey] || ROLE_PERMISSIONS[roleMapKey.replace("_", "")] || [];
+  const permissions = ROLE_PERMISSIONS[roleMapKey] || [];
   return permissions.includes(permission);
 }
 

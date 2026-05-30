@@ -3,7 +3,7 @@ import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Buil
 import { useAuthStore } from '../store/useAuthStore';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { useState, useEffect } from 'react';
-import { getApiUrl } from '../lib/api';
+import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { offlineService } from '../lib/offlineService';
 import { hasPermission } from '../lib/rbac';
 import { Organization, WorkspaceRestaurant } from '../types';
@@ -16,9 +16,16 @@ export function Navbar() {
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [restaurants, setRestaurants] = useState<WorkspaceRestaurant[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  const { 
+    organizations, 
+    restaurants, 
+    loading: isWorkspaceStoreLoading, 
+    hasFetched, 
+    fetchWorkspaces 
+  } = useWorkspaceStore();
+
+  const isLoading = isWorkspaceStoreLoading || (!hasFetched && !!token);
 
   // Offline states
   const [isOnline, setIsOnline] = useState(true);
@@ -53,30 +60,10 @@ export function Navbar() {
   );
 
   useEffect(() => {
-    if (!token) {
-      setIsLoading(false);
-      return;
+    if (token) {
+      fetchWorkspaces(token);
     }
-    const fetchOrgs = async () => {
-      try {
-        const res = await fetch(getApiUrl('/api/my-workspaces'), {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setOrganizations(data.organizations || []);
-          setRestaurants(data.restaurants || []);
-        }
-      } catch (err) {
-        console.error("Failed to load organizations in Navbar:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchOrgs();
-  }, [token]);
+  }, [token, fetchWorkspaces]);
 
   if (location.pathname === '/') return null;
 
