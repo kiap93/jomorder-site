@@ -15,6 +15,7 @@ import { Register } from './pages/Register';
 import { OrderTracker } from './pages/OrderTracker';
 import { Checkout } from './pages/Checkout';
 import { PaymentSuccess } from './pages/PaymentSuccess';
+import { BillingPage } from './features/billing/pages/BillingPage';
 
 import { Onboarding } from './pages/Onboarding';
 import { Landing } from './pages/Landing';
@@ -126,6 +127,11 @@ export default function App() {
             <Route path="/restaurant/:restId/admin" element={
               <ProtectedRoute permissions={['settings.manage']}>
                 <AdminPanel />
+              </ProtectedRoute>
+            } />
+            <Route path="/restaurant/:restId/billing" element={
+              <ProtectedRoute permissions={['settings.manage']}>
+                <BillingPage />
               </ProtectedRoute>
             } />
             

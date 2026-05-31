@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X, Globe } from 'lucide-react';
+import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X, Globe, CreditCard } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { useState, useEffect } from 'react';
@@ -172,6 +172,15 @@ export function Navbar() {
                 className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/admin') ? 'bg-zinc-800 text-zinc-100 border border-zinc-700' : 'text-zinc-600 hover:text-zinc-300'}`}
               >
                 <Settings size={20} />
+              </Link>
+            )}
+            {hasPermission(profile?.role, 'settings.manage', profile?.permissions) && (
+              <Link 
+                to={`/restaurant/${restId}/billing`} 
+                title="SaaS Billing"
+                className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/billing') ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' : 'text-zinc-600 hover:text-indigo-500'}`}
+              >
+                <CreditCard size={20} />
               </Link>
             )}
             {isWorkspaceSwitcherVisible && (

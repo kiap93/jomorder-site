@@ -23,12 +23,12 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express13 = __toESM(require("express"), 1);
+var import_express14 = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
 var import_cors = __toESM(require("cors"), 1);
-var import_dotenv2 = __toESM(require("dotenv"), 1);
+var import_dotenv3 = __toESM(require("dotenv"), 1);
 
 // src/server/services/dbService.ts
 var import_supabase_js = require("@supabase/supabase-js");
@@ -470,7 +470,7 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
 }
 
 // src/server/routes/index.ts
-var import_express12 = require("express");
+var import_express13 = require("express");
 
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
@@ -3993,27 +3993,934 @@ router11.get("/kitchen-canonical/:id", async (req, res) => {
 });
 var public_routes_default = router11;
 
-// src/server/routes/index.ts
+// src/billing/routes/billing.routes.ts
+var import_express12 = require("express");
+
+// src/billing/repositories/billingRepository.ts
+var BillingRepository = class _BillingRepository {
+  constructor() {
+    this.supabase = supabaseAdmin;
+  }
+  static {
+    // Plan capabilities registry dictionary
+    this.DEFAULT_PLAN_FEATURES = {
+      starter: {
+        plan_code: "starter",
+        name: "Starter Plan",
+        max_outlets: 1,
+        can_qr_order: true,
+        can_basic_pos: true,
+        can_kitchen_display: false,
+        can_printer_support: false,
+        can_staff_roles: false,
+        can_ai_translation: false,
+        can_advanced_analytics: false,
+        can_franchise_management: false
+      },
+      growth: {
+        plan_code: "growth",
+        name: "Growth Plan",
+        max_outlets: 3,
+        can_qr_order: true,
+        can_basic_pos: true,
+        can_kitchen_display: true,
+        can_printer_support: true,
+        can_staff_roles: true,
+        can_ai_translation: false,
+        can_advanced_analytics: false,
+        can_franchise_management: false
+      },
+      pro: {
+        plan_code: "pro",
+        name: "Pro Enterprise Plan",
+        max_outlets: 9999,
+        can_qr_order: true,
+        can_basic_pos: true,
+        can_kitchen_display: true,
+        can_printer_support: true,
+        can_staff_roles: true,
+        can_ai_translation: true,
+        can_advanced_analytics: true,
+        can_franchise_management: true
+      }
+    };
+  }
+  /**
+   * Retrieves active plan features config
+   */
+  async getPlanFeature(planCode) {
+    try {
+      const { data, error } = await this.supabase.from("plan_features").select("*").eq("plan_code", planCode).maybeSingle();
+      if (data) {
+        return data;
+      }
+    } catch (err) {
+      console.warn("[BillingRepository] Exception querying plan_features table:", err);
+    }
+    return {
+      ..._BillingRepository.DEFAULT_PLAN_FEATURES[planCode],
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Fetch Stripe maps to custom local tenant settings
+   */
+  async getBillingCustomer(tenantId) {
+    try {
+      const { data, error } = await this.supabase.from("billing_customers").select("*").eq("tenant_id", tenantId).maybeSingle();
+      if (data) {
+        return data;
+      }
+    } catch (err) {
+      console.warn("[BillingRepository] Failed to retrieve billing customer from database, checking fallbacks:", err);
+    }
+    const registry = readRegistry();
+    if (registry[tenantId] && registry[tenantId].stripe_customer_id) {
+      return {
+        tenant_id: tenantId,
+        stripe_customer_id: registry[tenantId].stripe_customer_id,
+        email: registry[tenantId].stripe_customer_email || "tenant@jomorder.com",
+        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
+    return null;
+  }
+  /**
+   * Map database customer references
+   */
+  async upsertBillingCustomer(customer) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const payload = {
+      ...customer,
+      updated_at: timestamp
+    };
+    try {
+      const { data, error } = await this.supabase.from("billing_customers").upsert({
+        ...payload,
+        created_at: timestamp
+      }, { onConflict: "tenant_id" }).select().maybeSingle();
+      if (error) throw error;
+      if (data) return data;
+    } catch (err) {
+      console.warn("[BillingRepository] Failed writing billing customer to database, updating local json registry:", err);
+    }
+    const registry = readRegistry();
+    if (!registry[customer.tenant_id]) {
+      registry[customer.tenant_id] = {
+        subscription_plan: "free",
+        status: "active",
+        features: { duitnow_payment: true, partial_payment: false, kitchen_display: true, multi_language_menu: true, socket_realtime: true },
+        billing_history: [],
+        api_calls_count: 50
+      };
+    }
+    registry[customer.tenant_id].stripe_customer_id = customer.stripe_customer_id;
+    registry[customer.tenant_id].stripe_customer_email = customer.email;
+    writeRegistry(registry);
+    return {
+      ...payload,
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+  }
+  /**
+   * Safe fetch subscription object
+   */
+  async getSubscription(tenantId) {
+    try {
+      const { data, error } = await this.supabase.from("subscriptions").select("*").eq("tenant_id", tenantId).maybeSingle();
+      if (data) {
+        return data;
+      }
+    } catch (err) {
+      console.warn("[BillingRepository] Failed querying subscription table, searching fallbacks:", err);
+    }
+    const registry = readRegistry();
+    const billingMeta = registry[tenantId];
+    if (billingMeta && billingMeta.subscription_details) {
+      return billingMeta.subscription_details;
+    }
+    return null;
+  }
+  /**
+   * Write core subscription changes & force-sync capability rules
+   */
+  async upsertSubscription(sub) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const recordId = sub.id || Math.random().toString(36).substr(2, 9);
+    const payload = {
+      ...sub,
+      id: recordId,
+      updated_at: timestamp
+    };
+    try {
+      const { data, error } = await this.supabase.from("subscriptions").upsert({
+        ...payload,
+        created_at: timestamp
+      }, { onConflict: "tenant_id" }).select().maybeSingle();
+      if (error) console.warn("[Supabase Subscription Sync Error]", error.message);
+    } catch (err) {
+      console.warn("[BillingRepository] DB Upsert error:", err);
+    }
+    await this.syncCapabilitiesAndRegistry(sub.tenant_id, sub.plan_code, sub.status);
+    return {
+      ...payload,
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+  }
+  /**
+   * Private helper translating Stripe Sub status to basic capabilities plan attributes
+   */
+  async syncCapabilitiesAndRegistry(tenantId, planCode, status) {
+    const isSuspended = status === "unpaid" || status === "canceled";
+    const activePlanId = planCode === "pro" ? "enterprise" : planCode === "growth" ? "pro" : "free";
+    const features = {
+      duitnow_payment: true,
+      partial_payment: planCode !== "starter",
+      kitchen_display: planCode !== "starter",
+      multi_language_menu: true,
+      socket_realtime: true
+    };
+    const maxOutlets = planCode === "pro" ? 9999 : planCode === "growth" ? 3 : 1;
+    try {
+      await saveOrganizationSettings(this.supabase, tenantId, {
+        subscription_plan: activePlanId,
+        status: isSuspended ? "suspended" : "active",
+        multi_outlet_enabled: planCode !== "starter",
+        max_outlets: maxOutlets,
+        franchise_mode: planCode === "pro",
+        features
+      });
+    } catch (err) {
+      console.warn("[BillingRepository] Capabilities metadata sync error:", err);
+    }
+    const registry = readRegistry();
+    if (!registry[tenantId]) {
+      registry[tenantId] = {
+        subscription_plan: activePlanId,
+        status: isSuspended ? "suspended" : "active",
+        features,
+        billing_history: [],
+        api_calls_count: 10
+      };
+    } else {
+      registry[tenantId].subscription_plan = activePlanId;
+      registry[tenantId].status = isSuspended ? "suspended" : "active";
+      registry[tenantId].max_outlets = maxOutlets;
+      registry[tenantId].multi_outlet_enabled = planCode !== "starter";
+      registry[tenantId].franchise_mode = planCode === "pro";
+      registry[tenantId].features = features;
+    }
+    const subDetails = {
+      id: Math.random().toString(36).substr(2, 9),
+      tenant_id: tenantId,
+      stripe_customer_id: "cus_fallback",
+      stripe_subscription_id: "sub_fallback",
+      stripe_price_id: "price_fallback",
+      plan_code: planCode,
+      status,
+      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_end: (/* @__PURE__ */ new Date()).toISOString(),
+      trial_end: null,
+      cancel_at_period_end: false,
+      created_at: (/* @__PURE__ */ new Date()).toISOString(),
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    registry[tenantId].subscription_details = subDetails;
+    writeRegistry(registry);
+  }
+  /**
+   * Log billing event occurrences idempotently
+   */
+  async logEvent(event) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    try {
+      await this.supabase.from("subscription_events").insert({
+        ...event,
+        created_at: timestamp
+      });
+    } catch (err) {
+      console.warn("[BillingRepository] Failed logging SQL subscription event", err);
+    }
+  }
+  /**
+   * Track current usage limits and values
+   */
+  async getUsage(tenantId, metricCode) {
+    try {
+      const { data, error } = await this.supabase.from("usage_tracking").select("*").eq("tenant_id", tenantId).eq("metric_code", metricCode).maybeSingle();
+      if (data) return data;
+    } catch (err) {
+      console.warn("[BillingRepository] Usage check SQL failure", err);
+    }
+    if (metricCode === "outlets_count") {
+      try {
+        const { count, error } = await this.supabase.from("restaurants").select("id", { count: "exact", head: true }).eq("organization_id", tenantId);
+        return {
+          id: "usage_outlets",
+          tenant_id: tenantId,
+          metric_code: "outlets_count",
+          current_usage: count || 0,
+          max_limit: null,
+          reset_at: null,
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      } catch (_) {
+      }
+    }
+    return null;
+  }
+  /**
+   * Increment metric logs
+   */
+  async incrementUsage(tenantId, metricCode, incAmount = 1) {
+    try {
+      const current = await this.getUsage(tenantId, metricCode);
+      const newUsage = (current?.current_usage || 0) + incAmount;
+      const maxLimit = current?.max_limit || null;
+      await this.supabase.from("usage_tracking").upsert({
+        tenant_id: tenantId,
+        metric_code: metricCode,
+        current_usage: newUsage,
+        max_limit: maxLimit,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }, { onConflict: "tenant_id,metric_code" });
+    } catch (err) {
+      console.warn("[BillingRepository] Increment usage tracking error", err);
+    }
+  }
+};
+
+// src/billing/services/stripe.ts
+var import_stripe = __toESM(require("stripe"), 1);
+var import_dotenv2 = __toESM(require("dotenv"), 1);
+import_dotenv2.default.config();
+var stripeInstance = null;
+function getStripeClient() {
+  if (!stripeInstance) {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) {
+      console.warn("[STRIPE WARNING] STRIPE_SECRET_KEY environment variable is not defined. Initializing with mock dummy string.");
+      stripeInstance = new import_stripe.default("sk_test_dummy_key_jomorder_secure_stripes", {
+        apiVersion: "2025-02-11.accredited"
+      });
+    } else {
+      stripeInstance = new import_stripe.default(secretKey, {
+        apiVersion: "2025-02-11.accredited"
+      });
+    }
+  }
+  return stripeInstance;
+}
+var PLAN_PRICES = {
+  starter: {
+    priceId: process.env.STRIPE_PRICE_STARTER || "price_JomOrder_Starter_RM18",
+    priceAmount: 18,
+    currency: "MYR",
+    planName: "Starter Plan"
+  },
+  growth: {
+    priceId: process.env.STRIPE_PRICE_GROWTH || "price_JomOrder_Growth_RM38",
+    priceAmount: 38,
+    currency: "MYR",
+    planName: "Growth Plan"
+  },
+  pro: {
+    priceId: process.env.STRIPE_PRICE_PRO || "price_JomOrder_Pro_RM98",
+    priceAmount: 98,
+    currency: "MYR",
+    planName: "Pro Enterprise Plan"
+  }
+};
+function getPlanCodeFromPriceId(priceId) {
+  if (priceId === PLAN_PRICES.pro.priceId) return "pro";
+  if (priceId === PLAN_PRICES.growth.priceId) return "growth";
+  return "starter";
+}
+
+// src/billing/services/billingService.ts
+var BillingService = class {
+  constructor() {
+    this.repo = new BillingRepository();
+  }
+  /**
+   * Safe retrieval of active subscription and features overview for a tenant
+   */
+  async getTenantBillingOverview(tenantId) {
+    let subscription = await this.repo.getSubscription(tenantId);
+    if (!subscription) {
+      subscription = await this.bootstrapTrial(tenantId);
+    }
+    const plan = await this.repo.getPlanFeature(subscription.plan_code);
+    const outletsUsage = await this.repo.getUsage(tenantId, "outlets_count");
+    const translationUsage = await this.repo.getUsage(tenantId, "translation_characters");
+    const usageLimits = [
+      outletsUsage || {
+        id: "usage_outlets",
+        tenant_id: tenantId,
+        metric_code: "outlets_count",
+        current_usage: 0,
+        max_limit: plan.max_outlets,
+        reset_at: null,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      translationUsage || {
+        id: "usage_translation",
+        tenant_id: tenantId,
+        metric_code: "translation_characters",
+        current_usage: 0,
+        max_limit: plan.can_ai_translation ? 5e4 : 0,
+        reset_at: null,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    ];
+    let trialDaysLeft = 0;
+    if (subscription.status === "trialing" && subscription.trial_end) {
+      const diffTime = new Date(subscription.trial_end).getTime() - Date.now();
+      trialDaysLeft = Math.ceil(diffTime / (1e3 * 60 * 60 * 24));
+      if (trialDaysLeft < 0) trialDaysLeft = 0;
+    }
+    return {
+      subscription,
+      plan,
+      usage: usageLimits,
+      trialDaysLeft
+    };
+  }
+  /**
+   * Bootstrap immediate 14-day free trial on signup if missing
+   */
+  async bootstrapTrial(tenantId) {
+    const trialDays = 14;
+    const trialEnd = /* @__PURE__ */ new Date();
+    trialEnd.setDate(trialEnd.getDate() + trialDays);
+    let email = "business@jomorder.com";
+    try {
+      const { data } = await supabaseAdmin.from("organizations").select("name").eq("id", tenantId).maybeSingle();
+      if (data?.name) {
+        email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+      }
+    } catch (_) {
+    }
+    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}`);
+    return await this.repo.upsertSubscription({
+      tenant_id: tenantId,
+      stripe_customer_id: "cus_mock_" + Math.random().toString(36).substr(2, 6),
+      stripe_subscription_id: null,
+      stripe_price_id: null,
+      plan_code: "starter",
+      status: "trialing",
+      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_end: trialEnd.toISOString(),
+      trial_end: trialEnd.toISOString(),
+      cancel_at_period_end: false
+    });
+  }
+  /**
+   * Generate Checkout URL for the user
+   */
+  async createCheckoutSession(tenantId, planCode, email, returnUrl) {
+    const stripe = getStripeClient();
+    const config = PLAN_PRICES[planCode];
+    if (!config) {
+      throw new Error(`Invalid plan code specified: ${planCode}`);
+    }
+    let customerId = "";
+    const customerMap = await this.repo.getBillingCustomer(tenantId);
+    if (customerMap) {
+      customerId = customerMap.stripe_customer_id;
+    } else {
+      try {
+        const customer = await stripe.customers.create({
+          email,
+          metadata: { tenant_id: tenantId }
+        });
+        customerId = customer.id;
+        await this.repo.upsertBillingCustomer({
+          tenant_id: tenantId,
+          stripe_customer_id: customerId,
+          email
+        });
+      } catch (err) {
+        console.warn("[BillingService] Stripe customer creation fallback:", err);
+        customerId = "cus_mock_" + Math.random().toString(36).substr(2, 6);
+      }
+    }
+    const existingSub = await this.repo.getSubscription(tenantId);
+    const hasConsumedTrialBefore = existingSub && existingSub.stripe_subscription_id !== null;
+    const subscriptionData = {
+      metadata: { tenant_id: tenantId, plan_code: planCode }
+    };
+    if (!hasConsumedTrialBefore) {
+      subscriptionData.trial_period_days = 14;
+    }
+    try {
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId.startsWith("cus_mock") ? void 0 : customerId,
+        customer_email: customerId.startsWith("cus_mock") ? email : void 0,
+        payment_method_types: ["card"],
+        mode: "subscription",
+        line_items: [
+          {
+            price: config.priceId.startsWith("price_JomOrder") ? void 0 : config.priceId,
+            price_data: config.priceId.startsWith("price_JomOrder") ? {
+              currency: "myr",
+              product_data: {
+                name: `JomOrder ${config.planName}`,
+                description: `Monthly recurring subscription for ${config.planName}`
+              },
+              unit_amount: Math.round(config.priceAmount * 100),
+              recurring: { interval: "month" }
+            } : void 0,
+            quantity: 1
+          }
+        ],
+        subscription_data: subscriptionData,
+        success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&billing_status=success`,
+        cancel_url: `${returnUrl}?billing_status=cancelled`,
+        metadata: { tenant_id: tenantId, plan_code: planCode }
+      });
+      return { url: session.url };
+    } catch (err) {
+      console.error("[BillingService] Failed to create checkout session on Stripe:", err.message);
+      const mockCheckoutUrl = `${returnUrl}?session_id=cs_test_${Math.random().toString(36).substr(2, 9)}&simulate_plan=${planCode}`;
+      return { url: mockCheckoutUrl };
+    }
+  }
+  /**
+   * Billing Custom Portal Session link creator
+   */
+  async createPortalSession(tenantId, returnUrl) {
+    const stripe = getStripeClient();
+    const customerMap = await this.repo.getBillingCustomer(tenantId);
+    if (!customerMap) {
+      throw new Error("No subscription or customer details mapped to this tenant in Stripe.");
+    }
+    try {
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerMap.stripe_customer_id,
+        return_url: returnUrl
+      });
+      return { url: session.url };
+    } catch (err) {
+      console.error("[BillingService] Stripe Client Portal Exception:", err.message);
+      return { url: `${returnUrl}?portal_status=simulated` };
+    }
+  }
+  /**
+   * Safe immediate cancel
+   */
+  async cancelSubscription(tenantId) {
+    const subscription = await this.repo.getSubscription(tenantId);
+    if (!subscription) {
+      throw new Error("No subscription found for this tenant.");
+    }
+    const stripe = getStripeClient();
+    if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {
+      try {
+        await stripe.subscriptions.update(subscription.stripe_subscription_id, {
+          cancel_at_period_end: true
+        });
+      } catch (err) {
+        console.warn("[BillingService] Cancel Stripe error, falling back locally:", err);
+      }
+    }
+    const { id, created_at, updated_at, ...subscriptionData } = subscription;
+    return await this.repo.upsertSubscription({
+      ...subscriptionData,
+      cancel_at_period_end: true,
+      status: "canceled"
+    });
+  }
+  /**
+   * Apply proration upgrade
+   */
+  async upgradeSubscription(tenantId, targetPlan) {
+    const subscription = await this.repo.getSubscription(tenantId);
+    if (!subscription) {
+      throw new Error("No subscription found to upgrade.");
+    }
+    const stripe = getStripeClient();
+    const newPriceConfig = PLAN_PRICES[targetPlan];
+    if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+        const itemSecId = stripeSub.items.data[0].id;
+        await stripe.subscriptions.update(subscription.stripe_subscription_id, {
+          proration_behavior: "always_invoice",
+          items: [{
+            id: itemSecId,
+            price: newPriceConfig.priceId
+          }]
+        });
+      } catch (err) {
+        console.warn("[BillingService] Upgrade Stripe API error, updating locally:", err);
+      }
+    }
+    const { id: subId, created_at: subCreatedAt, updated_at: subUpdatedAt, ...subData } = subscription;
+    return await this.repo.upsertSubscription({
+      ...subData,
+      plan_code: targetPlan,
+      status: "active",
+      stripe_price_id: newPriceConfig.priceId
+    });
+  }
+};
+
+// src/billing/routes/billing.routes.ts
 var router12 = (0, import_express12.Router)();
-router12.use("/api", auth_routes_default);
-router12.use("/api", translation_routes_default);
-router12.use("/api", menu_routes_default);
-router12.use("/api", staff_routes_default);
-router12.use("/api", workspace_routes_default);
-router12.use("/api/superadmin", superadmin_routes_default);
-router12.use("/api", tables_routes_default);
-router12.use("/api", orders_routes_default);
-router12.use("/api", sessions_routes_default);
-router12.use("/api", payments_routes_default);
-router12.use("/api/public", public_routes_default);
-var routes_default = router12;
+var service = new BillingService();
+var repo = new BillingRepository();
+router12.get("/billing/overview", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id || req.query.restId;
+  if (!tenantId) {
+    return res.status(400).json({ error: "Missing active restaurant workspace coordinates in context." });
+  }
+  try {
+    const overview = await service.getTenantBillingOverview(tenantId);
+    res.json(overview);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load billing metrics dashboard.", details: err.message });
+  }
+});
+router12.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+  const { plan } = req.body;
+  if (!tenantId) {
+    return res.status(400).json({ error: "No active restaurant workspace context identified." });
+  }
+  if (!plan) {
+    return res.status(400).json({ error: "You must specify a target subscription plan." });
+  }
+  const email = user.email || "client@jomorder.com";
+  const host = req.headers.host || "localhost:3000";
+  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  try {
+    const result = await service.createCheckoutSession(tenantId, plan, email, returnUrl);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Stripe connection failed.", details: err.message });
+  }
+});
+router12.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+  if (!tenantId) {
+    return res.status(400).json({ error: "No active restaurant workspace." });
+  }
+  const host = req.headers.host || "localhost:3000";
+  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  try {
+    const result = await service.createPortalSession(tenantId, returnUrl);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Failed creating Stripe Billing Portal redirect session.", details: err.message });
+  }
+});
+router12.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+  const { plan } = req.body;
+  if (!tenantId) return res.status(400).json({ error: "Restaurant context missing." });
+  if (!plan) return res.status(400).json({ error: "Target plan required." });
+  try {
+    const updated = await service.upgradeSubscription(tenantId, plan);
+    res.json({ success: true, subscription: updated });
+  } catch (err) {
+    res.status(500).json({ error: "Modification of subscription failed.", details: err.message });
+  }
+});
+router12.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+  if (!tenantId) return res.status(400).json({ error: "Workspace context ID missing." });
+  try {
+    const cancelled = await service.cancelSubscription(tenantId);
+    res.json({ success: true, subscription: cancelled });
+  } catch (err) {
+    res.status(500).json({ error: "Cancellation transaction aborted.", details: err.message });
+  }
+});
+router12.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
+  const user = req.user;
+  const tenantId = user.restaurantId || user.restaurant_id;
+  const { plan } = req.body;
+  if (!tenantId) {
+    return res.status(400).json({ error: "Workspace context missing." });
+  }
+  const targetPlan = plan || "starter";
+  try {
+    const trialEnd = new Date(Date.now() + 10 * 24 * 60 * 60 * 1e3);
+    const result = await repo.upsertSubscription({
+      tenant_id: tenantId,
+      stripe_customer_id: "cus_simulated_preview",
+      stripe_subscription_id: "sub_simulated_preview_" + Math.random().toString(36).substr(2, 6),
+      stripe_price_id: "price_simulated_" + targetPlan,
+      plan_code: targetPlan,
+      status: "active",
+      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString(),
+      trial_end: null,
+      cancel_at_period_end: false
+    });
+    res.json({ success: true, subscription: result });
+  } catch (err) {
+    res.status(500).json({ error: "Sandbox synchronization exception", details: err.message });
+  }
+});
+var billing_routes_default = router12;
+
+// src/server/routes/index.ts
+var router13 = (0, import_express13.Router)();
+router13.use("/api", auth_routes_default);
+router13.use("/api", translation_routes_default);
+router13.use("/api", menu_routes_default);
+router13.use("/api", staff_routes_default);
+router13.use("/api", workspace_routes_default);
+router13.use("/api", billing_routes_default);
+router13.use("/api/superadmin", superadmin_routes_default);
+router13.use("/api", tables_routes_default);
+router13.use("/api", orders_routes_default);
+router13.use("/api", sessions_routes_default);
+router13.use("/api", payments_routes_default);
+router13.use("/api/public", public_routes_default);
+var routes_default = router13;
+
+// src/billing/webhooks/stripeWebhook.ts
+var repo2 = new BillingRepository();
+async function handleStripeWebhook(req, res) {
+  const stripe = getStripeClient();
+  const signature = req.headers["stripe-signature"];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event;
+  if (webhookSecret && signature) {
+    try {
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        throw new Error("Raw body stream missing. Configure express.json verify context first.");
+      }
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    } catch (err) {
+      console.error(`[WEBHOOK SIGNATURE VERIFICATION FAILED]: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+  } else {
+    console.warn("[WEBHOOK SECURITY WARNING] Webhook secret not defined or signature absent. Processing mock payload body directly.");
+    event = req.body;
+  }
+  const stripeEventId = event.id;
+  const eventType = event.type;
+  console.log(`[STRIPE WEBHOOK RECEIVED] Event ID: ${stripeEventId} | Type: ${eventType}`);
+  try {
+    switch (eventType) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        const tenantId = session.metadata?.tenant_id || session.client_reference_id;
+        const targetPlan = session.metadata?.plan_code || "starter";
+        const customerId = session.customer;
+        const subscriptionId = session.subscription;
+        if (tenantId) {
+          await repo2.logEvent({
+            tenant_id: tenantId,
+            event_type: eventType,
+            stripe_event_id: stripeEventId,
+            payload: session
+          });
+          await repo2.upsertBillingCustomer({
+            tenant_id: tenantId,
+            stripe_customer_id: customerId,
+            email: session.customer_details?.email || "billing@jomorder.com"
+          });
+          let trialEnd = null;
+          let currentPeriodStart = (/* @__PURE__ */ new Date()).toISOString();
+          let currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString();
+          let stripePriceId = null;
+          if (subscriptionId && !subscriptionId.startsWith("sub_mock")) {
+            try {
+              const subObj = await stripe.subscriptions.retrieve(subscriptionId);
+              trialEnd = subObj.trial_end ? new Date(subObj.trial_end * 1e3).toISOString() : null;
+              currentPeriodStart = new Date(subObj.current_period_start * 1e3).toISOString();
+              currentPeriodEnd = new Date(subObj.current_period_end * 1e3).toISOString();
+              stripePriceId = subObj.items.data[0].price.id;
+            } catch (_) {
+            }
+          }
+          await repo2.upsertSubscription({
+            tenant_id: tenantId,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscriptionId,
+            stripe_price_id: stripePriceId,
+            plan_code: targetPlan,
+            status: trialEnd ? "trialing" : "active",
+            current_period_start: currentPeriodStart,
+            current_period_end: currentPeriodEnd,
+            trial_end: trialEnd,
+            cancel_at_period_end: false
+          });
+        }
+        break;
+      }
+      case "customer.subscription.created":
+      case "customer.subscription.updated": {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        let tenantId = subscription.metadata?.tenant_id;
+        if (!tenantId) {
+          try {
+            const customerObj = await stripe.customers.retrieve(customerId);
+            tenantId = customerObj.metadata?.tenant_id;
+          } catch (_) {
+          }
+        }
+        if (tenantId) {
+          await repo2.logEvent({
+            tenant_id: tenantId,
+            event_type: eventType,
+            stripe_event_id: stripeEventId,
+            payload: subscription
+          });
+          const priceId = subscription.items.data[0].price.id;
+          const planCode = getPlanCodeFromPriceId(priceId);
+          const trialEnd = subscription.trial_end ? new Date(subscription.trial_end * 1e3).toISOString() : null;
+          const status = subscription.status;
+          await repo2.upsertSubscription({
+            tenant_id: tenantId,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            stripe_price_id: priceId,
+            plan_code: planCode,
+            status: status === "trialing" ? "trialing" : status === "active" ? "active" : status,
+            current_period_start: new Date(subscription.current_period_start * 1e3).toISOString(),
+            current_period_end: new Date(subscription.current_period_end * 1e3).toISOString(),
+            trial_end: trialEnd,
+            cancel_at_period_end: subscription.cancel_at_period_end || false
+          });
+        }
+        break;
+      }
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        let tenantId = subscription.metadata?.tenant_id;
+        if (!tenantId) {
+          try {
+            const customerObj = await stripe.customers.retrieve(customerId);
+            tenantId = customerObj.metadata?.tenant_id;
+          } catch (_) {
+          }
+        }
+        if (tenantId) {
+          await repo2.logEvent({
+            tenant_id: tenantId,
+            event_type: eventType,
+            stripe_event_id: stripeEventId,
+            payload: subscription
+          });
+          await repo2.upsertSubscription({
+            tenant_id: tenantId,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            stripe_price_id: subscription.items.data[0].price.id,
+            plan_code: "starter",
+            status: "canceled",
+            current_period_start: new Date(subscription.current_period_start * 1e3).toISOString(),
+            current_period_end: new Date(subscription.current_period_end * 1e3).toISOString(),
+            trial_end: null,
+            cancel_at_period_end: true
+          });
+        }
+        break;
+      }
+      case "invoice.paid": {
+        const invoice = event.data.object;
+        const subscriptionId = invoice.subscription;
+        const customerId = invoice.customer;
+        if (subscriptionId) {
+          let tenantId = invoice.subscription_details?.metadata?.tenant_id;
+          if (!tenantId) {
+            try {
+              const subObj = await stripe.subscriptions.retrieve(subscriptionId);
+              tenantId = subObj.metadata?.tenant_id;
+            } catch (_) {
+            }
+          }
+          if (tenantId) {
+            await repo2.logEvent({
+              tenant_id: tenantId,
+              event_type: eventType,
+              stripe_event_id: stripeEventId,
+              payload: invoice
+            });
+            const currentSub = await repo2.getSubscription(tenantId);
+            if (currentSub) {
+              await repo2.upsertSubscription({
+                ...currentSub,
+                status: "active",
+                current_period_start: new Date(invoice.period_start * 1e3).toISOString(),
+                current_period_end: new Date(invoice.period_end * 1e3).toISOString()
+              });
+            }
+          }
+        }
+        break;
+      }
+      case "invoice.payment_failed": {
+        const invoice = event.data.object;
+        const subscriptionId = invoice.subscription;
+        if (subscriptionId) {
+          let tenantId = invoice.subscription_details?.metadata?.tenant_id;
+          if (!tenantId) {
+            try {
+              const subObj = await stripe.subscriptions.retrieve(subscriptionId);
+              tenantId = subObj.metadata?.tenant_id;
+            } catch (_) {
+            }
+          }
+          if (tenantId) {
+            await repo2.logEvent({
+              tenant_id: tenantId,
+              event_type: eventType,
+              stripe_event_id: stripeEventId,
+              payload: invoice
+            });
+            const currentSub = await repo2.getSubscription(tenantId);
+            if (currentSub) {
+              await repo2.upsertSubscription({
+                ...currentSub,
+                status: "past_due"
+              });
+            }
+          }
+        }
+        break;
+      }
+      default:
+        console.log(`[STRIPE WEBHOOK] Unhandled event category: ${eventType}`);
+    }
+    res.status(200).json({ received: true, id: stripeEventId });
+  } catch (err) {
+    console.error(`[WEBHOOK PROCESSING EXCEPTION]: ${err.message}`);
+    res.status(500).json({ error: "Webhook processing error", details: err.message });
+  }
+}
 
 // server.ts
-import_dotenv2.default.config();
-var app = (0, import_express13.default)();
+import_dotenv3.default.config();
+var app = (0, import_express14.default)();
 var PORT = 3e3;
 app.use((0, import_cors.default)());
-app.use(import_express13.default.json());
+app.post("/api/billing/webhook", import_express14.default.raw({ type: "application/json" }), handleStripeWebhook);
+app.use(import_express14.default.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use((0, import_cookie_parser.default)());
 app.use((req, res, next) => {
   console.log(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${req.method} ${req.path}`);
@@ -4098,7 +5005,7 @@ async function start() {
     app.use(vite.middlewares);
   } else {
     const distPath = import_path3.default.join(process.cwd(), "dist");
-    app.use(import_express13.default.static(distPath));
+    app.use(import_express14.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
     console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);

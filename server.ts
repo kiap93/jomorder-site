@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import { supabaseAdmin } from "./src/server/services/dbService";
 import { translateTextWithGemini } from "./src/server/services/translationService";
 import apiRouter from "./src/server/routes";
+import { handleStripeWebhook } from "./src/billing/webhooks/stripeWebhook";
 
 dotenv.config();
 
@@ -15,7 +16,15 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json());
+
+// Stripe Webhook endpoint mounted BEFORE standard json parser to preserve raw payload signature
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
+
+app.use(express.json({
+  verify: (req: any, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(cookieParser());
 
 // Simple logging middleware

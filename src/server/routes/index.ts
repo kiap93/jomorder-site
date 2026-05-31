@@ -10,6 +10,7 @@ import ordersRoutes from "./orders.routes";
 import sessionsRoutes from "./sessions.routes";
 import paymentsRoutes from "./payments.routes";
 import publicRoutes from "./public.routes";
+import billingRoutes from "../../billing/routes/billing.routes";
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.use("/api", translationRoutes);
 router.use("/api", menuRoutes);
 router.use("/api", staffRoutes);
 router.use("/api", workspaceRoutes);
+router.use("/api", billingRoutes);
 router.use("/api/superadmin", superadminRoutes);
 router.use("/api", tablesRoutes);
 router.use("/api", ordersRoutes);
