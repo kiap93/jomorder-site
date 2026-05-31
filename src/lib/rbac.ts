@@ -14,6 +14,7 @@ export type UserRole =
 
 export type PermissionCode =
   | 'orders.view'
+  | 'kitchen.view'
   | 'orders.prepare'
   | 'orders.bump'
   | 'orders.ready'
@@ -56,19 +57,19 @@ export interface WorkspaceMembership {
 // Client-side static definitions mapping roles to absolute default permission codes
 export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
   super_admin: [
-    'orders.view', 'orders.prepare', 'orders.bump', 'orders.ready',
+    'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],
   superadmin: [
-    'orders.view', 'orders.prepare', 'orders.bump', 'orders.ready',
+    'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],
   owner: [
-    'orders.view', 'orders.prepare', 'orders.bump', 'orders.ready',
+    'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],
   manager: [
-    'orders.view', 'orders.prepare', 'orders.bump', 'orders.ready',
+    'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],
   cashier: [
@@ -78,7 +79,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     'orders.view', 'orders.bump', 'orders.ready'
   ],
   kitchen: [
-    'orders.view', 'orders.prepare', 'orders.bump', 'orders.ready'
+    'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready'
   ],
   runner: [
     'orders.view', 'orders.bump', 'orders.ready'

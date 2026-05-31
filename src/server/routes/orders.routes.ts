@@ -1,13 +1,13 @@
 import { Router, Request } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, requireAnyPermission } from "../middleware/authMiddleware";
 import { logToAudit } from "../services/auditService";
 import { hasPermission } from "../../lib/rbac";
 
 const router = Router();
 
 // Get orders
-router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('orders.view'), async (req, res) => {
+router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit as string) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -27,7 +27,7 @@ router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolatio
 });
 
 // Update order
-router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('orders.view'), async (req, res) => {
+router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
   const caller = (req as Request & { user?: any }).user;
   const orderId = req.params.id;
 

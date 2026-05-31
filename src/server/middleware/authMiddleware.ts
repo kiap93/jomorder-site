@@ -337,3 +337,56 @@ export const requirePermissions = (...requiredPermissions: PermissionCode[]) => 
   };
 };
 
+/**
+ * 6. Or-Based Permission Protection Middleware
+ * Restricts access to API routes by matching user credentials and dynamic JSON overrides
+ * against any option from target permission codes, respecting restaurant/tenant isolation boundaries.
+ */
+export const requireAnyPermission = (...allowedPermissions: PermissionCode[]) => {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized: User session details not found." });
+    }
+
+    // Platform Super Admins hold absolute bypass
+    if (user.platform_role === 'superadmin' || user.is_platform_admin === true) {
+      next();
+      return;
+    }
+
+    try {
+      const restId = req.params.restId || req.params.restaurantId || req.query.restaurantId || req.query.restaurant_id || req.query.restId || (req.body && (req.body.restaurantId || req.body.restaurant_id || req.body.restId)) || user.restaurantId;
+
+      if (!restId) {
+        return res.status(400).json({ error: "Bad Request: Missing restaurant identifier mapping in context." });
+      }
+
+      const settings = await getStaffSettingsFromDb(supabaseAdmin, user.id, user.role, restId);
+      
+      if (settings.status === 'suspended') {
+        return res.status(403).json({ error: "Forbidden: Your staff account has been suspended." });
+      }
+
+      const customPermissions = settings.permissions || {};
+      const userRole = user.role;
+
+      const isAuthorized = allowedPermissions.some(perm => 
+        hasPermission(userRole, perm, customPermissions)
+      );
+
+      if (!isAuthorized) {
+        console.warn(`[API ACCESS DENIED] User: ${user.email} | Role: ${userRole} | Lacks any of: ${allowedPermissions.join(', ')} on Tenant: ${restId}`);
+        return res.status(403).json({
+          error: `Forbidden: Lacking any of required capabilities: ${allowedPermissions.join(', ')}`
+        });
+      }
+
+      next();
+    } catch (err: any) {
+      console.error(`[API RBAC EXCEPTION] Failed to verify system user permissions:`, err);
+      return res.status(500).json({ error: "Internal security constraints failed to match RBAC state properties." });
+    }
+  };
+};
+

@@ -2,12 +2,12 @@ import { Router } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
 import { detectLanguageAndTranslate } from "../services/translationService";
 import { logToAudit } from "../services/auditService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, requireAnyPermission } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // Categories
-router.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
+router.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation('restId'), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('categories')
     .select('*')
@@ -18,7 +18,7 @@ router.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsol
   res.json(data || []);
 });
 
-router.post("/categories", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/categories", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('categories')
     .insert(req.body)
@@ -29,7 +29,7 @@ router.post("/categories", authenticateJWT, requireTenantIsolation(), async (req
   res.json(data);
 });
 
-router.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const { error } = await supabaseAdmin
     .from('categories')
     .delete()
@@ -40,7 +40,7 @@ router.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), asyn
 });
 
 // Menu Items
-router.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
+router.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation('restId'), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('menu_items')
     .select(`
@@ -69,7 +69,7 @@ router.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsol
   res.json(data || []);
 });
 
-router.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -138,7 +138,7 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (req
   res.json(data);
 });
 
-router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -232,7 +232,7 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async
   res.json(data);
 });
 
-router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const caller = (req as any).user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -258,7 +258,7 @@ router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), asyn
 });
 
 // Sub-collections sync (Combo/Modifier groups)
-router.post("/batch-sync", authenticateJWT, async (req, res) => {
+router.post("/batch-sync", authenticateJWT, requirePermissions('settings.manage'), async (req, res) => {
   const caller = (req as any).user;
   const userRestId = caller?.restaurantId || caller?.restaurant_id;
 

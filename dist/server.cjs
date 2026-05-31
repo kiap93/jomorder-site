@@ -653,6 +653,7 @@ async function logToAuditDb(supabase, userId, userEmail, role, action, restauran
 var ROLE_PERMISSIONS = {
   super_admin: [
     "orders.view",
+    "kitchen.view",
     "orders.prepare",
     "orders.bump",
     "orders.ready",
@@ -664,6 +665,7 @@ var ROLE_PERMISSIONS = {
   ],
   superadmin: [
     "orders.view",
+    "kitchen.view",
     "orders.prepare",
     "orders.bump",
     "orders.ready",
@@ -675,6 +677,7 @@ var ROLE_PERMISSIONS = {
   ],
   owner: [
     "orders.view",
+    "kitchen.view",
     "orders.prepare",
     "orders.bump",
     "orders.ready",
@@ -686,6 +689,7 @@ var ROLE_PERMISSIONS = {
   ],
   manager: [
     "orders.view",
+    "kitchen.view",
     "orders.prepare",
     "orders.bump",
     "orders.ready",
@@ -707,7 +711,7 @@ var ROLE_PERMISSIONS = {
     "orders.ready"
   ],
   kitchen: [
-    "orders.view",
+    "kitchen.view",
     "orders.prepare",
     "orders.bump",
     "orders.ready"
@@ -936,6 +940,43 @@ var requirePermissions = (...requiredPermissions) => {
         console.warn(`[API ACCESS DENIED] User: ${user.email} | Role: ${userRole} | Lacks: ${requiredPermissions.join(", ")} on Tenant: ${restId}`);
         return res.status(403).json({
           error: `Forbidden: Lacking required capabilities: ${requiredPermissions.join(", ")}`
+        });
+      }
+      next();
+    } catch (err) {
+      console.error(`[API RBAC EXCEPTION] Failed to verify system user permissions:`, err);
+      return res.status(500).json({ error: "Internal security constraints failed to match RBAC state properties." });
+    }
+  };
+};
+var requireAnyPermission = (...allowedPermissions) => {
+  return async (req, res, next) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized: User session details not found." });
+    }
+    if (user.platform_role === "superadmin" || user.is_platform_admin === true) {
+      next();
+      return;
+    }
+    try {
+      const restId = req.params.restId || req.params.restaurantId || req.query.restaurantId || req.query.restaurant_id || req.query.restId || req.body && (req.body.restaurantId || req.body.restaurant_id || req.body.restId) || user.restaurantId;
+      if (!restId) {
+        return res.status(400).json({ error: "Bad Request: Missing restaurant identifier mapping in context." });
+      }
+      const settings = await getStaffSettingsFromDb(supabaseAdmin, user.id, user.role, restId);
+      if (settings.status === "suspended") {
+        return res.status(403).json({ error: "Forbidden: Your staff account has been suspended." });
+      }
+      const customPermissions = settings.permissions || {};
+      const userRole = user.role;
+      const isAuthorized = allowedPermissions.some(
+        (perm) => hasPermission(userRole, perm, customPermissions)
+      );
+      if (!isAuthorized) {
+        console.warn(`[API ACCESS DENIED] User: ${user.email} | Role: ${userRole} | Lacks any of: ${allowedPermissions.join(", ")} on Tenant: ${restId}`);
+        return res.status(403).json({
+          error: `Forbidden: Lacking any of required capabilities: ${allowedPermissions.join(", ")}`
         });
       }
       next();
@@ -1227,7 +1268,7 @@ var auth_routes_default = router;
 // src/server/routes/translation.routes.ts
 var import_express2 = require("express");
 var router2 = (0, import_express2.Router)();
-router2.post("/translate", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router2.post("/translate", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { text, targetLang, restaurantContext } = req.body;
   if (!process.env.GEMINI_API_KEY) {
     return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
@@ -1243,7 +1284,7 @@ router2.post("/translate", authenticateJWT, requireTenantIsolation(), async (req
     res.status(500).json({ error: `Translation failed: ${error?.message || error}` });
   }
 });
-router2.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router2.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const user = req.user;
   const userRestId = user.restaurantId || user.restaurant_id;
   const { filter } = req.query;
@@ -1262,12 +1303,12 @@ router2.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), asyn
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router2.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router2.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("translation_jobs").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router2.patch("/tenant-translations", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router2.patch("/tenant-translations", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { restaurantId, entityId, fieldName, languageCode, translatedText } = req.body;
   const { data, error } = await supabaseAdmin.from("tenant_translations").update({ translated_text: translatedText }).eq("restaurant_id", restaurantId).eq("entity_id", entityId).eq("field_name", fieldName).eq("language_code", languageCode).select();
   if (error) return res.status(500).json({ error: error.message });
@@ -1320,22 +1361,22 @@ function logToAudit(userId, userEmail, role, action, restaurantId) {
 
 // src/server/routes/menu.routes.ts
 var router3 = (0, import_express3.Router)();
-router3.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router3.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router3.post("/categories", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router3.post("/categories", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router3.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router3.delete("/categories/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { error } = await supabaseAdmin.from("categories").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
-router3.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router3.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("menu_items").select(`
       *,
       display_behavior,
@@ -1359,7 +1400,7 @@ router3.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIso
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -1415,7 +1456,7 @@ router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), async (re
   }
   res.json(data);
 });
-router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -1486,7 +1527,7 @@ router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), asyn
   }
   res.json(data);
 });
-router3.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router3.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
@@ -1502,7 +1543,7 @@ router3.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), asy
   }
   res.json({ success: true });
 });
-router3.post("/batch-sync", authenticateJWT, async (req, res) => {
+router3.post("/batch-sync", authenticateJWT, requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
   const userRestId = caller?.restaurantId || caller?.restaurant_id;
   if (caller && caller.platform_role !== "superadmin" && caller.is_platform_admin !== true) {
@@ -1658,7 +1699,7 @@ router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
     res.status(500).json({ error: err.message });
   }
 });
-router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
@@ -1831,7 +1872,7 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
     res.status(500).json({ error: err.message });
   }
 });
-router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
@@ -1926,7 +1967,7 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenan
     res.status(500).json({ error: err.message });
   }
 });
-router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
   const callerSettings = getStaffSettings(caller.id, caller.role);
@@ -1977,7 +2018,7 @@ router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTe
     res.status(500).json({ error: err.message });
   }
 });
-router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
@@ -3097,22 +3138,22 @@ var superadmin_routes_default = router6;
 // src/server/routes/tables.routes.ts
 var import_express7 = require("express");
 var router7 = (0, import_express7.Router)();
-router7.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router7.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router7.post("/tables", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router7.post("/tables", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router7.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router7.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { error } = await supabaseAdmin.from("tables").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
@@ -3122,7 +3163,7 @@ var tables_routes_default = router7;
 // src/server/routes/orders.routes.ts
 var import_express8 = require("express");
 var router8 = (0, import_express8.Router)();
-router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("orders.view"), async (req, res) => {
+router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -3133,7 +3174,7 @@ router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolati
   }
   return res.json(data || []);
 });
-router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("orders.view"), async (req, res) => {
+router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const caller = req.user;
   const orderId = req.params.id;
   try {
@@ -3192,7 +3233,7 @@ var orders_routes_default = router8;
 // src/server/routes/sessions.routes.ts
 var import_express9 = require("express");
 var router9 = (0, import_express9.Router)();
-router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), async (req, res) => {
+router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view"), async (req, res) => {
   const status = req.query.status;
   let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
   if (status === "active") {
@@ -3202,12 +3243,12 @@ router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTena
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { orderIds, paidAmount } = req.body;
   try {
     const { error: orderError } = await supabaseAdmin.from("orders").update({
@@ -3225,7 +3266,7 @@ router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolat
     res.status(500).json({ error: err.message });
   }
 });
-router9.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);

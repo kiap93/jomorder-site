@@ -158,7 +158,7 @@ export function Navbar() {
                 <LayoutDashboard size={20} />
               </Link>
             )}
-            {hasPermission(profile?.role, 'orders.prepare', profile?.permissions) && (
+            {hasPermission(profile?.role, 'kitchen.view', profile?.permissions) && (
               <Link 
                 to={`/restaurant/${restId}/kitchen`} 
                 className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/kitchen') ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' : 'text-zinc-600 hover:text-orange-500'}`}

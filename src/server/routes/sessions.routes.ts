@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, requireAnyPermission } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // Get dining sessions for a restaurant
-router.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation('restId'), async (req, res) => {
+router.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation('restId'), requireAnyPermission('orders.view'), async (req, res) => {
   const status = req.query.status;
   let query = supabaseAdmin
     .from('dining_sessions')
@@ -22,7 +22,7 @@ router.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenan
 });
 
 // Get orders belonging to a dining session
-router.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), requireAnyPermission('orders.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select('*, payments(amount)')
@@ -34,7 +34,7 @@ router.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolatio
 });
 
 // Settle dining session from back-office/counter counter-cash payments
-router.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), requirePermissions('payments.view'), async (req, res) => {
   const { orderIds, paidAmount } = req.body;
   try {
     const { error: orderError } = await supabaseAdmin
@@ -64,7 +64,7 @@ router.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolati
 });
 
 // Update dining session details
-router.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission('orders.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('dining_sessions')
     .update(req.body)

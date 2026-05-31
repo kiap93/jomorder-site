@@ -119,7 +119,7 @@ export default function App() {
               </ProtectedRoute>
             } />
             <Route path="/restaurant/:restId/kitchen" element={
-              <ProtectedRoute permissions={['orders.prepare']}>
+              <ProtectedRoute permissions={['kitchen.view']}>
                 <KitchenDisplay />
               </ProtectedRoute>
             } />

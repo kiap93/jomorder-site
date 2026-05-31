@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
 import { translateTextWithGemini } from "../services/translationService";
 
 const router = Router();
 
 // Translate endpoint using Gemini
-router.post("/translate", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.post("/translate", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const { text, targetLang, restaurantContext } = req.body;
   
   if (!process.env.GEMINI_API_KEY) {
@@ -26,7 +26,7 @@ router.post("/translate", authenticateJWT, requireTenantIsolation(), async (req,
 });
 
 // Translation Jobs
-router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const user = (req as any).user;
   const userRestId = user.restaurantId || user.restaurant_id;
   const { filter } = req.query;
@@ -54,7 +54,7 @@ router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), async
   res.json(data || []);
 });
 
-router.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('translation_jobs')
     .update(req.body)
@@ -67,7 +67,7 @@ router.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(),
 });
 
 // Tenant Translations
-router.patch("/tenant-translations", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router.patch("/tenant-translations", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
   const { restaurantId, entityId, fieldName, languageCode, translatedText } = req.body;
   const { data, error } = await supabaseAdmin
     .from('tenant_translations')
