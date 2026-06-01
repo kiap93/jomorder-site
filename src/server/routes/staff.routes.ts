@@ -8,16 +8,20 @@ import {
   writeStaffRegistry 
 } from "../services/dbService";
 import { logToAudit, readAuditLogs } from "../services/auditService";
-import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const router = Router();
 
 // 1. Get List of Staff
 router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId } = req.params;
-  const caller = (req as any).user;
+  const caller = (req as AuthenticatedRequest).user;
 
-  if (caller.role !== 'admin' && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (caller.role !== 'superadmin' && caller.restaurantId !== restId && (caller as any).restaurant_id !== restId) {
     return res.status(403).json({ error: "Forbidden: You do not have access to this restaurant's staff list." });
   }
 
@@ -132,10 +136,14 @@ router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation
 router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
-  const caller = (req as any).user;
+  const caller = (req as AuthenticatedRequest).user;
+
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'superadmin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {
@@ -353,10 +361,14 @@ router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
 router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
-  const caller = (req as any).user;
+  const caller = (req as AuthenticatedRequest).user;
+
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'superadmin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {
@@ -479,10 +491,14 @@ router.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenant
 // 4. Delete Staff Member
 router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId, staffId } = req.params;
-  const caller = (req as any).user;
+  const caller = (req as AuthenticatedRequest).user;
+
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === 'admin' || caller.role === 'owner' || caller.role === 'OWNER';
+  const isOwnerOrAdmin = caller.role === 'superadmin' || caller.role === 'owner';
   const canManageStaff = isOwnerOrAdmin || (callerSettings?.permissions?.can_manage_staff === true);
 
   if (!canManageStaff) {
@@ -561,9 +577,13 @@ router.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTen
 // 5. Audit Logs
 router.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation('restId'), requirePermissions('users.manage'), async (req, res) => {
   const { restId } = req.params;
-  const caller = (req as any).user;
+  const caller = (req as AuthenticatedRequest).user;
 
-  if (caller.role !== 'admin' && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (caller.role !== 'superadmin' && caller.restaurantId !== restId && (caller as any).restaurant_id !== restId) {
     return res.status(403).json({ error: "Forbidden: Unauthorized access to system audit logs." });
   }
 

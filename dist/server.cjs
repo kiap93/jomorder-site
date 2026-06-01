@@ -259,6 +259,14 @@ function setInCache(cache, key, value, limit = 5e3) {
 function getHash(text) {
   return import_crypto.default.createHash("sha256").update(text.trim().toLowerCase()).digest("hex");
 }
+function sanitizeTranslationOutput(text) {
+  if (!text) return "";
+  let cleaned = text.trim();
+  const descPattern = /\s*\((fragrant|coconut|rice|fried|chicken|spicy|sweet|savory|sauce|steamed|soup|noodle|pork|beef|curry|traditional|malay|chinese|local|dish|style)[^)]*\)/gi;
+  cleaned = cleaned.replace(descPattern, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  return cleaned;
+}
 var PROTECTED_BRANDS = [
   "mcdonald",
   "mcchicken",
@@ -303,10 +311,22 @@ function checkBrandSafety(text, translated, targetLang) {
   }
   return trimmedTranslated;
 }
+function isLatinString(text) {
+  if (!text) return true;
+  const nonLatinRegex = /[\u4e00-\u9fff\u3040-\u30ff\u3000-\u303f\uac00-\ud7af\u0e00-\u0e7f]/;
+  return !nonLatinRegex.test(text);
+}
 async function detectLanguageAndTranslate(text, apiKey) {
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
     return null;
+  }
+  if (isLatinString(sanitizedText)) {
+    return {
+      isEnglish: true,
+      languageCode: null,
+      englishTranslation: sanitizedText
+    };
   }
   const textHash = getHash(sanitizedText);
   if (detectionCache.has(textHash)) {
@@ -360,6 +380,7 @@ async function detectLanguageAndTranslate(text, apiKey) {
     const result = JSON.parse(cleanText);
     let englishTrans = result.englishTranslation ? result.englishTranslation.trim() : null;
     if (englishTrans) {
+      englishTrans = sanitizeTranslationOutput(englishTrans);
       englishTrans = checkBrandSafety(sanitizedText, englishTrans, "en");
     }
     const parsedResult = {
@@ -386,6 +407,9 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
     return "";
+  }
+  if (targetLang.toLowerCase() === "en" && isLatinString(sanitizedText)) {
+    return sanitizedText;
   }
   const contextStr = (restaurantContext || "General").trim();
   const cacheKey = `${getHash(sanitizedText)}:${targetLang.toLowerCase()}:${getHash(contextStr)}`;
@@ -447,16 +471,17 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
       `
     });
     const translatedText = (response.text || "").trim();
-    const lowerOutput = translatedText.toLowerCase();
+    const sanitizedTranslated = sanitizeTranslationOutput(translatedText);
+    const lowerOutput = sanitizedTranslated.toLowerCase();
     if (lowerOutput.includes("failed") || lowerOutput.includes("error") || lowerOutput.includes("uncertain") || lowerOutput.includes("unknown")) {
       console.warn("Translation fallback applied", {
         sourceText: sanitizedText,
         language: targetLang,
-        reason: `AI output indicates uncertainty/failure: "${translatedText}"`
+        reason: `AI output indicates uncertainty/failure: "${sanitizedTranslated}"`
       });
       return sanitizedText;
     }
-    const finalVal = protectResult(translatedText);
+    const finalVal = protectResult(sanitizedTranslated);
     setInCache(translationCache, cacheKey, finalVal);
     return finalVal;
   } catch (error) {
@@ -1409,47 +1434,57 @@ router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePe
     }
   }
   const body = req.body;
-  const originalNames = [];
-  const originalDescs = [];
-  if (body.name && body.name.trim()) {
-    const result = await detectLanguageAndTranslate(body.name.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
-      body.name = result.englishTranslation;
-    }
-  }
-  if (body.description && body.description.trim()) {
-    const result = await detectLanguageAndTranslate(body.description.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
-      body.description = result.englishTranslation;
-    }
-  }
+  const originalNameInput = body.name?.trim();
+  const originalDescInput = body.description?.trim();
   const { data, error } = await supabaseAdmin.from("menu_items").insert(body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   if (data && data.id) {
-    for (const item of originalNames) {
-      await supabaseAdmin.from("tenant_translations").upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: "menu_item",
-        entity_id: data.id,
-        field_name: "name",
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
-    }
-    for (const item of originalDescs) {
-      await supabaseAdmin.from("tenant_translations").upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: "menu_item",
-        entity_id: data.id,
-        field_name: "description",
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
-    }
+    const restaurantId = data.restaurant_id || caller.restaurantId;
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Background AI POST] Translating item ${data.id} in background`);
+        if (originalNameInput) {
+          const result = await detectLanguageAndTranslate(originalNameInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from("tenant_translations").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "name",
+              language_code: result.languageCode,
+              translated_text: originalNameInput,
+              translation_status: "translated",
+              override_global: true
+            }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+            const cleanedName = result.englishTranslation;
+            if (cleanedName && cleanedName !== originalNameInput) {
+              await supabaseAdmin.from("menu_items").update({ name: cleanedName }).eq("id", data.id);
+            }
+          }
+        }
+        if (originalDescInput) {
+          const result = await detectLanguageAndTranslate(originalDescInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from("tenant_translations").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "description",
+              language_code: result.languageCode,
+              translated_text: originalDescInput,
+              translation_status: "translated",
+              override_global: true
+            }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+            const cleanedDesc = result.englishTranslation;
+            if (cleanedDesc && cleanedDesc !== originalDescInput) {
+              await supabaseAdmin.from("menu_items").update({ description: cleanedDesc }).eq("id", data.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Background AI POST] Error running translation:", err);
+      }
+    });
   }
   if (caller && caller.email) {
     logToAudit(caller.id, caller.email, caller.role, `Added menu item: ${data?.name || "Dish"}`, data?.restaurant_id || caller.restaurantId);
@@ -1465,62 +1500,57 @@ router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requ
     }
   }
   const body = req.body;
-  const originalNames = [];
-  const originalDescs = [];
-  let existingItem = null;
-  if (body.name && body.name.trim() || body.description && body.description.trim()) {
-    try {
-      const { data: data2 } = await supabaseAdmin.from("menu_items").select("name, description").eq("id", req.params.id).single();
-      existingItem = data2;
-    } catch (e) {
-      console.error("[Menu API] Failed to fetch existing item for change detection:", e);
-    }
-  }
-  const nameChanged = body.name && body.name.trim() && (!existingItem || body.name.trim() !== (existingItem.name || "").trim());
-  const descChanged = body.description && body.description.trim() && (!existingItem || body.description.trim() !== (existingItem.description || "").trim());
-  if (nameChanged) {
-    const result = await detectLanguageAndTranslate(body.name.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
-      body.name = result.englishTranslation;
-    }
-  } else if (existingItem && body.name) {
-    delete body.name;
-  }
-  if (descChanged) {
-    const result = await detectLanguageAndTranslate(body.description.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
-      body.description = result.englishTranslation;
-    }
-  } else if (existingItem && body.description) {
-    delete body.description;
-  }
+  const originalNameInput = body.name?.trim();
+  const originalDescInput = body.description?.trim();
   const { data, error } = await supabaseAdmin.from("menu_items").update(body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   if (data && data.id) {
-    for (const item of originalNames) {
-      await supabaseAdmin.from("tenant_translations").upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: "menu_item",
-        entity_id: data.id,
-        field_name: "name",
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
-    }
-    for (const item of originalDescs) {
-      await supabaseAdmin.from("tenant_translations").upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: "menu_item",
-        entity_id: data.id,
-        field_name: "description",
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
-    }
+    const restaurantId = data.restaurant_id || caller.restaurantId;
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Background AI PATCH] Translating item ${data.id} in background`);
+        if (originalNameInput) {
+          const result = await detectLanguageAndTranslate(originalNameInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from("tenant_translations").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "name",
+              language_code: result.languageCode,
+              translated_text: originalNameInput,
+              translation_status: "translated",
+              override_global: true
+            }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+            const cleanedName = result.englishTranslation;
+            if (cleanedName && cleanedName !== originalNameInput) {
+              await supabaseAdmin.from("menu_items").update({ name: cleanedName }).eq("id", data.id);
+            }
+          }
+        }
+        if (originalDescInput) {
+          const result = await detectLanguageAndTranslate(originalDescInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from("tenant_translations").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "description",
+              language_code: result.languageCode,
+              translated_text: originalDescInput,
+              translation_status: "translated",
+              override_global: true
+            }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+            const cleanedDesc = result.englishTranslation;
+            if (cleanedDesc && cleanedDesc !== originalDescInput) {
+              await supabaseAdmin.from("menu_items").update({ description: cleanedDesc }).eq("id", data.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Background AI PATCH] Error updating translations:", err);
+      }
+    });
   }
   if (caller && caller.email) {
     logToAudit(caller.id, caller.email, caller.role, `Updated menu item: ${data?.name || req.params.id}`, data?.restaurant_id || caller.restaurantId);
@@ -1614,7 +1644,10 @@ var router4 = (0, import_express4.Router)();
 router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
-  if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  if (caller.role !== "superadmin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
     return res.status(403).json({ error: "Forbidden: You do not have access to this restaurant's staff list." });
   }
   try {
@@ -1703,8 +1736,11 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const isOwnerOrAdmin = caller.role === "superadmin" || caller.role === "owner";
   const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
   if (!canManageStaff) {
     return res.status(403).json({ error: "Forbidden: You do not have permissions to register staff accounts." });
@@ -1876,8 +1912,11 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenan
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const isOwnerOrAdmin = caller.role === "superadmin" || caller.role === "owner";
   const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
   if (!canManageStaff) {
     return res.status(403).json({ error: "Forbidden: You do not have permissions to edit staff details." });
@@ -1970,8 +2009,11 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenan
 router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const callerSettings = getStaffSettings(caller.id, caller.role);
-  const isOwnerOrAdmin = caller.role === "admin" || caller.role === "owner" || caller.role === "OWNER";
+  const isOwnerOrAdmin = caller.role === "superadmin" || caller.role === "owner";
   const canManageStaff = isOwnerOrAdmin || callerSettings?.permissions?.can_manage_staff === true;
   if (!canManageStaff) {
     return res.status(403).json({ error: "Forbidden: You do not have permissions to delete staff accounts." });
@@ -2021,7 +2063,10 @@ router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTe
 router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
-  if (caller.role !== "admin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  if (caller.role !== "superadmin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
     return res.status(403).json({ error: "Forbidden: Unauthorized access to system audit logs." });
   }
   const logs = readAuditLogs();
@@ -2060,6 +2105,9 @@ router5.get("/debug-restaurants", async (req, res) => {
 });
 router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   if (user.is_platform_admin === true) {
     try {
       const { data: orgs } = await supabaseAdmin.from("organizations").select("*");
@@ -2202,6 +2250,9 @@ router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
 });
 router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const restaurantId = req.params.restaurantId;
   const db = loadFallbackDB();
   const dbUserId = user.id;
@@ -2364,6 +2415,9 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
 });
 router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const { id } = req.params;
   const { name, company_register_number } = req.body;
   try {
@@ -2398,6 +2452,9 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
 });
 router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
   if (!workspaceName) {

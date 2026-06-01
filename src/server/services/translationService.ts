@@ -21,6 +21,15 @@ function getHash(text: string): string {
   return crypto.createHash("sha256").update(text.trim().toLowerCase()).digest("hex");
 }
 
+export function sanitizeTranslationOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text.trim();
+  const descPattern = /\s*\((fragrant|coconut|rice|fried|chicken|spicy|sweet|savory|sauce|steamed|soup|noodle|pork|beef|curry|traditional|malay|chinese|local|dish|style)[^)]*\)/gi;
+  cleaned = cleaned.replace(descPattern, '');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+}
+
 const PROTECTED_BRANDS = [
   "mcdonald", "mcchicken", "mcnugget", "coca cola", "coca-cola", "coke", "pepsi",
   "sprite", "fanta", "starbucks", "heineken", "guinness", "tiger beer", "red bull",
@@ -48,10 +57,27 @@ export function checkBrandSafety(text: string, translated: string | null | undef
   return trimmedTranslated;
 }
 
+export function isLatinString(text: string): boolean {
+  if (!text) return true;
+  const nonLatinRegex = /[\u4e00-\u9fff\u3040-\u30ff\u3000-\u303f\uac00-\ud7af\u0e00-\u0e7f]/;
+  return !nonLatinRegex.test(text);
+}
+
 export async function detectLanguageAndTranslate(text: string, apiKey?: string): Promise<{ isEnglish: boolean; languageCode: string | null; englishTranslation: string | null } | null> {
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
     return null;
+  }
+
+  // If the text consists purely of Latin script (English, Malay in Rumi script, etc.),
+  // treat it as English to preserve the exact spelling and prevent auto-translating/overwriting
+  // the main menu_items.name column in the database with parentheticals.
+  if (isLatinString(sanitizedText)) {
+    return {
+      isEnglish: true,
+      languageCode: null,
+      englishTranslation: sanitizedText
+    };
   }
 
   const textHash = getHash(sanitizedText);
@@ -112,6 +138,7 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
     
     let englishTrans = result.englishTranslation ? result.englishTranslation.trim() : null;
     if (englishTrans) {
+      englishTrans = sanitizeTranslationOutput(englishTrans);
       englishTrans = checkBrandSafety(sanitizedText, englishTrans, "en");
     }
 
@@ -142,6 +169,12 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
   const sanitizedText = (text || "").trim();
   if (!sanitizedText) {
     return "";
+  }
+
+  // If the target language is English, and the source text is already written in standard Latin script,
+  // return the source text directly to avoid any unnecessary or verbose machine translation edits.
+  if (targetLang.toLowerCase() === 'en' && isLatinString(sanitizedText)) {
+    return sanitizedText;
   }
 
   const contextStr = (restaurantContext || "General").trim();
@@ -212,18 +245,19 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
     });
 
     const translatedText = (response.text || "").trim();
+    const sanitizedTranslated = sanitizeTranslationOutput(translatedText);
     
-    const lowerOutput = translatedText.toLowerCase();
+    const lowerOutput = sanitizedTranslated.toLowerCase();
     if (lowerOutput.includes("failed") || lowerOutput.includes("error") || lowerOutput.includes("uncertain") || lowerOutput.includes("unknown")) {
       console.warn("Translation fallback applied", {
         sourceText: sanitizedText,
         language: targetLang,
-        reason: `AI output indicates uncertainty/failure: "${translatedText}"`
+        reason: `AI output indicates uncertainty/failure: "${sanitizedTranslated}"`
       });
       return sanitizedText;
     }
 
-    const finalVal = protectResult(translatedText);
+    const finalVal = protectResult(sanitizedTranslated);
     
     // 2. Write to cache
     setInCache(translationCache, cacheKey, finalVal);

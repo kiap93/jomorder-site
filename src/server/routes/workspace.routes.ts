@@ -11,7 +11,7 @@ import {
   readStaffRegistry, 
   writeStaffRegistry 
 } from "../services/dbService";
-import { authenticateJWT } from "../middleware/authMiddleware";
+import { authenticateJWT, AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const router = Router();
 
@@ -44,7 +44,11 @@ router.get('/debug-restaurants', async (req, res) => {
 
 // 1. Get all organizations and restaurants the user has access to
 router.get('/my-workspaces', authenticateJWT, async (req, res) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
+
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   if (user.is_platform_admin === true) {
     try {
@@ -224,7 +228,10 @@ router.get('/my-workspaces', authenticateJWT, async (req, res) => {
 
 // 2. Switch active workspace (issues a new signed JWT with targeted restaurant credentials safely)
 router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const restaurantId = req.params.restaurantId;
 
   const db = loadFallbackDB();
@@ -456,7 +463,10 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
 
 // Update Organization Name & Company Register Number
 router.patch('/organizations/:id', authenticateJWT, async (req, res) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const { id } = req.params;
   const { name, company_register_number } = req.body;
 
@@ -514,7 +524,10 @@ router.patch('/organizations/:id', authenticateJWT, async (req, res) => {
 
 // Complete onboarding combo for Multi-Organization / Restaurant
 router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   const dbUserId = user.id;
   const { orgName, workspaceName, orgId: reqOrgId } = req.body;
 

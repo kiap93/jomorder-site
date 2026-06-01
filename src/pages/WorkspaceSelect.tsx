@@ -24,7 +24,7 @@ import {
 
 const getEntryTimestampsAsync = async (userId: string): Promise<Record<string, number>> => {
   try {
-    const data = await indexedDbStorage.getItem<any>(`workspace_entry_timestamps_${userId}`);
+    const data = await indexedDbStorage.getItem<Record<string, number>>(`workspace_entry_timestamps_${userId}`);
     if (typeof data === 'string') {
       try {
         return JSON.parse(data);
@@ -158,10 +158,10 @@ export function WorkspaceSelect() {
         const queryOrgId = params.get('orgId');
         
         setSelectedOrgId(prev => {
-          if (queryOrgId && orgs.some((o: any) => o.id === queryOrgId)) {
+          if (queryOrgId && orgs.some((o: Organization) => o.id === queryOrgId)) {
             return queryOrgId;
           }
-          if (prev && orgs.some((o: any) => o.id === prev)) {
+          if (prev && orgs.some((o: Organization) => o.id === prev)) {
             return prev;
           }
           return orgs[0].id;
@@ -192,7 +192,7 @@ export function WorkspaceSelect() {
         } else if (autoRedirectEnabled && rests.length === 1 && orgs.length === 1) {
           // If strictly 1 organization and 1 branch, enter automatically
           const singleOrg = orgs[0];
-          const outlets = rests.filter((w: any) => w.organization_id === singleOrg.id);
+          const outlets = rests.filter((w: Workspace) => w.organization_id === singleOrg.id);
           if (outlets.length === 1) {
             await handleSelectWorkspace(outlets[0].id, outlets[0].role);
             return;
@@ -287,7 +287,7 @@ export function WorkspaceSelect() {
     setError(null);
     setSubmitting(true);
     try {
-      const payload: any = {
+      const payload: { workspaceName: string; orgId?: string; orgName?: string } = {
         workspaceName: newWorkspaceName.trim()
       };
 

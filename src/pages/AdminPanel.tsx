@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl, getOrderDisplayNo } from '../lib/api';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ComboGroupItem, Modifier, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield, Printer, Download, QrCode } from 'lucide-react';
@@ -13,6 +13,14 @@ import { TranslationStudio } from '../components/TranslationStudio';
 import { PrinterManager } from '../components/PrinterManager';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { offlineService } from '../lib/offlineService';
+import { MenuTab } from './admin/MenuTab';
+import { CategoriesTab } from './admin/CategoriesTab';
+import { TablesTab } from './admin/TablesTab';
+import { OrdersTab } from './admin/OrdersTab';
+import { AnalyticsTab } from './admin/AnalyticsTab';
+import { SettingsTab } from './admin/SettingsTab';
+import { StaffTab } from './admin/StaffTab';
+import { OfflineSyncTab } from './admin/OfflineSyncTab';
 
 const VisibilityManager = ({ 
   value, 
@@ -1402,598 +1410,85 @@ export function AdminPanel() {
 
       {/* Main Content Area */}
       {activeTab === 'menu' && (
-        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
-           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-black text-gray-900">{t('admin.itemsList')}</h2>
-            <button
-              onClick={() => setEditingItem({ categoryId: categories[0]?.id, isActive: true, status: 'Available', comboGroups: [], modifierGroups: [], productType: 'single' })}
-              className="bg-gray-900 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1.5 hover:bg-black transition-all shadow-md"
-            >
-              <Plus size={16} /> {t('admin.addDish')}
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {menuItems.map(item => (
-              <div key={item.id} className="bg-white border rounded-xl overflow-hidden group hover:shadow-sm transition-all border-gray-150">
-                <div className="h-32 bg-gray-100 relative">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-300">
-                      <ImageIcon size={30} />
-                    </div>
-                  )}
-                  <div className="absolute top-2 right-2 flex gap-1.5">
-                    <button onClick={() => setEditingItem(item)} className="bg-white/90 backdrop-blur p-1.5 rounded-lg shadow-sm text-gray-600 hover:text-orange-600 border border-gray-200/50"><Edit2 size={13} /></button>
-                    <button onClick={() => deleteMenuItem(item.id)} className="bg-white/90 backdrop-blur p-1.5 rounded-lg shadow-sm text-gray-600 hover:text-red-600 border border-gray-200/50"><Trash2 size={13} /></button>
-                  </div>
-                  <div className="absolute bottom-2 left-2">
-                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider shadow-sm border ${
-                      item.status === 'Available' ? 'bg-green-500 text-white border-green-400' :
-                      item.status === 'Low Stock' ? 'bg-yellow-500 text-white border-yellow-400' :
-                      item.status === 'Out of Stock' ? 'bg-red-500 text-white border-red-400' :
-                      item.status === 'Paused' ? 'bg-gray-500 text-white border-gray-400' :
-                      item.status === 'Hidden' ? 'bg-black text-white border-gray-700' :
-                      item.status === 'Scheduled' ? 'bg-blue-500 text-white border-blue-400' :
-                      'bg-purple-500 text-white border-purple-400'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </div>
-                </div>
-                <div className="p-3">
-                  <div className="flex justify-between items-start mb-0.5">
-                    <h3 className="font-black text-gray-900 line-clamp-1 text-sm">{item.name}</h3>
-                    <span className="font-mono font-bold text-orange-600 text-xs">RM{item.price.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between items-end">
-                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
-                      {categories.find(c => c.id === item.categoryId)?.name || 'Uncategorized'}
-                    </p>
-                    {item.description && (
-                      <p className="text-[9px] text-gray-400 italic line-clamp-1 max-w-[60%]">{item.description}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <MenuTab
+          menuItems={menuItems}
+          categories={categories}
+          setEditingItem={setEditingItem}
+          deleteMenuItem={deleteMenuItem}
+          t={t}
+        />
       )}
 
       {activeTab === 'categories' && (
-        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-black text-gray-900">{t('admin.categories')}</h2>
-            <button
-              onClick={() => setIsAddingCategory(true)}
-              className="bg-orange-50 text-orange-600 p-2 rounded-xl hover:bg-orange-100 transition-colors"
-            >
-              <Plus size={18} />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            <AnimatePresence>
-              {isAddingCategory && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="bg-orange-50 p-2.5 rounded-xl border-2 border-dashed border-orange-200 flex gap-2"
-                >
-                  <input
-                    autoFocus
-                    value={newCategoryName}
-                    onChange={e => setNewCategoryName(e.target.value)}
-                    className="bg-white px-3 rounded-lg flex-1 font-bold text-xs"
-                    placeholder={t('admin.categoryName')}
-                  />
-                  <button onClick={addCategory} className="bg-orange-600 text-white p-1.5 rounded-lg"><Plus size={16} /></button>
-                  <button onClick={() => setIsAddingCategory(false)} className="text-gray-400 p-1.5"><X size={16} /></button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            {categories.map(cat => (
-              <div key={cat.id} className="bg-gray-55 p-2.5 rounded-xl flex justify-between items-center group border border-gray-100 hover:border-orange-100 transition-all text-sm">
-                <span className="font-bold text-gray-705">{cat.name}</span>
-                <button
-                  onClick={() => deleteCategory(cat.id)}
-                  className="text-gray-300 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+        <CategoriesTab
+          categories={categories}
+          isAddingCategory={isAddingCategory}
+          setIsAddingCategory={setIsAddingCategory}
+          newCategoryName={newCategoryName}
+          setNewCategoryName={setNewCategoryName}
+          addCategory={addCategory}
+          deleteCategory={deleteCategory}
+          t={t}
+        />
       )}
 
       {activeTab === 'tables' && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-            <div>
-              <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
-                <span>{t('admin.tablesQR')}</span>
-                <span className="text-[10px] bg-orange-100 text-orange-700 px-2.5 py-0.5 rounded-full font-bold">Total: {tables.length}</span>
-              </h2>
-              <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mt-0.5">Generate physical table standees, print receipts/stickers, or download high-resolution QR vectors</p>
-            </div>
-            {tables.length > 0 && (
-              <button
-                onClick={printAllQRCodes}
-                className="h-9 px-4 bg-zinc-900 text-white rounded-lg font-black text-[10px] uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                <Printer size={13} />
-                <span>Print All QR Codes</span>
-              </button>
-            )}
-          </div>
+        <TablesTab
+          tables={tables}
+          restId={restId}
+          restaurant={restaurant}
+          printAllQRCodes={printAllQRCodes}
+          downloadQRCode={downloadQRCode}
+          printQRCode={printQRCode}
+          closeDiningSession={closeDiningSession}
+          updateTableStatus={updateTableStatus}
+          deleteTable={deleteTable}
+          addTable={addTable}
+          openTableActionsId={openTableActionsId}
+          setOpenTableActionsId={setOpenTableActionsId}
+          navigate={navigate}
+          setActiveTab={setActiveTab}
+          t={t}
+        />
+      )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {tables.map(table => {
-              const activeSession = table.dining_sessions;
-
-              return (
-                <div key={table.id} className={`p-4 rounded-xl shadow-sm border transition-all ${
-                  activeSession ? 'bg-orange-50/20 border-orange-100' : 'bg-white border-zinc-100'
-                }`}>
-                  <div 
-                    id={`qr-container-${table.id}`}
-                    className="mb-4 bg-white p-3 rounded-2xl shadow-inner border border-zinc-50 flex flex-col items-center"
-                  >
-                    <QRCodeSVG 
-                      value={`${window.location.origin}/restaurant/${restId}/table/${table.id}`} 
-                      size={120}
-                      level="H"
-                      includeMargin={true}
-                    />
-                    
-                    <div className="flex gap-2 mt-2 pt-2 border-t border-zinc-150/50 w-full justify-center">
-                      <button
-                        onClick={() => downloadQRCode(table.id, `Table ${table.name}`)}
-                        title="Download high-quality PNG"
-                        className="px-2 py-1 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-lg font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 border border-zinc-200/50"
-                      >
-                        <Download size={10} />
-                        <span>Download</span>
-                      </button>
-                      <button
-                        onClick={() => printQRCode(table.id, `Table ${table.name}`)}
-                        title="Print 80mm Table Card"
-                        className="px-2 py-1 bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 rounded-lg font-bold text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 border border-zinc-200/50"
-                      >
-                        <Printer size={10} />
-                        <span>Print</span>
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="text-center mb-4">
-                    <h3 className="font-bold text-base text-zinc-900 leading-none mb-1.5">{t('kds.table').replace('{table}', table.name)}</h3>
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span className={`w-1.5 h-1.5 rounded-full ${activeSession ? 'bg-orange-500 animate-pulse' : 'bg-zinc-200'}`} />
-                      <span className={`text-[9px] font-bold uppercase tracking-wider ${activeSession ? 'text-orange-600' : 'text-zinc-400'}`}>
-                        {activeSession ? t('admin.activeSession') : t('admin.available')}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-col gap-2 w-full">
-                    {activeSession ? (
-                      <div className="space-y-2">
-                        <div className="bg-white p-2.5 rounded-xl border border-orange-100 shadow-sm">
-                          <div className="flex justify-between items-center mb-0.5">
-                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Started</span>
-                            <span className="text-[9px] font-bold text-zinc-600">
-                              {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Token</span>
-                            <span className="text-[9px] font-mono font-bold text-orange-600">
-                              {activeSession.sessionToken ? `${activeSession.sessionToken.slice(0, 8)}...` : 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <button 
-                          onClick={() => closeDiningSession(activeSession)}
-                          className="w-full h-9 bg-zinc-900 text-white rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-black transition-all flex items-center justify-center gap-1.5"
-                        >
-                          <X size={12} />
-                          {t('admin.closeSession')}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-1 bg-zinc-100 p-0.5 rounded-lg mr-0.5">
-                        <button
-                          onClick={() => updateTableStatus(table.id, 'available')}
-                          className={`py-1.5 rounded-md text-[9px] font-bold uppercase transition-all ${
-                            table.status === 'available' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-400 font-medium'
-                          }`}
-                        >
-                          {t('admin.available')}
-                        </button>
-                        <button
-                          onClick={() => updateTableStatus(table.id, 'occupied')}
-                          className={`py-1.5 rounded-md text-[9px] font-bold uppercase transition-all ${
-                            table.status === 'occupied' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-400 font-medium'
-                          }`}
-                        >
-                          {t('admin.occupied')}
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="flex gap-1.5">
-                      <button 
-                        onClick={() => deleteTable(table.id)} 
-                        className="flex-1 h-9 rounded-lg bg-zinc-50 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center gap-1.5 border border-zinc-150"
-                      >
-                        <Trash2 size={12} />
-                        <span className="text-[9px] font-bold uppercase">{t('admin.delete')}</span>
-                      </button>
-                      <div className="relative flex-1">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenTableActionsId(openTableActionsId === table.id ? null : table.id);
-                          }}
-                          className="w-full h-10 rounded-xl bg-zinc-50 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-all flex items-center justify-center gap-2"
-                        >
-                          <Settings2 size={13} />
-                          <span className="text-[10px] font-bold uppercase">{t('admin.actions')}</span>
-                        </button>
-                        <AnimatePresence>
-                          {openTableActionsId === table.id && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                              className="absolute bottom-full right-0 z-[2] p-2 shadow-2xl bg-white rounded-2xl w-48 mb-2 border border-blue-50"
-                            >
-                              <div className="px-3 py-2 border-b border-gray-50 mb-1">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-gray-400">{t('admin.management')}</span>
-                              </div>
-                              <button 
-                                onClick={() => navigate(`/restaurant/${restId}/table/${table.id}`)} 
-                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
-                              >
-                                <Monitor size={14} className="text-zinc-400" />
-                                {t('admin.openTablePage')}
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  printQRCode(table.id, `Table ${table.name}`);
-                                  setOpenTableActionsId(null);
-                                }} 
-                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 text-zinc-700 hover:text-orange-600 transition-colors"
-                              >
-                                <Printer size={14} className="text-zinc-400" />
-                                <span>Print QR Code</span>
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  downloadQRCode(table.id, `Table ${table.name}`);
-                                  setOpenTableActionsId(null);
-                                }} 
-                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 text-zinc-700 hover:text-orange-600 transition-colors"
-                              >
-                                <Download size={14} className="text-zinc-400" />
-                                <span>Download PNG</span>
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setActiveTab('localization');
-                                  setOpenTableActionsId(null);
-                                }} 
-                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
-                              >
-                                <Globe size={14} className="text-zinc-400" />
-                                {t('admin.translateMenu')}
-                              </button>
-                              <button 
-                                onClick={() => setOpenTableActionsId(null)}
-                                className="w-full text-left text-xs font-bold py-3 px-3 flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors"
-                              >
-                                <Edit2 size={14} className="text-zinc-400" />
-                                {t('admin.editDetails')}
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          <button 
-            onClick={addTable}
-            className="border-2 border-dashed border-gray-200 p-8 rounded-3xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"
-          >
-            <Plus size={32} />
-            {t('admin.addTable')}
-          </button>
-        </div>
-      </div>
-    )}
+      {/* tables dead block removed */}
 
       {activeTab === 'orders' && (
-        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100 min-h-[50vh]">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h2 className="text-lg font-black text-gray-900">{t('admin.recentTransactions')}</h2>
-              <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mt-0.5">{t('admin.liveOrderArchive')}</p>
-            </div>
-            <button
-               onClick={() => fetchData()}
-               className="p-2 bg-zinc-100 text-zinc-600 rounded-xl hover:bg-zinc-200"
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-
-          <div className="overflow-x-auto -mx-4 sm:-mx-5">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-zinc-100 bg-zinc-50/50">
-                  <th className="px-4 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.orderId')}</th>
-                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.table')}</th>
-                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.items')}</th>
-                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.total')}</th>
-                  <th className="px-3 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.status')}</th>
-                  <th className="px-4 py-2.5 text-left text-[9px] font-black text-zinc-400 uppercase tracking-widest">{t('admin.time')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-50">
-                {orders.map(order => (
-                  <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
-                    <td className="px-4 py-2">
-                      <span className="font-mono font-bold text-xs text-zinc-400">#{getOrderDisplayNo(order.id, order.created_at || (order as any).createdAt)}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col gap-0.5">
-                        {order.items?.map((item: OrderItem, i: number) => (
-                          <span key={i} className="text-[10px] font-bold text-zinc-600 leading-tight">
-                            {item.quantity}x {item.name}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="text-xs font-black text-orange-600">RM {(parseFloat(String(order.total_price || order.totalPrice || 0)) || 0).toFixed(2)}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                        order.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                        order.status === 'cancelled' ? 'bg-red-50 text-red-600 border border-red-100' :
-                        'bg-blue-50 text-blue-600 border border-blue-100'
-                      }`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className="text-[10px] font-bold text-zinc-400">
-                        {order.created_at ? new Date(order.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {orders.length === 0 && (
-              <div className="py-12 text-center">
-                <div className="bg-zinc-50 w-12 h-12 rounded-2xl flex items-center justify-center text-zinc-300 mx-auto mb-3">
-                  <ShoppingBag size={24} />
-                </div>
-                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{t('admin.noTransactionsYet')}</p>
-              </div>
-            )}
-          </div>
-        </section>
+        <OrdersTab
+          orders={orders}
+          fetchData={fetchData}
+          t={t}
+        />
       )}
+
+      {/* orders dead block removed */}
 
       {activeTab === 'analytics' && (
-        <div className="space-y-4">
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-black text-gray-900 mb-0.5">{t('admin.performanceOverview')}</h2>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest">{t('admin.realTimeInsights')}</p>
-            </div>
-            <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-100 text-xs">
-              <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-1">{t('admin.from')}</label>
-                <input 
-                  type="date"
-                  value={dateRange.start}
-                  onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
-                  className="bg-transparent border-none p-0 focus:ring-0 text-xs font-bold text-gray-700"
-                />
-              </div>
-              <div className="w-px h-6 bg-gray-200" />
-              <div className="flex flex-col">
-                <label className="text-[8px] font-black uppercase text-gray-400 px-1">{t('admin.to')}</label>
-                <input 
-                  type="date"
-                  value={dateRange.end}
-                  onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
-                  className="bg-transparent border-none p-0 focus:ring-0 text-xs font-bold text-gray-700"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.totalRevenue')}</div>
-              <div className="text-xl sm:text-2xl font-black text-gray-900">
-                {restaurant?.currency} {analyticsData.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </div>
-            </div>
-            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.totalOrders')}</div>
-              <div className="text-xl sm:text-2xl font-black text-gray-900">{analyticsData.orders}</div>
-            </div>
-            <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 text-center">
-              <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.avgTicket')}</div>
-              <div className="text-xl sm:text-2xl font-black text-gray-900">
-                {restaurant?.currency} {analyticsData.avgTicket.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </div>
-            </div>
-          </div>
-
-          <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-black text-gray-900">{t('admin.topSellingItems')}</h2>
-              <div className="bg-orange-50 text-orange-600 text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider">
-                {t('admin.sortedByPopularity')}
-              </div>
-            </div>
-            
-            {isAnalyticsLoading ? (
-              <div className="flex justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
-              </div>
-            ) : analyticsData.topItems.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-gray-150">
-                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">{t('admin.rank')}</th>
-                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">Item Name</th>
-                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center">{t('admin.ordersCount')}</th>
-                      <th className="pb-2 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right">{t('admin.revenue')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 text-sm">
-                    {analyticsData.topItems.map((item, idx) => (
-                      <tr key={idx} className="group hover:bg-gray-50/50">
-                        <td className="py-2.5">
-                          <span className={`w-6 h-6 flex items-center justify-center rounded-lg font-black text-[11px] ${
-                            idx === 0 ? 'bg-orange-100 text-orange-600' : 
-                            idx === 1 ? 'bg-gray-100 text-gray-600' :
-                            idx === 2 ? 'bg-orange-55 text-orange-400 border border-orange-100' : 
-                            'text-gray-300'
-                          }`}>
-                            {idx + 1}
-                          </span>
-                        </td>
-                        <td className="py-2.5 font-bold text-gray-900">{item.name}</td>
-                        <td className="py-2.5 text-center font-bold text-gray-600">{item.count}</td>
-                        <td className="py-2.5 text-right font-black text-gray-950">
-                          {restaurant?.currency} {item.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="py-12 text-center space-y-3">
-                <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-gray-300">
-                  <BarChart2 size={24} />
-                </div>
-                <div>
-                  <p className="font-black text-gray-900 text-sm">{t('admin.noDataFound')}</p>
-                  <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-0.5">{t('admin.trySelectingDifferent')}</p>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+        <AnalyticsTab
+          restaurant={restaurant}
+          analyticsData={analyticsData}
+          dateRange={dateRange}
+          setDateRange={setDateRange}
+          isAnalyticsLoading={isAnalyticsLoading}
+          t={t}
+        />
       )}
+
+      {/* analytics dead block removed */}
 
       {activeTab === 'settings' && restaurant && (
-        <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100 max-w-2xl">
-          <h2 className="text-base sm:text-lg font-black text-gray-900 mb-4">{t('admin.branchSettings')}</h2>
-          
-          <AnimatePresence>
-            {settingsError && (
-              <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-red-600"
-              >
-                <AlertCircle size={15} />
-                <span className="text-xs font-bold">{settingsError}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="space-y-4 text-xs">
-            <div>
-              <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.restaurantName')}</label>
-              <input
-                value={restaurant.name}
-                onChange={e => setRestaurant({ ...restaurant, name: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.serviceCharge')}</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={restaurant.serviceCharge * 100}
-                    onChange={e => setRestaurant({ ...restaurant, serviceCharge: parseFloat(e.target.value) / 100 })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
-                    placeholder="10"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.sst')}</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={restaurant.sst * 100}
-                    onChange={e => setRestaurant({ ...restaurant, sst: parseFloat(e.target.value) / 100 })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
-                    placeholder="6"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">%</span>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.currency')}</label>
-              <input
-                value={restaurant.currency}
-                onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
-                placeholder="RM"
-              />
-            </div>
-
-            <button
-              onClick={updateRestaurantSettings}
-              disabled={savingSettings}
-              className="w-full mt-2 bg-gray-900 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all shadow-md disabled:bg-gray-400 text-xs"
-            >
-              {savingSettings ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              ) : (
-                <>
-                  <Save size={16} />
-                  {t('admin.saveSettings')}
-                </>
-              )}
-            </button>
-          </div>
-        </section>
+        <SettingsTab
+          restaurant={restaurant}
+          setRestaurant={setRestaurant}
+          settingsError={settingsError}
+          savingSettings={savingSettings}
+          updateRestaurantSettings={updateRestaurantSettings}
+          t={t}
+        />
       )}
+
+      {/* settings dead block removed */}
 
       {activeTab === 'printers' && restaurant && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2015,643 +1510,42 @@ export function AdminPanel() {
       )}
 
       {activeTab === 'staff' && canManageStaff && (
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Left side: Staff List */}
-            <div className="md:col-span-2 bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-base sm:text-lg font-black text-gray-900">{t('admin.staffDirectory')}</h2>
-                  <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">{t('admin.rbacProfiles')}</p>
-                </div>
-                <button
-                  onClick={fetchStaffData}
-                  className="p-2 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                  title="Refresh List"
-                >
-                  <RefreshCw size={14} className={isStaffLoading ? 'animate-spin' : ''} />
-                </button>
-              </div>
-
-              {isStaffLoading && staffList.length === 0 ? (
-                <div className="flex h-36 items-center justify-center">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
-                </div>
-              ) : staffList.length === 0 ? (
-                <div className="flex h-36 flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-xl p-4 text-center text-gray-400">
-                  <Users size={28} className="mb-1 text-gray-200" />
-                  <p className="font-bold text-sm text-gray-700">{t('admin.noStaffProfiles')}</p>
-                  <p className="text-[10px] mt-0.5">{t('admin.createUniqueLogins')}</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {staffList.map((st: StaffMember) => (
-                    <div 
-                      key={st.id} 
-                      className={`p-3.5 rounded-xl border transition-all ${
-                        st.status === 'suspended' ? 'bg-red-50/40 border-red-100' : 'bg-gray-50/50 border-gray-100 hover:border-gray-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-xs text-gray-900">{st.email}</span>
-                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${
-                              st.status === 'suspended' ? 'bg-red-200 text-red-00' : 'bg-green-100 text-green-800'
-                            }`}>
-                              {st.status}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="bg-gray-900 text-white font-black px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider">
-                              {st.role}
-                            </span>
-                            <span className="text-[9px] text-gray-400 font-medium font-mono">
-                              ID: {st.id ? `${st.id.slice(0, 8)}...` : 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {canManageStaff && (
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={() => setEditingStaff(st)}
-                              className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteStaff(st.id)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Display active permissions chips */}
-                      {st.permissions && (
-                        <div className="mt-2.5 pt-2.5 border-t border-gray-200/50 flex flex-wrap gap-1">
-                          {Object.entries(st.permissions).map(([perm, val]) => (
-                            <span 
-                              key={perm}
-                              className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
-                                val ? 'bg-orange-50 text-orange-700 border border-orange-100/50' : 'bg-gray-100/50 text-gray-400'
-                              }`}
-                            >
-                              {perm.replace('can_', '')}: {val ? 'YES' : 'NO'}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Right side: Add/Edit Account view */}
-            <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4 self-start">
-              {!canManageStaff ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 w-full">
-                  <Shield size={40} className="mb-4 text-orange-600/30" />
-                  <p className="font-extrabold text-gray-800 text-sm">Access Restricted</p>
-                  <p className="text-xs mt-2 text-gray-400 leading-relaxed max-w-[200px] mx-auto">
-                    You do not have administrative permissions to register or modify staff accounts.
-                  </p>
-                </div>
-              ) : editingStaff ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-sm font-black text-gray-900">{t('admin.editSettings')}</h3>
-                      <button 
-                        onClick={() => setEditingStaff(null)}
-                        className="text-gray-400 hover:text-black"
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-brand-dark/60 font-medium font-mono truncate mt-0.5">{editingStaff.email}</p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.staffRole')}</label>
-                      <select
-                        value={editingStaff.role}
-                        onChange={e => {
-                          const updatedRole = e.target.value;
-                          const isO = updatedRole === 'owner';
-                          const isM = updatedRole === 'manager';
-                          const isC = updatedRole === 'cashier';
-                          setEditingStaff({
-                            ...editingStaff,
-                            role: updatedRole,
-                            permissions: {
-                              can_refund: isO || isM,
-                              can_edit_menu: isO || isM,
-                              can_cancel_order: isO || isM || isC,
-                              can_view_analytics: isO || isM,
-                              can_manage_staff: isO
-                            }
-                          });
-                        }}
-                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
-                      >
-                        {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 font-mono">{t('admin.accountStatus')}</label>
-                      <select
-                        value={editingStaff.status}
-                        onChange={e => setEditingStaff({ ...editingStaff, status: e.target.value as any })}
-                        className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
-                      >
-                        <option value="active">Active (Access Allowed)</option>
-                        <option value="suspended">Suspended (Access Revoked)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.customOverrules')}</label>
-                      <div className="space-y-1.5 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                        {Object.entries(editingStaff.permissions || {}).map(([perm, val]) => (
-                          <label key={perm} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!val}
-                              onChange={e => {
-                                setEditingStaff({
-                                  ...editingStaff,
-                                  permissions: {
-                                    ...(editingStaff.permissions || {}),
-                                    [perm]: e.target.checked
-                                  }
-                                });
-                              }}
-                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-3.5 w-3.5"
-                            />
-                            <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="pt-1 flex gap-2">
-                      <button
-                        onClick={() => setEditingStaff(null)}
-                        className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 font-bold rounded-lg text-xs hover:bg-gray-200 transition"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSaveStaffEdit}
-                        className="flex-1 px-3 py-2 bg-gray-900 text-white font-bold rounded-lg text-xs hover:bg-black transition shadow-md"
-                      >
-                        {t('admin.saveSettings')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={handleCreateStaff} className="space-y-3">
-                  <div>
-                    <h3 className="text-sm font-black text-gray-900">{t('admin.registerStaff')}</h3>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{t('admin.provisionNewUser')}</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.emailAddress')}</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="name@restaurant.com"
-                      value={newStaffEmail}
-                      onChange={e => setNewStaffEmail(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 font-bold text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.temporalPassword')}</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Minimum 6 characters"
-                      value={newStaffPassword}
-                      onChange={e => setNewStaffPassword(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-155 focus:bg-white focus:border-orange-500 font-bold text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.staffRole')}</label>
-                    <select
-                      value={newStaffRole}
-                      onChange={e => handleRoleChangeForNewStaff(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
-                    >
-                      {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1.5 ml-1 text-xs">{t('admin.systemPermissions')}</label>
-                    <div className="space-y-1.5 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                      {Object.entries(newStaffPermissions).map(([perm, val]) => (
-                        <label key={perm} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={val}
-                            onChange={e => {
-                              setNewStaffPermissions({
-                                ...newStaffPermissions,
-                                [perm]: e.target.checked
-                              });
-                            }}
-                            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-3.5 w-3.5"
-                          />
-                          <span className="text-xs font-bold text-gray-700 capitalize">{perm.replace(/_/g, ' ')}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition"
-                  >
-                    <Plus size={14} />
-                    {t('admin.deployStaffAccount')}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-
-          {/* Bottom Section: Audit Trail Hub */}
-          <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-4">
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-gray-900 flex items-center gap-2">
-                <Shield className="text-orange-600" size={20} />
-                {t('admin.orgAuditTrail')}
-              </h2>
-              <p className="text-[10px] text-gray-400 mt-0.5">{t('admin.immutableSessionHistory')}</p>
-            </div>
-
-            {auditLogs.length === 0 ? (
-              <div className="h-24 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-xl p-4 text-center text-gray-400">
-                <Shield size={24} className="mb-1 text-gray-200" />
-                <p className="text-xs font-bold">No Audit Log Data Registered</p>
-              </div>
-            ) : (
-              <div className="border border-gray-100 rounded-lg overflow-hidden shadow-sm">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100 text-[9px] font-black uppercase text-gray-400 tracking-wider">
-                      <th className="px-4 py-2 text-left">Timestamp</th>
-                      <th className="px-3 py-2 text-left">Staff Member</th>
-                      <th className="px-3 py-2 text-left">Role</th>
-                      <th className="px-4 py-2 text-left">Action / Secure Log Payload</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {auditLogs.map((log: AuditLogEntry) => (
-                      <tr key={log.id} className="hover:bg-gray-50/50 text-[11px] transition-colors">
-                        <td className="px-4 py-2 text-gray-400 font-mono">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 font-bold text-gray-800">
-                          {log.user_email}
-                          <div className="text-[9px] text-gray-400 font-mono">ID: {log.user_id ? `${log.user_id.slice(0, 8)}...` : 'N/A'}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-[8px] bg-gray-50 border border-gray-150 text-gray-800 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                            {log.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 font-bold text-gray-700">
-                          {log.action}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+        <StaffTab
+          staffList={staffList}
+          auditLogs={auditLogs}
+          isStaffLoading={isStaffLoading}
+          fetchStaffData={fetchStaffData}
+          canManageStaff={canManageStaff}
+          editingStaff={editingStaff}
+          setEditingStaff={setEditingStaff}
+          handleSaveStaffEdit={handleSaveStaffEdit}
+          handleDeleteStaff={handleDeleteStaff}
+          handleCreateStaff={handleCreateStaff}
+          newStaffEmail={newStaffEmail}
+          setNewStaffEmail={setNewStaffEmail}
+          newStaffPassword={newStaffPassword}
+          setNewStaffPassword={setNewStaffPassword}
+          newStaffRole={newStaffRole}
+          handleRoleChangeForNewStaff={handleRoleChangeForNewStaff}
+          newStaffPermissions={newStaffPermissions}
+          setNewStaffPermissions={setNewStaffPermissions}
+          t={t}
+        />
       )}
+
+      {/* staff dead block removed */}
 
       {activeTab === 'offline-sync' && (
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          {/* Header Description */}
-          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-2">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-orange-500/10 text-orange-600 rounded-lg">
-                <RefreshCw size={18} className="animate-spin duration-3000" />
-              </div>
-              <div>
-                <h2 className="text-base font-black text-gray-900">Offline Sync & Conflict Engine</h2>
-                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Distributed State Integrity & Edge Case Safeguards</p>
-              </div>
-            </div>
-            <p className="text-xs font-semibold text-gray-500 max-w-3xl leading-relaxed">
-              When working offline or in poor network conditions, different staff members may modify the same order or table concurrently. This engine enforces strict, deterministic policy hierarchies to prevent <strong>phantom orders, uncoordinated double updates, or disappearing items</strong>.
-            </p>
-          </div>
-
-          {/* 1. Policy Settings Grid */}
-          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
-            <div>
-              <h3 className="text-sm font-black text-gray-900">1. Conflict Resolution Settings</h3>
-              <p className="text-[9px] text-gray-400 mt-0.5">Choose which policy is automatically triggered when concurrent modifications clash</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              {[
-                {
-                  id: 'smart',
-                  title: 'Smart Precedence Merge',
-                  badge: 'Recommended',
-                  desc: 'Deterministic status priority system (Cancelled/Completed takes precedence over cook/pending), union of items to prevent food waste & disappearing orders.',
-                  color: 'border-orange-500/30'
-                },
-                {
-                  id: 'server-wins',
-                  title: 'Server Wins (Strict)',
-                  badge: 'Conservative',
-                  desc: 'All conflicts are solved in favor of the central server database. Offline modifications made concurrently on client devices are safely dropped.',
-                  color: 'border-zinc-300'
-                },
-                {
-                  id: 'client-wins',
-                  title: 'Client Wins (Offline First)',
-                  badge: 'Optimistic',
-                  desc: 'Always trust the local client. The modifications made offline override the server state completely regardless of physical modification times.',
-                  color: 'border-zinc-300'
-                },
-                {
-                  id: 'timestamp-wins',
-                  title: 'Latest Timestamp',
-                  badge: 'Chronological',
-                  desc: 'Standard Last-Write-Wins (LWW) mechanism. The computer compares precise local and physical server trigger timestamps to select the newest record.',
-                  color: 'border-zinc-300'
-                }
-              ].map(policy => {
-                const isActive = activeConflictPolicy === policy.id;
-                return (
-                  <button
-                    key={policy.id}
-                    onClick={() => {
-                      offlineService.setConflictPolicy(policy.id as any);
-                      setActiveConflictPolicy(policy.id as any);
-                    }}
-                    className={`text-left p-4 rounded-xl border-2 transition-all flex flex-col justify-between h-full hover:scale-[1.002] active:scale-[0.99] group cursor-pointer ${
-                      isActive 
-                        ? 'border-orange-500 bg-orange-500/5 shadow-sm shadow-orange-500/5' 
-                        : 'border-gray-100 bg-gray-50 hover:bg-gray-100/70 hover:border-gray-200'
-                    }`}
-                  >
-                    <div className="space-y-1.5ClassName bg-transparent">
-                      <div className="flex justify-between items-start gap-1.5">
-                        <h4 className="font-black text-xs text-gray-800 leading-tight">{policy.title}</h4>
-                        <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded leading-none ${
-                          isActive 
-                            ? 'bg-orange-500 text-white' 
-                            : 'bg-zinc-200 text-zinc-600'
-                        }`}>
-                          {policy.badge}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-gray-400 font-semibold leading-normal group-hover:text-gray-500 transition-colors">
-                        {policy.desc}
-                      </p>
-                    </div>
-                    {isActive && (
-                      <div className="mt-2 text-[9px] flex items-center gap-1 text-orange-600 font-extrabold font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping" />
-                        ACTIVE STRATEGY
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 2. Interactive Conflict Simulator */}
-          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
-            <div>
-              <h3 className="text-sm font-black text-gray-900">2. Conflict Sandbox & Simulation Controls</h3>
-              <p className="text-[9px] text-gray-400 mt-0.5">Safely test concurrent offline race conditions to understand how the active policy resolves them</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Card A: Status Precedence */}
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
-                <div className="space-y-1">
-                  <span className="text-[8px] bg-red-100 text-red-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Waiters vs Kitchen</span>
-                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">Status Mismatch Battle</h4>
-                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
-                    Simulates non-coordinated actions: Waiter marks order <strong>Completed</strong> while offline, but Kitchen marks it <strong>Cancelled</strong> online due to stock exhaustion.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    const id = `order-${Math.floor(Math.random() * 9000 + 1000)}`;
-                    const localOrder = {
-                      id,
-                      status: 'Completed',
-                      items: [
-                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
-                      ],
-                      updated_at: new Date(Date.now() - 300000).toISOString(), // 5m ago
-                      version: 2
-                    };
-                    const remoteOrder = {
-                      id,
-                      status: 'Cancelled',
-                      items: [
-                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
-                      ],
-                      updated_at: new Date().toISOString(), // Now
-                      version: 3
-                    };
-                    offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
-                    setConflictLogs(offlineService.getConflictLogs());
-                  }}
-                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
-                >
-                  Trigger Status Battle
-                </button>
-              </div>
-
-              {/* Card B: Disappearing Items */}
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
-                <div className="space-y-1">
-                  <span className="text-[8px] bg-blue-100 text-blue-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Waiter A vs Waiter B</span>
-                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">No-Disappearing Item Union</h4>
-                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
-                    Simulates item edits: Client A modifies Rice quantity to 2 while offline, while Client B appends a Laksa Soup online concurrently. Prevents items from vanishing.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    const id = `order-${Math.floor(Math.random() * 9000 + 1000)}`;
-                    const localOrder = {
-                      id,
-                      status: 'Cooking',
-                      items: [
-                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 2 }
-                      ],
-                      updated_at: new Date(Date.now() - 100000).toISOString(),
-                      version: 3
-                    };
-                    const remoteOrder = {
-                      id,
-                      status: 'Cooking',
-                      items: [
-                        { menuItemId: 'm-rice', name: 'Golden Fried Rice', price: 12, quantity: 1 },
-                        { menuItemId: 'm-soup', name: 'Hot Laksa Soup', price: 15, quantity: 1 }
-                      ],
-                      updated_at: new Date().toISOString(),
-                      version: 2
-                    };
-                    offlineService.resolveOrderConflict(localOrder as any, remoteOrder as any);
-                    setConflictLogs(offlineService.getConflictLogs());
-                  }}
-                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
-                >
-                  Trigger Item Edit Battle
-                </button>
-              </div>
-
-              {/* Card C: Seating Overlap */}
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-150 flex flex-col justify-between space-y-3 border-gray-100">
-                <div className="space-y-1">
-                  <span className="text-[8px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-1.5 py-0.5 rounded">Concurrent Check-Ins</span>
-                  <h4 className="font-extrabold text-xs text-gray-900 pt-0.5">Safe Double Seating Avoidance</h4>
-                  <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
-                    Simulates Table statuses: Local device clears a table state to vacant while another device registers a new active guest session concurrently.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    const localTable = {
-                      id: `tbl-${Math.floor(Math.random() * 20 + 1)}`,
-                      name: 'Table 6 (Simulated)',
-                      status: 'vacant' as const,
-                      updated_at: new Date(Date.now() - 400000).toISOString(),
-                      version: 2
-                    };
-                    const remoteTable = {
-                      id: localTable.id,
-                      name: 'Table 6 (Simulated)',
-                      status: 'active' as const,
-                      current_session_id: 'sess-new-guest',
-                      updated_at: new Date().toISOString(),
-                      version: 3
-                    };
-                    offlineService.resolveTableConflict(localTable as any, remoteTable as any);
-                    setConflictLogs(offlineService.getConflictLogs());
-                  }}
-                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-2.5 px-3 rounded-lg text-xs transition-all shadow-sm cursor-pointer"
-                >
-                  Trigger Seating Battle
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Conflict Resolution Log Audit Trail */}
-          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm space-y-3">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="text-sm font-black text-gray-900">3. Automated Conflict Resolution Audit Logs</h3>
-                <p className="text-[9px] text-gray-400 mt-0.5">Immutable record of client-server auto merges executed on other devices or simulated sandbox runs</p>
-              </div>
-              {conflictLogs.length > 0 && (
-                <button
-                  onClick={() => {
-                    offlineService.clearConflictLogs();
-                    setConflictLogs([]);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                >
-                  <Trash2 size={12} /> Clear Logs
-                </button>
-              )}
-            </div>
-
-            {conflictLogs.length === 0 ? (
-              <div className="h-28 border border-dashed border-gray-100 rounded-xl p-4 flex flex-col items-center justify-center text-center">
-                <RefreshCw size={24} className="text-gray-200 mb-2 animate-pulse" />
-                <h4 className="font-extrabold text-xs text-gray-600">No Conflict Resolutions Logged</h4>
-                <p className="text-[10px] text-gray-400 font-medium max-w-xs mt-0.5">
-                  Use the quick sandbox simulator above to test conflicts and confirm policies in real time!
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-2">
-                {conflictLogs.map(log => {
-                  const dateStr = new Date(log.timestamp).toLocaleTimeString();
-                  return (
-                    <div key={log.id} className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-all space-y-3 text-left">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-mono font-black uppercase text-gray-400 bg-gray-200/60 px-1.5 py-0.5 rounded leading-none">
-                              {log.entityType} ID: {log.entityId}
-                            </span>
-                            <span className="text-[9.5px] text-gray-400 font-mono font-bold leading-none">
-                              Triggered at {dateStr}
-                            </span>
-                          </div>
-                          <h4 className="font-extrabold text-xs text-gray-800">{log.issue}</h4>
-                        </div>
-                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500 text-white leading-none">
-                          POLICY: {log.policyApplied.replace('-', ' ')}
-                        </span>
-                      </div>
-
-                      {/* Side-by-side data indicators */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-white p-2 text-[10px] rounded-lg border border-gray-100 text-xs">
-                          <span className="block text-[8px] font-black uppercase text-gray-400 mb-1 font-mono leading-none">Waiter Local Cache (IDB)</span>
-                          <pre className="font-mono text-[9px] bg-gray-50 p-1.5 rounded text-zinc-600 block max-h-16 overflow-y-auto select-all leading-tight">
-                            {JSON.stringify(log.localValue, null, 2)}
-                          </pre>
-                        </div>
-                        <div className="bg-white p-2 text-[10px] rounded-lg border border-gray-100 text-xs">
-                          <span className="block text-[8px] font-black uppercase text-gray-400 mb-1 font-mono leading-none">Central Server DB state</span>
-                          <pre className="font-mono text-[9px] bg-gray-50 p-1.5 rounded text-zinc-600 block max-h-16 overflow-y-auto select-all leading-tight">
-                            {JSON.stringify(log.remoteValue, null, 2)}
-                          </pre>
-                        </div>
-                        <div className="bg-white p-2 text-[10px] rounded-lg border border-orange-200 bg-orange-500/[0.01] text-xs">
-                          <span className="block text-[8px] font-black uppercase text-orange-600 mb-1 font-mono leading-none">Automerge Result</span>
-                          <pre className="font-mono text-[9px] bg-orange-500/5 border border-orange-100 p-1.5 rounded text-orange-900 block max-h-16 overflow-y-auto font-bold select-all leading-tight">
-                            {JSON.stringify(log.resolvedValue, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <OfflineSyncTab
+          activeConflictPolicy={activeConflictPolicy}
+          setActiveConflictPolicy={setActiveConflictPolicy}
+          conflictLogs={conflictLogs}
+          setConflictLogs={setConflictLogs}
+          t={t}
+        />
       )}
+
+      {/* offline sync dead block removed */}
 
       {/* Edit Modal */}
       <AnimatePresence>
@@ -2970,7 +1864,7 @@ export function AdminPanel() {
                             </label>
                             
                             <div className="grid gap-1.5">
-                              {(editingItem.productType === 'combo' ? (group as ComboGroup).items : (group as ModifierGroup).modifiers)?.map((item: any, itemIdx) => (
+                              {(editingItem.productType === 'combo' ? (group as ComboGroup).items : (group as ModifierGroup).modifiers)?.map((item: ComboGroupItem | Modifier, itemIdx) => (
                                 <div key={itemIdx} className="flex gap-2.5 items-start bg-white p-3 rounded-xl shadow-sm border border-gray-150 group/item">
                                   <div className="w-6 h-6 shrink-0 rounded-md bg-gray-50 flex items-center justify-center text-[9px] font-black text-gray-400 group-hover/item:text-orange-500 transition-colors mt-0.5">
                                     {itemIdx + 1}
@@ -2979,7 +1873,7 @@ export function AdminPanel() {
                                     <div className="flex gap-1.5 items-center">
                                       {editingItem.productType === 'combo' ? (
                                         <select
-                                          value={item.childProductId || ''}
+                                          value={(item as ComboGroupItem).childProductId || ''}
                                           onChange={e => {
                                             const newGroups = [...(editingItem.comboGroups || [])];
                                             const newItems = [...(newGroups[groupIdx].items || [])];
@@ -2987,7 +1881,7 @@ export function AdminPanel() {
                                             newItems[itemIdx] = {
                                               ...newItems[itemIdx],
                                               childProductId: e.target.value,
-                                              childProduct: child as any
+                                              childProduct: child as Product
                                             };
                                             newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                             setEditingItem({ ...editingItem, comboGroups: newGroups });
@@ -3001,7 +1895,7 @@ export function AdminPanel() {
                                         </select>
                                       ) : (
                                         <input 
-                                          value={item.name || ''}
+                                          value={(item as Modifier).name || ''}
                                           onChange={e => {
                                             const newGroups = [...(editingItem.modifierGroups || [])];
                                             const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
@@ -3089,18 +1983,18 @@ export function AdminPanel() {
                                         <div className="shrink-0 animate-none">
                                           <label className="text-[7px] font-black uppercase text-gray-400 mb-0.5 block">Importance</label>
                                           <select
-                                            value={(item.importance || item.renderImportance) || ''}
+                                            value={(editingItem.productType === 'combo' ? (item as ComboGroupItem).importance : (item as Modifier).renderImportance) || ''}
                                             onChange={e => {
                                               if (editingItem.productType === 'combo') {
                                                 const newGroups = [...(editingItem.comboGroups || [])];
                                                 const newItems = [...(newGroups[groupIdx].items || [])];
-                                                newItems[itemIdx] = { ...newItems[itemIdx], importance: (e.target.value || undefined) as any };
+                                                newItems[itemIdx] = { ...newItems[itemIdx], importance: (e.target.value || undefined) as RenderImportance };
                                                 newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                                 setEditingItem({ ...editingItem, comboGroups: newGroups });
                                               } else {
                                                 const newGroups = [...(editingItem.modifierGroups || [])];
                                                 const newModifiers = [...(newGroups[groupIdx].modifiers || [])];
-                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], renderImportance: (e.target.value || undefined) as any };
+                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], renderImportance: (e.target.value || undefined) as RenderImportance };
                                                 newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
                                                 setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                               }
@@ -3123,7 +2017,7 @@ export function AdminPanel() {
                                               if (group.maxSelect === 1) {
                                                 newItems.forEach((it, i) => it.defaultSelected = i === itemIdx);
                                               } else {
-                                                newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !item.defaultSelected };
+                                                newItems[itemIdx] = { ...newItems[itemIdx], defaultSelected: !(item as ComboGroupItem).defaultSelected };
                                               }
                                               newGroups[groupIdx] = { ...newGroups[groupIdx], items: newItems };
                                               setEditingItem({ ...editingItem, comboGroups: newGroups });
@@ -3133,19 +2027,19 @@ export function AdminPanel() {
                                               if (group.maxSelect === 1) {
                                                 newModifiers.forEach((it, i) => it.isDefault = i === itemIdx);
                                               } else {
-                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], isDefault: !item.isDefault };
+                                                newModifiers[itemIdx] = { ...newModifiers[itemIdx], isDefault: !(item as Modifier).isDefault };
                                               }
                                               newGroups[groupIdx] = { ...newGroups[groupIdx], modifiers: newModifiers };
                                               setEditingItem({ ...editingItem, modifierGroups: newGroups });
                                             }
                                           }}
                                           className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all border flex-1 h-[28px] flex items-center justify-center cursor-pointer ${
-                                            (item.defaultSelected || item.isDefault)
+                                            (editingItem.productType === 'combo' ? (item as ComboGroupItem).defaultSelected : (item as Modifier).isDefault)
                                               ? 'bg-orange-500 text-white border-orange-500 shadow-sm' 
                                               : 'bg-white text-gray-400 border-gray-150 hover:border-orange-200'
                                           }`}
                                         >
-                                          {(item.defaultSelected || item.isDefault) ? 'Default' : 'Set Default'}
+                                          {(editingItem.productType === 'combo' ? (item as ComboGroupItem).defaultSelected : (item as Modifier).isDefault) ? 'Default' : 'Set Default'}
                                         </button>
                                       </div>
                                     </div>

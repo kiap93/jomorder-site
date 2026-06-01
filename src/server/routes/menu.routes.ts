@@ -79,24 +79,8 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePer
   }
 
   const body = req.body;
-  const originalNames: { lang: string; text: string }[] = [];
-  const originalDescs: { lang: string; text: string }[] = [];
-
-  if (body.name && body.name.trim()) {
-    const result = await detectLanguageAndTranslate(body.name.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
-      body.name = result.englishTranslation;
-    }
-  }
-
-  if (body.description && body.description.trim()) {
-    const result = await detectLanguageAndTranslate(body.description.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
-      body.description = result.englishTranslation;
-    }
-  }
+  const originalNameInput = body.name?.trim();
+  const originalDescInput = body.description?.trim();
 
   const { data, error } = await supabaseAdmin
     .from('menu_items')
@@ -106,29 +90,58 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePer
   
   if (error) return res.status(500).json({ error: error.message });
 
+  // Fire-and-forget background translations
   if (data && data.id) {
-    for (const item of originalNames) {
-      await supabaseAdmin.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: 'menu_item',
-        entity_id: data.id,
-        field_name: 'name',
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
-    }
-    for (const item of originalDescs) {
-      await supabaseAdmin.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: 'menu_item',
-        entity_id: data.id,
-        field_name: 'description',
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
-    }
+    const restaurantId = data.restaurant_id || caller.restaurantId;
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Background AI POST] Translating item ${data.id} in background`);
+        
+        if (originalNameInput) {
+          const result = await detectLanguageAndTranslate(originalNameInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from('tenant_translations').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'name',
+              language_code: result.languageCode,
+              translated_text: originalNameInput,
+              translation_status: 'translated',
+              override_global: true
+            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+            const cleanedName = result.englishTranslation;
+            if (cleanedName && cleanedName !== originalNameInput) {
+              await supabaseAdmin.from('menu_items').update({ name: cleanedName }).eq('id', data.id);
+            }
+          }
+        }
+
+        if (originalDescInput) {
+          const result = await detectLanguageAndTranslate(originalDescInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from('tenant_translations').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'description',
+              language_code: result.languageCode,
+              translated_text: originalDescInput,
+              translation_status: 'translated',
+              override_global: true
+            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+            const cleanedDesc = result.englishTranslation;
+            if (cleanedDesc && cleanedDesc !== originalDescInput) {
+              await supabaseAdmin.from('menu_items').update({ description: cleanedDesc }).eq('id', data.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Background AI POST] Error running translation:", err);
+      }
+    });
   }
 
   if (caller && caller.email) {
@@ -148,48 +161,8 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requi
   }
 
   const body = req.body;
-  const originalNames: { lang: string; text: string }[] = [];
-  const originalDescs: { lang: string; text: string }[] = [];
-
-  // Change detection to prevent redundant, expensive AI translations
-  let existingItem: any = null;
-  if ((body.name && body.name.trim()) || (body.description && body.description.trim())) {
-    try {
-      const { data } = await supabaseAdmin
-        .from('menu_items')
-        .select('name, description')
-        .eq('id', req.params.id)
-        .single();
-      existingItem = data;
-    } catch (e) {
-      console.error("[Menu API] Failed to fetch existing item for change detection:", e);
-    }
-  }
-
-  const nameChanged = body.name && body.name.trim() && (!existingItem || body.name.trim() !== (existingItem.name || '').trim());
-  const descChanged = body.description && body.description.trim() && (!existingItem || body.description.trim() !== (existingItem.description || '').trim());
-
-  if (nameChanged) {
-    const result = await detectLanguageAndTranslate(body.name.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalNames.push({ lang: result.languageCode, text: body.name.trim() });
-      body.name = result.englishTranslation;
-    }
-  } else if (existingItem && body.name) {
-    // Keep raw English name if unchanged, skip AI translation detection
-    delete body.name; 
-  }
-
-  if (descChanged) {
-    const result = await detectLanguageAndTranslate(body.description.trim());
-    if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
-      originalDescs.push({ lang: result.languageCode, text: body.description.trim() });
-      body.description = result.englishTranslation;
-    }
-  } else if (existingItem && body.description) {
-    // Keep existing text if unchanged, skip AI translation detection
-    delete body.description;
-  }
+  const originalNameInput = body.name?.trim();
+  const originalDescInput = body.description?.trim();
 
   const { data, error } = await supabaseAdmin
     .from('menu_items')
@@ -200,29 +173,58 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requi
   
   if (error) return res.status(500).json({ error: error.message });
 
+  // Fire-and-forget background translations
   if (data && data.id) {
-    for (const item of originalNames) {
-      await supabaseAdmin.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: 'menu_item',
-        entity_id: data.id,
-        field_name: 'name',
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
-    }
-    for (const item of originalDescs) {
-      await supabaseAdmin.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
-        entity_type: 'menu_item',
-        entity_id: data.id,
-        field_name: 'description',
-        language_code: item.lang,
-        translated_text: item.text,
-        override_global: true
-      }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
-    }
+    const restaurantId = data.restaurant_id || caller.restaurantId;
+    Promise.resolve().then(async () => {
+      try {
+        console.log(`[Background AI PATCH] Translating item ${data.id} in background`);
+        
+        if (originalNameInput) {
+          const result = await detectLanguageAndTranslate(originalNameInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from('tenant_translations').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'name',
+              language_code: result.languageCode,
+              translated_text: originalNameInput,
+              translation_status: 'translated',
+              override_global: true
+            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+            const cleanedName = result.englishTranslation;
+            if (cleanedName && cleanedName !== originalNameInput) {
+              await supabaseAdmin.from('menu_items').update({ name: cleanedName }).eq('id', data.id);
+            }
+          }
+        }
+
+        if (originalDescInput) {
+          const result = await detectLanguageAndTranslate(originalDescInput);
+          if (result && !result.isEnglish && result.languageCode && result.englishTranslation) {
+            await supabaseAdmin.from('tenant_translations').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'description',
+              language_code: result.languageCode,
+              translated_text: originalDescInput,
+              translation_status: 'translated',
+              override_global: true
+            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+            const cleanedDesc = result.englishTranslation;
+            if (cleanedDesc && cleanedDesc !== originalDescInput) {
+              await supabaseAdmin.from('menu_items').update({ description: cleanedDesc }).eq('id', data.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Background AI PATCH] Error updating translations:", err);
+      }
+    });
   }
 
   if (caller && caller.email) {

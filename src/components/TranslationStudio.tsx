@@ -23,15 +23,23 @@ interface TranslationStudioProps {
 import { translateFoodTerm } from '../services/aiTranslationService';
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const styles: Record<string, string> = {
-    draft: 'bg-gray-100 text-gray-500',
-    reviewed: 'bg-blue-100 text-blue-600',
-    approved: 'bg-green-100 text-green-600',
-    rejected: 'bg-red-100 text-red-600'
-  };
+  let styles = 'bg-zinc-50 text-zinc-500 border border-zinc-200';
+  let label = '↺ fallback';
+  
+  if (status === 'translated' || status === 'approved') {
+    styles = 'bg-green-50 text-green-600 border border-green-200';
+    label = '✓ translated';
+  } else if (status === 'failed' || status === 'rejected') {
+    styles = 'bg-red-50 text-red-500 border border-red-200';
+    label = '⚠ failed';
+  } else if (status === 'pending' || status === 'draft' || status === 'reviewed') {
+    styles = 'bg-amber-50 text-amber-500 border border-amber-200 animate-pulse';
+    label = '↺ pending';
+  }
+
   return (
-    <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${styles[status] || styles.draft}`}>
-      {status}
+    <span className={`text-[8px] font-black uppercase tracking-[0.1em] px-2.5 py-0.5 rounded-full ${styles}`}>
+      {label}
     </span>
   );
 };
@@ -53,6 +61,66 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
   const [showGlobalHistory, setShowGlobalHistory] = useState(false);
   const [fallbackToOriginal, setFallbackToOriginal] = useState(true);
   const [saveStatus, setSaveStatus] = useState(false);
+
+  const [allTranslations, setAllTranslations] = useState<any[]>([]);
+  const [allTranslationJobs, setAllTranslationJobs] = useState<any[]>([]);
+
+  const fetchAllStatusData = async () => {
+    try {
+      const { data: transData } = await supabase
+        .from('tenant_translations')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .eq('language_code', targetLang);
+      setAllTranslations(transData || []);
+
+      const { data: jobData } = await supabase
+        .from('translation_jobs')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .eq('target_language', targetLang);
+      setAllTranslationJobs(jobData || []);
+    } catch (err) {
+      console.error('Failed to fetch translation status data:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllStatusData();
+  }, [restaurantId, targetLang]);
+
+  const getEntityStatus = (entityId: string, hasDesc: boolean) => {
+    const nameTrans = allTranslations.find(t => t.entity_id === entityId && t.field_name === 'name');
+    const descTrans = hasDesc ? allTranslations.find(t => t.entity_id === entityId && t.field_name === 'description') : null;
+
+    const nameJob = allTranslationJobs.find(j => j.entity_id === entityId && j.field_name === 'name');
+    const descJob = hasDesc ? allTranslationJobs.find(j => j.entity_id === entityId && j.field_name === 'description') : null;
+
+    if (
+      (nameJob && nameJob.status === 'failed') ||
+      (descJob && descJob.status === 'failed') ||
+      (nameTrans && nameTrans.translation_status === 'failed') ||
+      (descTrans && descTrans.translation_status === 'failed')
+    ) {
+      return 'failed';
+    }
+
+    if (
+      (nameJob && (nameJob.status === 'pending' || nameJob.status === 'processing')) ||
+      (descJob && (descJob.status === 'pending' || descJob.status === 'processing'))
+    ) {
+      return 'pending';
+    }
+
+    const nameTranslated = nameTrans && nameTrans.translated_text && nameTrans.translated_text.trim().length > 0;
+    const descTranslated = !hasDesc || (descTrans && descTrans.translated_text && descTrans.translated_text.trim().length > 0);
+
+    if (nameTranslated && descTranslated) {
+      return 'translated';
+    }
+
+    return 'fallback';
+  };
 
   useEffect(() => {
     const fetchFallbackSetting = async () => {
@@ -139,19 +207,38 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         .eq('language_code', targetLang);
 
       const newTranslations = { name: '', description: '' };
-      const newStatuses = { name: 'draft', description: 'draft' };
+      const newStatuses = { name: 'fallback', description: 'fallback' };
       if (data) {
         data.forEach(row => {
           if (row.field_name === 'name') {
             newTranslations.name = row.translated_text;
-            newStatuses.name = 'approved'; // Default to approved or something else if column missing
+            newStatuses.name = row.translation_status || 'translated';
           }
           if (row.field_name === 'description') {
             newTranslations.description = row.translated_text;
-            newStatuses.description = 'approved';
+            newStatuses.description = row.translation_status || 'translated';
           }
         });
       }
+
+      const nameJob = allTranslationJobs.find(j => j.entity_id === selectedEntity.id && j.field_name === 'name');
+      const descJob = allTranslationJobs.find(j => j.entity_id === selectedEntity.id && j.field_name === 'description');
+
+      if (!newTranslations.name) {
+        if (nameJob) {
+          newStatuses.name = nameJob.status === 'failed' ? 'failed' : (nameJob.status === 'pending' || nameJob.status === 'processing' ? 'pending' : 'fallback');
+        } else {
+          newStatuses.name = 'fallback';
+        }
+      }
+      if (!newTranslations.description) {
+        if (descJob) {
+          newStatuses.description = descJob.status === 'failed' ? 'failed' : (descJob.status === 'pending' || descJob.status === 'processing' ? 'pending' : 'fallback');
+        } else {
+          newStatuses.description = 'fallback';
+        }
+      }
+
       setTranslations(newTranslations);
       setOriginalTranslations(newTranslations);
       setStatuses(newStatuses);
@@ -240,6 +327,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
             field_name: field,
             language_code: targetLang,
             translated_text: finalTranslation,
+            translation_status: 'translated',
             override_global: true
           }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
 
@@ -263,6 +351,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
       setOriginalTranslations({ ...translations });
       fetchCurrentTranslation();
       fetchHistory();
+      fetchAllStatusData();
     } catch (err: any) {
       console.error('Save failed:', err);
       setError(err.message || 'Failed to save translation. Verify your permissions.');
@@ -340,19 +429,27 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-1">
-          {filterEntities().map(entity => (
-            <button
-              key={entity.id}
-              onClick={() => setSelectedEntity(entity)}
-              className={`w-full text-left p-4 rounded-2xl transition-all flex items-center justify-between group ${selectedEntity?.id === entity.id ? 'bg-gray-900 text-white' : 'hover:bg-gray-50 text-gray-600'}`}
-            >
-              <div className="flex flex-col">
-                <span className="text-xs font-black uppercase tracking-wide">{entity.name}</span>
-                <span className={`text-[9px] font-medium opacity-50`}>{ (entity as MenuItem).basePrice ? `$${(entity as MenuItem).basePrice}` : 'Category' }</span>
-              </div>
-              <ChevronRight size={14} className={`opacity-0 group-hover:opacity-100 transition-all ${selectedEntity?.id === entity.id ? 'opacity-100' : ''}`} />
-            </button>
-          ))}
+          {filterEntities().map(entity => {
+            const hasDesc = entityType === 'menu_item' && !!(entity as MenuItem).description;
+            const status = getEntityStatus(entity.id, hasDesc);
+            return (
+              <button
+                key={entity.id}
+                onClick={() => setSelectedEntity(entity)}
+                className={`w-full text-left p-4 rounded-2xl transition-all flex items-center justify-between group ${selectedEntity?.id === entity.id ? 'bg-gray-900 text-white' : 'hover:bg-gray-50 text-gray-600'}`}
+              >
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-xs font-black uppercase tracking-wide">{entity.name}</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[9px] font-medium opacity-50`}>{ (entity as MenuItem).basePrice ? `$${(entity as MenuItem).basePrice}` : 'Category' }</span>
+                    <span className="opacity-30 text-[9px]">•</span>
+                    <StatusBadge status={status} />
+                  </div>
+                </div>
+                <ChevronRight size={14} className={`opacity-0 group-hover:opacity-100 transition-all ${selectedEntity?.id === entity.id ? 'opacity-100' : ''}`} />
+              </button>
+            );
+          })}
         </div>
       </div>
 

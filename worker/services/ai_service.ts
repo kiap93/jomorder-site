@@ -2,7 +2,35 @@ import { GoogleGenAI } from '@google/genai';
 import { Bindings } from '../types';
 import { getSupabase } from './db_service';
 
+export function sanitizeTranslationOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text.trim();
+  const descPattern = /\s*\((fragrant|coconut|rice|fried|chicken|spicy|sweet|savory|sauce|steamed|soup|noodle|pork|beef|curry|traditional|malay|chinese|local|dish|style)[^)]*\)/gi;
+  cleaned = cleaned.replace(descPattern, '');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+}
+
+export function isLatinString(text: string): boolean {
+  if (!text) return true;
+  const nonLatinRegex = /[\u4e00-\u9fff\u3040-\u30ff\u3000-\u303f\uac00-\ud7af\u0e00-\u0e7f]/;
+  return !nonLatinRegex.test(text);
+}
+
 export async function detectLanguageAndTranslate(text: string, apiKey?: string): Promise<{ isEnglish: boolean; languageCode: string | null; englishTranslation: string | null } | null> {
+  const sanitized = (text || "").trim();
+  if (!sanitized) return null;
+
+  // Preserve standard Latin strings like Nasi Lemak directly, treating them as English
+  // to avoid over-translation and unwanted bracketed/parenthetical explanations in menu_items
+  if (isLatinString(sanitized)) {
+    return {
+      isEnglish: true,
+      languageCode: null,
+      englishTranslation: sanitized
+    };
+  }
+
   if (!apiKey) return null;
   try {
     const ai = new GoogleGenAI({ 
@@ -14,7 +42,7 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
       contents: `
       You are an expert language detector and culinary translator for a multi-tenant restaurant system.
       Analyze the following text (which is a food menu item name or description):
-      "${text}"
+      "${sanitized}"
       
       Determine:
       1. Is this text primarily in English? (Answer true if it's already in English or standard Latin name with no clear translation, false if it's in another language. For terms like "Nasi Lemak" or "Ayam Goreng" which are Malay, return false with languageCode "ms" and englishTranslation as a clean English/standard culinary spelling).
@@ -42,7 +70,7 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
     return {
       isEnglish: !!result.isEnglish,
       languageCode: result.languageCode || null,
-      englishTranslation: result.englishTranslation ? result.englishTranslation.trim() : null
+      englishTranslation: result.englishTranslation ? sanitizeTranslationOutput(result.englishTranslation) : null
     };
   } catch (error) {
     console.error(`[Language Detection] Gemini language detection/translation failed for "${text}":`, error);
@@ -51,6 +79,15 @@ export async function detectLanguageAndTranslate(text: string, apiKey?: string):
 }
 
 export async function translateTextWithGemini(text: string, targetLang: string, apiKey?: string): Promise<string | null> {
+  const sanitized = (text || "").trim();
+  if (!sanitized) return "";
+
+  // If the target language is English, and the source text is already written in standard Latin script,
+  // return the source text directly to avoid any unnecessary or verbose machine translation edits.
+  if (targetLang.toLowerCase() === 'en' && isLatinString(sanitized)) {
+    return sanitized;
+  }
+
   if (!apiKey) {
     return null;
   }
@@ -66,18 +103,20 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
       You are a professional culinary translator specializing in multi-tenant restaurant systems.
       Translate the following food term or description to the target language: ${targetLangFull}.
       
-      Term: "${text}"
+      Term: "${sanitized}"
       Restaurant Type: General
       
       Context Guidelines:
       - For Bubble Tea: Use established tea culture terms.
       - For Malaysian Restaurants: Use authentic local terms if target is Bahasa Melayu.
       - Aim for appetite appeal and accuracy.
+      - CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "椰浆饭（椰香米饭）"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
       
       Return ONLY the translated text, no explanation or quotes.
       `
     });
-    return (response.text || "").trim();
+    const rawVal = (response.text || "").trim();
+    return sanitizeTranslationOutput(rawVal);
   } catch (error) {
     console.error(`[Background Translation Job] Gemini Translation failed for "${text}" to ${targetLang}:`, error);
     return null;

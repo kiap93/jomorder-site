@@ -103,7 +103,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             restaurantId: profile.restaurantId || profile.restaurant_id,
             organizationId: profile.organizationId || profile.organization_id || null,
             status: profile.status,
-            permissions: profile.permissions
+            permissions: profile.permissions,
+            platform_role: profile.platform_role || null
           } as UserProfile,
           token: savedToken,
           loading: false 
@@ -154,7 +155,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
-          permissions: profile.permissions
+          permissions: profile.permissions,
+          platform_role: profile.platform_role || null
         } as UserProfile,
         token,
         loading: false 
@@ -202,7 +204,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
-          permissions: profile.permissions
+          permissions: profile.permissions,
+          platform_role: profile.platform_role || null
         } as UserProfile,
         token,
         loading: false 
@@ -252,7 +255,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           restaurantId: profile.restaurantId || profile.restaurant_id,
           organizationId: profile.organizationId || profile.organization_id || null,
           status: profile.status,
-          permissions: profile.permissions
+          permissions: profile.permissions,
+          platform_role: profile.platform_role || null
         } as UserProfile,
         token,
         loading: false 
@@ -330,7 +334,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           restaurantId: enrichedUser.restaurantId || enrichedUser.restaurant_id,
           organizationId: enrichedUser.organizationId || enrichedUser.organization_id || null,
           status: enrichedUser.status,
-          permissions: enrichedUser.permissions
+          permissions: enrichedUser.permissions,
+          platform_role: enrichedUser.platform_role || null
         } as UserProfile,
         token,
         loading: false 

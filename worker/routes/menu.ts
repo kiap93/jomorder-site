@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { GoogleGenAI } from '@google/genai';
 import { Bindings, Variables } from '../types';
 import { getSupabase, getStaffSettingsFromDb, logToAuditDb } from '../services/db_service';
-import { detectLanguageAndTranslate, runBackgroundTranslationJob } from '../services/ai_service';
+import { detectLanguageAndTranslate, runBackgroundTranslationJob, sanitizeTranslationOutput } from '../services/ai_service';
 import { authenticate } from '../middleware/auth';
 
 const menuRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -384,11 +384,14 @@ menuRoutes.post('/api/translate', authenticate, async (c) => {
       Term: "${text}"
       Restaurant Type: ${restaurantContext || 'General'}
       
+      CRITICAL: Do NOT append any definitions, descriptions, ingredients, transliterations, or alternative/literal names in parentheses or brackets (for example: do NOT translate "Nasi Lemak" into "Nasi Lemak (Fragrant Coconut Rice)" or "椰浆饭（椰香米饭）"). Keep the translation completely concise, authentic, and direct, containing ONLY the item name itself without any parenthetical clarifications or extra comments.
+
       Return ONLY the translated text.
       `
     });
     
-    const translatedText = (response.text || "").trim();
+    const preText = (response.text || "").trim();
+    const translatedText = sanitizeTranslationOutput(preText);
     return c.json({ translatedText });
   } catch (error: any) {
     console.error("Worker translation error:", error);

@@ -2,7 +2,14 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { supabaseAdmin } from "../services/dbService";
 import { getStaffSettingsFromDb, logToAuditDb } from "../../../worker/services/db_service";
-import { hasPermission, PermissionCode } from "../../lib/rbac";
+import { hasPermission, PermissionCode, UserSession } from "../../lib/rbac";
+
+export interface AuthenticatedRequest extends express.Request {
+  user?: UserSession & {
+    is_platform_admin?: boolean;
+    platform_role?: string;
+  };
+}
 
 const getSecret = () => {
   const secret = process.env.JWT_SECRET;
@@ -28,7 +35,7 @@ export const authenticateJWT = (req: express.Request, res: express.Response, nex
   try {
     const secret = getSecret();
     const decoded = jwt.verify(token, secret);
-    (req as any).user = decoded;
+    (req as AuthenticatedRequest).user = decoded as UserSession & { is_platform_admin?: boolean; platform_role?: string };
     next();
   } catch (err: any) {
     console.warn(`[AUTH FAIL] Invalid token for ${req.path}: ${err.message}`);
@@ -43,7 +50,7 @@ export const authenticateJWT = (req: express.Request, res: express.Response, nex
  */
 export const requireTenantIsolation = (paramName: string = 'restId') => {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const user = (req as any).user;
+    const user = (req as AuthenticatedRequest).user;
 
     if (!user) {
       return res.status(401).json({ error: "Unauthorized: User session not found" });
@@ -187,7 +194,7 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
             }
 
             if (data) {
-              const resourceRestId = (data as any).restaurant_id || (data as any).restaurantId;
+              const resourceRestId = (data as { restaurant_id?: string; restaurantId?: string }).restaurant_id || (data as { restaurant_id?: string; restaurantId?: string }).restaurantId;
               if (resourceRestId && resourceRestId !== userRestId) {
                 console.error(`[OWNERSHIP VIOLATION] ${user.email} tried accessing/modifying ${tableName} ID ${targetId} which belongs to restaurant ${resourceRestId} (User belongs to: ${userRestId})`);
                 return res.status(403).json({ error: "Forbidden: You do not own this resource level object." });
@@ -211,7 +218,7 @@ export const requireTenantIsolation = (paramName: string = 'restId') => {
  */
 export const requireCapability = (capability: string, restIdParam: string = 'restId') => {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const user = (req as any).user;
+    const user = (req as AuthenticatedRequest).user;
     const restId = req.params[restIdParam] || req.query[restIdParam] as string || req.body[restIdParam];
 
     if (!user) {
@@ -242,7 +249,7 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
 
       if (!hasPerm) {
         // High level role-based defaults for basic operations
-        const isOwnerOrManager = user.role === 'owner' || user.role === 'OWNER' || user.role === 'manager' || user.role === 'MANAGER';
+        const isOwnerOrManager = user.role === 'owner' || user.role === 'manager';
         
         if (capability === 'order:write' || capability === 'order:view' || capability === 'menu:view') {
           hasPerm = true; 
@@ -268,7 +275,7 @@ export const requireCapability = (capability: string, restIdParam: string = 'res
  * 4. Zero Hardcoded Superadmin Authorization Middleware
  */
 export const requireSuperAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Session missing" });
   }
@@ -288,7 +295,7 @@ export const requireSuperAdmin = (req: express.Request, res: express.Response, n
  */
 export const requirePermissions = (...requiredPermissions: PermissionCode[]) => {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const user = (req as any).user;
+    const user = (req as AuthenticatedRequest).user;
     if (!user) {
       return res.status(401).json({ error: "Unauthorized: User session details not found." });
     }
@@ -344,7 +351,7 @@ export const requirePermissions = (...requiredPermissions: PermissionCode[]) => 
  */
 export const requireAnyPermission = (...allowedPermissions: PermissionCode[]) => {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const user = (req as any).user;
+    const user = (req as AuthenticatedRequest).user;
     if (!user) {
       return res.status(401).json({ error: "Unauthorized: User session details not found." });
     }

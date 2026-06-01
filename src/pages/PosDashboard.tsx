@@ -14,6 +14,21 @@ import { offlineService } from '../lib/offlineService';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { printerService } from '../services/printerService';
 
+interface RawOrder {
+  id: string;
+  table_id: string;
+  tables?: { name: string };
+  order_type: 'dine_in' | 'takeaway';
+  status: string;
+  total_price: string;
+  payments?: { amount: string }[];
+  payment_method: 'counter' | 'online';
+  items: any[];
+  paid_at?: string;
+  created_at: string;
+  session_id?: string;
+}
+
 export function PosDashboard() {
   const { restId } = useParams();
   const { user, loading: loadingAuth } = useAuthStore();
@@ -54,7 +69,7 @@ export function PosDashboard() {
             serviceCharge: parseFloat(data.service_charge) / 100,
             sst: parseFloat(data.sst) / 100,
             franchiseId: data.franchise_id
-          } as any);
+          } as Restaurant);
         }
       });
 
@@ -102,18 +117,19 @@ export function PosDashboard() {
         clearTimeout(loadingTimer);
 
         if (data) {
-          const fetchedOrders = data.map((o: any) => ({
+          const fetchedOrders = (data as RawOrder[]).map((o: RawOrder) => ({
             id: o.id,
             tableId: o.table_id,
-            tableName: (o as any).tables?.name || o.table_id?.slice(-4).toUpperCase() || 'TAKEAWAY',
+            tableName: o.tables?.name || o.table_id?.slice(-4).toUpperCase() || 'TAKEAWAY',
             orderType: o.order_type,
             status: o.status as OrderStatus,
             totalPrice: parseFloat(o.total_price),
-            paidAmount: ((o as any).payments || []).reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0),
+            paidAmount: (o.payments || []).reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount), 0),
             paymentMethod: o.payment_method,
             items: o.items,
             paid_at: o.paid_at,
             createdAt: o.created_at,
+            updatedAt: o.created_at,
             sessionId: o.session_id
           }));
 
@@ -122,7 +138,7 @@ export function PosDashboard() {
 
           // Silent persistent sync of loaded orders into IndexedDB for offline queries!
           try {
-            await offlineService.repository.saveOrders(fetchedOrders.map((o: any) => ({
+            await offlineService.repository.saveOrders(fetchedOrders.map((o: Order) => ({
               id: o.id,
               table_id: o.tableId,
               status: o.status,
@@ -151,12 +167,13 @@ export function PosDashboard() {
               status: o.status as OrderStatus,
               totalPrice: o.total_amount || 0,
               paidAmount: o.status === 'completed' ? (o.total_amount || 0) : 0,
-              paymentMethod: 'cash',
+              paymentMethod: 'counter',
               items: o.items || [],
               paid_at: o.status === 'completed' ? new Date().toISOString() : undefined,
               createdAt: o.created_at,
+              updatedAt: o.created_at,
               sessionId: o.p_session_id || ''
-            })) as any);
+            })) as Order[]);
             setError(null);
           } else {
             setError(err.message || "Working Offline: No order records found in current cache.");
@@ -288,8 +305,8 @@ export function PosDashboard() {
             orderId: j.order_id,
             printerId: j.printer_id,
             idempotencyKey: j.idempotency_key,
-            type: j.type as any,
-            status: j.status as any,
+            type: j.type as 'kot' | 'receipt',
+            status: j.status as 'pending' | 'printed' | 'failed',
             retries: j.retries,
             payload: j.payload,
             reprintCount: j.reprint_count || 0,
@@ -317,8 +334,8 @@ export function PosDashboard() {
 
   const filteredOrders = orders.filter(o => {
     if (filter === 'active') return o.status !== 'completed' && o.status !== 'cancelled';
-    if (filter === 'paid') return !!(o as any).paid_at;
-    if (filter === 'payments') return o.status !== 'completed' && o.status !== 'cancelled' && ((o as any).paidAmount || 0) < o.totalPrice;
+    if (filter === 'paid') return !!o.paid_at;
+    if (filter === 'payments') return o.status !== 'completed' && o.status !== 'cancelled' && (o.paidAmount || 0) < o.totalPrice;
     return o.status === filter;
   });
 
@@ -394,7 +411,7 @@ export function PosDashboard() {
                     }`}>
                       {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
                     </span>
-                    {(order as any).paid_at && (
+                    {order.paid_at && (
                       <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase leading-none italic shadow-sm shadow-emerald-500/20">
                         {t('pos.paid')}
                       </span>
@@ -447,11 +464,11 @@ export function PosDashboard() {
               <div className="p-3 pt-0 mt-auto bg-gray-50/10">
                 <div className="flex justify-between items-center mb-2 pt-2 border-t border-gray-100">
                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                    {(order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? t('pos.due') : t('pos.sum')}
+                    {(order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? t('pos.due') : t('pos.sum')}
                   </span>
                   <div className="text-right">
                     <span className="text-sm font-black text-gray-900 tabular-nums">
-                      RM {((order as any).paidAmount > 0 && (order as any).paidAmount < order.totalPrice ? order.totalPrice - (order as any).paidAmount : order.totalPrice).toFixed(2)}
+                      RM {((order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? order.totalPrice - (order.paidAmount ?? 0) : order.totalPrice).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -497,15 +514,15 @@ export function PosDashboard() {
                         {t('pos.done')}
                       </button>
                     )}
-                    {(order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SERVED) && (order as any).session_id && (
+                    {(order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SERVED) && order.session_id && (
                       <button
-                        onClick={() => closeSession((order as any).session_id, (order as any).table_id)}
+                        onClick={() => closeSession(order.session_id!, order.table_id || '')}
                         className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors shadow-sm"
                       >
                         {t('pos.close')}
                       </button>
                     )}
-                    {!(order as any).paid_at && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
+                    {!order.paid_at && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
                       <button
                         onClick={() => setSettlingOrder(order)}
                         className="flex-1 h-8 bg-emerald-100 text-emerald-800 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1 border border-emerald-200/50"

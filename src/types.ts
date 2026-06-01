@@ -267,6 +267,7 @@ export interface Order {
   sessionId?: string;
   session_id?: string;
   tableName?: string;
+  paidAmount?: number;
   orderType: 'dine_in' | 'takeaway';
   status: OrderStatus;
   totalPrice: number;
