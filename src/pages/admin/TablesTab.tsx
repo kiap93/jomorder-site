@@ -240,9 +240,9 @@ export function TablesTab({
         })}
         <button 
           onClick={addTable}
-          className="border-2 border-dashed border-gray-200 p-8 rounded-3xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"
+          className="border-2 border-dashed border-gray-200 p-4 rounded-xl flex flex-col items-center justify-center gap-3 text-gray-400 font-bold hover:border-orange-200 hover:text-orange-500 transition-all hover:bg-orange-50/20"
         >
-          <Plus size={32} />
+          <Plus size={24} />
           {t('admin.addTable')}
         </button>
       </div>

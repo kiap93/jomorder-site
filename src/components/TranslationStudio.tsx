@@ -399,9 +399,9 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-8 h-[calc(100vh-200px)]">
+      <div className="grid grid-cols-12 gap-4 h-[calc(100vh-200px)]">
       {/* Entity Sidebar */}
-      <div className="col-span-4 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col overflow-hidden">
+      <div className="col-span-4 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden">
         <div className="p-6 border-b border-gray-50 flex flex-col gap-4">
           <div className="flex bg-gray-50 p-1 rounded-2xl">
             <button
@@ -454,17 +454,17 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
       </div>
 
       {/* Editor Main */}
-      <div className="col-span-8 flex flex-col gap-8">
+      <div className="col-span-8 flex flex-col gap-4">
         {selectedEntity ? (
           <>
-            <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm p-10 flex flex-col gap-10">
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center text-orange-600">
+                  <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center text-orange-600">
                     <Globe size={24} />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-black text-gray-900 leading-none mb-1">Translation Studio</h2>
+                    <h2 className="text-lg font-black text-gray-900 leading-none mb-1">Translation Studio</h2>
                     <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">{selectedEntity.name}</p>
                   </div>
                 </div>
@@ -508,16 +508,16 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
                 </div>
               </div>
 
-              <div className="flex flex-col gap-10">
+              <div className="flex flex-col gap-4">
                 {/* Name Translation Section */}
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Original Name (English)</label>
-                    <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 text-sm font-bold text-gray-900 min-h-[60px]">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-bold text-gray-900 min-h-[40px] flex items-center">
                       {selectedEntity.name}
                     </div>
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Name Translation ({targetLang})</label>
                       <div className="flex items-center gap-3">
@@ -537,21 +537,21 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
                       value={translations.name}
                       onChange={e => setTranslations({ ...translations, name: e.target.value })}
                       placeholder={`Enter ${targetLang} name...`}
-                      className="w-full p-6 bg-white rounded-3xl border-2 border-gray-100 focus:border-orange-500 transition-all text-sm font-bold text-gray-900 min-h-[60px]"
+                      className="w-full p-3 bg-white rounded-xl border-2 border-gray-100 focus:border-orange-500 transition-all text-xs font-bold text-gray-900 min-h-[40px] h-10"
                     />
                   </div>
                 </div>
 
                 {/* Description Translation Section (Only for Menu Items) */}
                 {entityType === 'menu_item' && (selectedEntity as MenuItem).description && (
-                  <div className="grid grid-cols-2 gap-8 pt-6 border-t border-gray-50">
-                    <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Original Description</label>
-                      <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 text-xs font-bold text-gray-500 min-h-[100px] whitespace-pre-wrap">
+                      <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-bold text-gray-500 min-h-[60px] whitespace-pre-wrap">
                         {(selectedEntity as MenuItem).description}
                       </div>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Description Translation</label>
                         <div className="flex items-center gap-3">
@@ -570,7 +570,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
                         value={translations.description}
                         onChange={e => setTranslations({ ...translations, description: e.target.value })}
                         placeholder={`Enter ${targetLang} description...`}
-                        className="w-full p-6 bg-white rounded-3xl border-2 border-gray-100 focus:border-orange-500 transition-all text-xs font-bold text-gray-900 min-h-[100px]"
+                        className="w-full p-3 bg-white rounded-xl border-2 border-gray-100 focus:border-orange-500 transition-all text-xs font-bold text-gray-900 min-h-[60px]"
                       />
                     </div>
                   </div>
@@ -599,7 +599,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="bg-white rounded-[3rem] border border-gray-100 shadow-sm p-8"
+                  className="bg-white rounded-xl border border-gray-100 shadow-sm p-4"
                 >
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-900 flex items-center gap-2">
@@ -643,7 +643,7 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
             </AnimatePresence>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200 p-12 text-center">
+          <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-6 text-center">
             <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center text-gray-200 mb-6">
               <Globe size={40} strokeWidth={1} />
             </div>

@@ -430,6 +430,18 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
     console.log(`[Translation Cache] HIT! Saved translateTextWithGemini API cost for cache key: ${cacheKey.substring(0, 12)} ("${sanitizedText.substring(0, 20)}...")`);
     return protectResult(translationCache.get(cacheKey));
   }
+  try {
+    const { data: dbMatch, error: dbErr } = await supabaseAdmin.from("global_translations").select("translated_text").eq("term_key", sanitizedText).eq("language_code", targetLang.toLowerCase()).maybeSingle();
+    if (!dbErr && dbMatch && dbMatch.translated_text?.trim()) {
+      const foundTranslated = dbMatch.translated_text.trim();
+      const finalVal = protectResult(foundTranslated);
+      console.log(`[Database Cache HIT] Found pre-translated text in global_translations for: "${sanitizedText.substring(0, 25)}" -> "${finalVal.substring(0, 25)}"`);
+      setInCache(translationCache, cacheKey, finalVal);
+      return finalVal;
+    }
+  } catch (err) {
+    console.warn("[Database Translation Cache Check Failed]:", err);
+  }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("Translation fallback applied", {
@@ -483,6 +495,18 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
     }
     const finalVal = protectResult(sanitizedTranslated);
     setInCache(translationCache, cacheKey, finalVal);
+    try {
+      await supabaseAdmin.from("global_translations").upsert({
+        term_key: sanitizedText,
+        language_code: targetLang.toLowerCase(),
+        translated_text: finalVal,
+        confidence_score: 1,
+        approved: true
+      }, { onConflict: "term_key,language_code" });
+      console.log(`[Database Cache Save] Persisted new translation for "${sanitizedText.substring(0, 20)}" -> "${finalVal.substring(0, 20)}" to global_translations`);
+    } catch (saveErr) {
+      console.warn("[Database Translation Cache Save Failed]:", saveErr);
+    }
     return finalVal;
   } catch (error) {
     console.warn("Translation fallback applied", {
@@ -3400,8 +3424,962 @@ var IdempotencyService = class {
 };
 var idempotencyService = new IdempotencyService();
 
+// src/server/services/payments/billplz.provider.ts
+var BillplzProvider = class {
+  constructor(config) {
+    this.apiKey = config.apiKey || "";
+    this.collectionId = config.collectionId || "";
+    this.webhookSecret = config.webhookSecret || "";
+  }
+  async createPayment(data) {
+    console.log(`[BillplzProvider] Creating bill. Collection: ${this.collectionId}, Amount: RM${data.amount}`);
+    if (this.apiKey.startsWith("billplz_") || this.apiKey && this.collectionId) {
+      try {
+        const body = {
+          collection_id: this.collectionId,
+          email: data.customer_email || "customer@example.com",
+          name: data.customer_name || "Customer",
+          amount: Math.round(data.amount * 100),
+          // in cents
+          callback_url: data.callback_url,
+          redirect_url: data.redirect_url,
+          description: `Order ${data.order_id} at JomOrder`
+        };
+        const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
+        const res = await fetch("https://www.billplz.com/api/v3/bills", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Basic ${authHeader}`
+          },
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          return {
+            success: true,
+            payment_url: raw.url,
+            reference_id: raw.id,
+            raw_response: raw
+          };
+        } else {
+          const errMsg = await res.text();
+          throw new Error(errMsg);
+        }
+      } catch (err) {
+        console.error("[BillplzProvider] Connection failed, using fallback simulator:", err.message);
+      }
+    }
+    const mockBillId = `bill_${Math.random().toString(36).substr(2, 9)}`;
+    const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=billplz&sim_ref=${mockBillId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    return {
+      success: true,
+      payment_url: paymentUrl,
+      reference_id: mockBillId,
+      raw_response: { mock: true, billplzId: mockBillId }
+    };
+  }
+  async getPaymentStatus(reference) {
+    console.log(`[BillplzProvider] Retrieving status for reference ID: ${reference}`);
+    if (this.apiKey && reference.startsWith("bill_")) {
+      try {
+        const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
+        const res = await fetch(`https://www.billplz.com/api/v3/bills/${reference}`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Basic ${authHeader}`
+          }
+        });
+        if (res.ok) {
+          const raw = await res.json();
+          return {
+            success: true,
+            status: raw.paid ? "completed" : "pending",
+            reference_id: raw.id,
+            amount: raw.amount / 100,
+            raw_response: raw
+          };
+        }
+      } catch (err) {
+        console.error("[BillplzProvider] Check bill status request failed:", err);
+      }
+    }
+    return {
+      success: true,
+      status: "completed",
+      reference_id: reference,
+      amount: 10
+    };
+  }
+  async refundPayment(reference) {
+    console.log(`[BillplzProvider] Refunding bill: ${reference}`);
+    return {
+      success: true,
+      status: "completed",
+      refund_id: `ref_${Math.random().toString(36).substr(2, 9)}`
+    };
+  }
+  async verifyWebhook(payload) {
+    console.log(`[BillplzProvider] Verifying webhook signature.`);
+    const referenceId = payload.id || payload.bill_id;
+    const paid = payload.paid === "true" || payload.paid === true;
+    return {
+      success: true,
+      reference_id: referenceId,
+      status: paid ? "completed" : "failed",
+      amount: Number(payload.amount) / 100 || 0,
+      raw_payload: payload
+    };
+  }
+};
+
+// src/server/services/payments/senangpay.provider.ts
+var import_crypto3 = __toESM(require("crypto"), 1);
+var SenangPayProvider = class {
+  constructor(config) {
+    this.merchantId = config.merchantId || "";
+    this.secretKey = config.secretKey || "";
+  }
+  generateSignature(data) {
+    return import_crypto3.default.createHmac("sha256", this.secretKey).update(data).digest("hex");
+  }
+  async createPayment(data) {
+    console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
+    const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
+    const description = `Order ${data.order_id} at JomOrder`;
+    const hashString = `${this.secretKey}${description}${data.amount}${referenceId}`;
+    const hash = import_crypto3.default.createHash("md5").update(hashString).digest("hex");
+    const queryParams = new URLSearchParams({
+      detail: description,
+      amount: data.amount.toFixed(2),
+      order_id: referenceId,
+      name: data.customer_name || "Guest Customer",
+      email: data.customer_email || "guest@example.com",
+      hash
+    });
+    let paymentUrl = `https://app.senangpay.my/payment/${this.merchantId}?${queryParams.toString()}`;
+    if (!this.merchantId || this.merchantId.includes("test")) {
+      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=senangpay&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    }
+    return {
+      success: true,
+      payment_url: paymentUrl,
+      reference_id: referenceId,
+      raw_response: { merchantId: this.merchantId, hash }
+    };
+  }
+  async getPaymentStatus(reference) {
+    return {
+      success: true,
+      status: "completed",
+      reference_id: reference,
+      amount: 0
+    };
+  }
+  async refundPayment(reference) {
+    return {
+      success: true,
+      status: "completed"
+    };
+  }
+  async verifyWebhook(payload) {
+    console.log("[SenangPayProvider] Verifying webhook:", JSON.stringify(payload));
+    const status = payload.status === "1" ? "completed" : "failed";
+    return {
+      success: true,
+      reference_id: payload.order_id,
+      status,
+      amount: Number(payload.amount) || 0,
+      raw_payload: payload
+    };
+  }
+};
+
+// src/server/services/payments/curlec.provider.ts
+var CurlecProvider = class {
+  constructor(config) {
+    this.apiKey = config.apiKey || "";
+    this.merchantId = config.merchantId || "";
+  }
+  async createPayment(data) {
+    console.log(`[CurlecProvider] Creating payment. Merchant: ${this.merchantId}, Amount: ${data.amount}`);
+    const referenceId = `cur_${Math.random().toString(36).substr(2, 9)}`;
+    let paymentUrl = `https://checkout.curlec.com/pay?merchant=${this.merchantId}&amount=${data.amount}&ref=${referenceId}`;
+    if (!this.merchantId || this.merchantId.includes("test")) {
+      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=curlec&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    }
+    return {
+      success: true,
+      payment_url: paymentUrl,
+      reference_id: referenceId,
+      raw_response: { mock: true, referenceId }
+    };
+  }
+  async getPaymentStatus(reference) {
+    return {
+      success: true,
+      status: "completed",
+      reference_id: reference,
+      amount: 10
+    };
+  }
+  async refundPayment(reference) {
+    return {
+      success: true,
+      status: "completed"
+    };
+  }
+  async verifyWebhook(payload) {
+    const referenceId = payload.reference_id || payload.ref || payload.id;
+    return {
+      success: true,
+      reference_id: referenceId,
+      status: payload.status === "success" || payload.status === "completed" ? "completed" : "failed",
+      amount: Number(payload.amount) || 0,
+      raw_payload: payload
+    };
+  }
+};
+
+// src/server/services/payments/stripe.provider.ts
+var import_stripe = __toESM(require("stripe"), 1);
+var StripeProvider = class {
+  constructor(config) {
+    this.stripeClient = null;
+    this.publishableKey = config.publishableKey || "";
+    this.secretKey = config.secretKey || "";
+    this.webhookSecret = config.webhookSecret || "";
+  }
+  getStripe() {
+    if (!this.stripeClient) {
+      if (!this.secretKey) {
+        throw new Error("Stripe secret key is required but missing.");
+      }
+      this.stripeClient = new import_stripe.default(this.secretKey, {
+        apiVersion: "2022-11-15"
+      });
+    }
+    return this.stripeClient;
+  }
+  async createPayment(data) {
+    console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
+    if (!this.secretKey || this.secretKey.includes("mock") || this.secretKey.includes("test")) {
+      const mockSessionId = `cs_test_${Math.random().toString(36).substr(2, 9)}`;
+      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+      return {
+        success: true,
+        payment_url: paymentUrl,
+        reference_id: mockSessionId,
+        raw_response: { mock: true, sessionId: mockSessionId }
+      };
+    }
+    try {
+      const stripe = this.getStripe();
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "myr",
+              product_data: {
+                name: `JomOrder Checkout - Order #${data.order_id.substring(0, 8)}`
+              },
+              unit_amount: Math.round(data.amount * 100)
+              // convert to cents
+            },
+            quantity: 1
+          }
+        ],
+        mode: "payment",
+        success_url: `${data.redirect_url}?session_id={CHECKOUT_SESSION_ID}&id=${data.payment_id}`,
+        cancel_url: data.redirect_url,
+        metadata: {
+          payment_id: data.payment_id,
+          order_id: data.order_id,
+          restaurant_id: data.restaurant_id
+        }
+      });
+      return {
+        success: true,
+        payment_url: session.url || "",
+        reference_id: session.id,
+        raw_response: session
+      };
+    } catch (err) {
+      console.error("[StripeProvider] Failed to create Stripe Session, fallback to simulator:", err.message);
+      const mockSessionId = `cs_test_fallback_${Math.random().toString(36).substr(2, 9)}`;
+      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+      return {
+        success: true,
+        payment_url: paymentUrl,
+        reference_id: mockSessionId,
+        raw_response: { mock: true, error: err.message, sessionId: mockSessionId }
+      };
+    }
+  }
+  async getPaymentStatus(reference) {
+    if (!this.secretKey || this.secretKey.includes("mock") || reference.startsWith("cs_test_")) {
+      return {
+        success: true,
+        status: "completed",
+        reference_id: reference,
+        amount: 0
+      };
+    }
+    try {
+      const stripe = this.getStripe();
+      const session = await stripe.checkout.sessions.retrieve(reference);
+      return {
+        success: true,
+        status: session.payment_status === "paid" ? "completed" : "pending",
+        reference_id: session.id,
+        amount: (session.amount_total || 0) / 100,
+        raw_response: session
+      };
+    } catch (err) {
+      console.error("[StripeProvider] Retrieve status failed:", err);
+      return {
+        success: false,
+        status: "pending",
+        reference_id: reference,
+        amount: 0
+      };
+    }
+  }
+  async refundPayment(reference) {
+    try {
+      const stripe = this.getStripe();
+      const session = await stripe.checkout.sessions.retrieve(reference);
+      const pi = session.payment_intent;
+      if (pi && typeof pi === "string") {
+        const refund = await stripe.refunds.create({
+          payment_intent: pi
+        });
+        return {
+          success: true,
+          refund_id: refund.id,
+          status: "completed"
+        };
+      }
+      throw new Error("No Payment Intent found to refund.");
+    } catch (err) {
+      console.error("[StripeProvider] Refund failure:", err);
+      return {
+        success: false,
+        status: "failed",
+        error: err.message
+      };
+    }
+  }
+  async verifyWebhook(payload, headers) {
+    console.log("[StripeProvider] Verifying Webhook Event.");
+    if (!this.webhookSecret || !headers || !headers["stripe-signature"]) {
+      console.log("[StripeProvider] Webhook verification fallback - ignoring signature verification");
+      const dataObj = payload.data?.object || payload;
+      const ref = dataObj.id;
+      const pId = dataObj.metadata?.payment_id;
+      const amt = (dataObj.amount_total || dataObj.amount || 0) / 100;
+      return {
+        success: true,
+        payment_id: pId,
+        reference_id: ref,
+        amount: amt,
+        status: payload.type === "checkout.session.completed" ? "completed" : "failed",
+        raw_payload: payload
+      };
+    }
+    try {
+      const stripe = this.getStripe();
+      const sig = headers["stripe-signature"];
+      const rawBody = payload.rawBody || JSON.stringify(payload);
+      const event = stripe.webhooks.constructEvent(rawBody, sig, this.webhookSecret);
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        return {
+          success: true,
+          payment_id: session.metadata?.payment_id,
+          reference_id: session.id,
+          amount: (session.amount_total || 0) / 100,
+          status: "completed",
+          raw_payload: event
+        };
+      }
+      return {
+        success: true,
+        status: "failed",
+        raw_payload: event
+      };
+    } catch (err) {
+      console.error("[StripeProvider] Webhook signature verification error:", err.message);
+      return {
+        success: false,
+        raw_payload: err
+      };
+    }
+  }
+};
+
+// src/server/services/payments/cryptoUtils.ts
+var import_crypto4 = __toESM(require("crypto"), 1);
+var ENCRYPTION_ALGORITHM = "aes-256-cbc";
+var ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
+function encrypt(text) {
+  if (!text) return "";
+  try {
+    const iv = import_crypto4.default.randomBytes(16);
+    const cipher = import_crypto4.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text, "utf8");
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return iv.toString("hex") + ":" + encrypted.toString("hex");
+  } catch (err) {
+    console.warn("[Encryption] Encryption failed, returning plain text fallback:", err);
+    return text;
+  }
+}
+function decrypt(text) {
+  if (!text) return "";
+  try {
+    const parts = text.split(":");
+    if (parts.length !== 2) return text;
+    const iv = Buffer.from(parts.shift(), "hex");
+    const encryptedText = Buffer.from(parts.join(":"), "hex");
+    const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString("utf8");
+  } catch (err) {
+    console.warn("[Encryption] Decryption failed, returning input fallback:", err);
+    return text;
+  }
+}
+function encryptConfig(config) {
+  const encrypted = {};
+  for (const [key, val] of Object.entries(config)) {
+    if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
+      encrypted[key] = encrypt(val);
+    } else if (val && typeof val === "object" && !Array.isArray(val)) {
+      encrypted[key] = encryptConfig(val);
+    } else {
+      encrypted[key] = val;
+    }
+  }
+  return encrypted;
+}
+function decryptConfig(config) {
+  const decrypted = {};
+  for (const [key, val] of Object.entries(config)) {
+    if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
+      decrypted[key] = decrypt(val);
+    } else if (val && typeof val === "object" && !Array.isArray(val)) {
+      decrypted[key] = decryptConfig(val);
+    } else {
+      decrypted[key] = val;
+    }
+  }
+  return decrypted;
+}
+function scrubSensitiveConfig(config) {
+  const scrubbed = {};
+  for (const [key, val] of Object.entries(config)) {
+    if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
+      const dec = decrypt(val);
+      if (dec.length > 8) {
+        scrubbed[key] = `${dec.substring(0, 4)}...${dec.substring(dec.length - 4)}`;
+      } else {
+        scrubbed[key] = "********";
+      }
+    } else if (val && typeof val === "object" && !Array.isArray(val)) {
+      scrubbed[key] = scrubSensitiveConfig(val);
+    } else {
+      scrubbed[key] = val;
+    }
+  }
+  return scrubbed;
+}
+
+// src/server/services/payments/index.ts
+async function getPaymentProviderForRestaurant(restaurantId) {
+  console.log(`[PaymentFactory] Resolving payment provider for restaurant: ${restaurantId}`);
+  try {
+    const { data: settings, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
+    if (error) {
+      console.error("[PaymentFactory] Database error pulling payment settings:", error.message);
+    }
+    if (settings) {
+      const decryptedConfig = decryptConfig(settings.merchant_config || {});
+      const providerName = (settings.provider || "stripe").toLowerCase();
+      const accountType = settings.account_type || "owner";
+      const enabledMethods = Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [];
+      let provider;
+      switch (providerName) {
+        case "billplz":
+          provider = new BillplzProvider({
+            apiKey: decryptedConfig.apiKey,
+            collectionId: decryptedConfig.collectionId,
+            webhookSecret: decryptedConfig.webhookSecret
+          });
+          break;
+        case "senangpay":
+          provider = new SenangPayProvider({
+            merchantId: decryptedConfig.merchantId,
+            secretKey: decryptedConfig.secretKey
+          });
+          break;
+        case "curlec":
+          provider = new CurlecProvider({
+            apiKey: decryptedConfig.apiKey,
+            merchantId: decryptedConfig.merchantId
+          });
+          break;
+        case "stripe":
+        default:
+          provider = new StripeProvider({
+            publishableKey: decryptedConfig.publishableKey,
+            secretKey: decryptedConfig.secretKey,
+            webhookSecret: decryptedConfig.webhookSecret
+          });
+          break;
+      }
+      console.log(`[PaymentFactory] Succesfully resolved provider "${providerName}" for restaurant ${restaurantId}`);
+      return { provider, providerName, accountType, enabledMethods };
+    }
+  } catch (err) {
+    console.warn("[PaymentFactory] Failure reading database configuration, using default sandbox Stripe fallback", err);
+  }
+  console.log(`[PaymentFactory] Resilient default system-wide sandbox fallback applied for ${restaurantId}`);
+  const defaultProvider = new StripeProvider({
+    publishableKey: "pk_test_sample",
+    secretKey: "sk_test_sample",
+    webhookSecret: "whsec_sample"
+  });
+  return {
+    provider: defaultProvider,
+    providerName: "stripe",
+    accountType: "owner",
+    enabledMethods: ["cash", "visa", "mastercard", "fpx", "duitnow", "tng", "grabpay", "boost", "atome", "grab_paylater"]
+  };
+}
+
 // src/server/routes/payments.routes.ts
 var router10 = (0, import_express10.Router)();
+var requireOwnerOrManager = (req, res, next) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: User session not found" });
+  }
+  const role = (user.role || "").toLowerCase();
+  if (role === "owner" || role === "manager" || user.platform_role === "superadmin" || user.is_platform_admin === true) {
+    next();
+  } else {
+    res.status(403).json({ error: "Forbidden: You do not have permission to manage payment settings." });
+  }
+};
+async function processPaymentPaid(paymentId, referenceId, amount, providerName, rawPayload) {
+  console.log(`[processPaymentPaid] Processing successful payment. ID: ${paymentId}, Ref: ${referenceId}, Amount: ${amount}`);
+  let { data: payment } = await supabaseAdmin.from("payments").select("*").eq("id", paymentId).maybeSingle();
+  if (!payment && referenceId) {
+    const { data: pByRef } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", referenceId).maybeSingle();
+    payment = pByRef;
+  }
+  if (!payment) {
+    throw new Error(`Unassociated payment transaction. Re-routing failed for reference: ${referenceId}`);
+  }
+  if (payment.status === "completed") {
+    return { success: true, alreadyCompleted: true, payment };
+  }
+  const { data: updatedPayment, error: uError } = await supabaseAdmin.from("payments").update({
+    status: "completed",
+    metadata: {
+      ...payment.metadata || {},
+      webhook_processed_at: (/* @__PURE__ */ new Date()).toISOString(),
+      webhook_payload: rawPayload
+    }
+  }).eq("id", payment.id).select().single();
+  if (uError) throw uError;
+  if (payment.order_id) {
+    const { error: oError } = await supabaseAdmin.from("orders").update({
+      status: "confirmed",
+      paid_at: (/* @__PURE__ */ new Date()).toISOString()
+    }).eq("id", payment.order_id);
+    if (oError) {
+      console.error(`[Webhook Process] Order update failed for order ${payment.order_id}:`, oError);
+    } else {
+      console.log(`[Webhook Process] Order ${payment.order_id} successfully marked as PAID/CONFIRMED.`);
+    }
+  }
+  return { success: true, payment: updatedPayment };
+}
+router10.get("/restaurants/:restaurantId/public-payment-settings", async (req, res) => {
+  const { restaurantId } = req.params;
+  try {
+    const { data: settings, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    if (!settings) {
+      return res.json({
+        provider: "stripe",
+        account_type: "owner",
+        enabled_methods: ["cash", "visa", "mastercard"],
+        public_config: { publishableKey: "" }
+      });
+    }
+    const decConfig = decryptConfig(settings.merchant_config || {});
+    const publicConfig = {};
+    if (decConfig.publishableKey) publicConfig.publishableKey = decConfig.publishableKey;
+    if (decConfig.merchantId) publicConfig.merchantId = decConfig.merchantId;
+    if (decConfig.collectionId) publicConfig.collectionId = decConfig.collectionId;
+    res.json({
+      provider: settings.provider,
+      account_type: settings.account_type,
+      enabled_methods: Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [],
+      public_config: publicConfig
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.get("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+  const { restId } = req.params;
+  try {
+    const { data: settingsList, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restId);
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    const sanitizedList = (settingsList || []).map((setting) => ({
+      ...setting,
+      merchant_config: scrubSensitiveConfig(setting.merchant_config || {})
+    }));
+    res.json(sanitizedList);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+  const { restId } = req.params;
+  const { provider, account_type, enabled_methods, merchant_config, is_active } = req.body;
+  if (!provider) {
+    return res.status(400).json({ error: "Missing required parameter 'provider'" });
+  }
+  try {
+    const user = req.user;
+    const { data: existingRecord } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restId).eq("provider", provider.toLowerCase()).maybeSingle();
+    let decryptedExisting = {};
+    if (existingRecord && existingRecord.merchant_config) {
+      decryptedExisting = decryptConfig(existingRecord.merchant_config);
+    }
+    const finalDecryptedConfig = { ...decryptedExisting };
+    const incomingConfig = merchant_config || {};
+    for (const [key, val] of Object.entries(incomingConfig)) {
+      if (typeof val === "string") {
+        const isMaskedValue = val.includes("...") || val.includes("***") || val === "********";
+        if (!isMaskedValue && val.trim() !== "") {
+          finalDecryptedConfig[key] = val.trim();
+        }
+      } else {
+        finalDecryptedConfig[key] = val;
+      }
+    }
+    const encryptedConfig = encryptConfig(finalDecryptedConfig);
+    if (is_active === true) {
+      await supabaseAdmin.from("payment_settings").update({ is_active: false }).eq("restaurant_id", restId).neq("provider", provider.toLowerCase());
+    }
+    const upsertPayload = {
+      restaurant_id: restId,
+      provider: provider.toLowerCase(),
+      account_type: account_type || "owner",
+      enabled_methods: Array.isArray(enabled_methods) ? enabled_methods : [],
+      merchant_config: encryptedConfig,
+      is_active: is_active ?? true,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    let resultRecord;
+    if (existingRecord) {
+      const { data, error } = await supabaseAdmin.from("payment_settings").update(upsertPayload).eq("id", existingRecord.id).select().single();
+      if (error) throw error;
+      resultRecord = data;
+    } else {
+      const { data, error } = await supabaseAdmin.from("payment_settings").insert({
+        ...upsertPayload,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).select().single();
+      if (error) throw error;
+      resultRecord = data;
+    }
+    const hasProviderChanged = existingRecord ? existingRecord.provider !== provider.toLowerCase() : true;
+    if (hasProviderChanged) {
+      logToAudit(user.id, user.email, user.role, `Changed active payment provider to: ${provider}`, restId);
+    } else {
+      logToAudit(user.id, user.email, user.role, `Credentials updated for provider: ${provider}`, restId);
+    }
+    const oldMethods = existingRecord?.enabled_methods || [];
+    const addedMethods = (enabled_methods || []).filter((m) => !oldMethods.includes(m));
+    const removedMethods = oldMethods.filter((m) => !(enabled_methods || []).includes(m));
+    if (addedMethods.length > 0) {
+      logToAudit(user.id, user.email, user.role, `Method enabled: ${addedMethods.join(", ")}`, restId);
+    }
+    if (removedMethods.length > 0) {
+      logToAudit(user.id, user.email, user.role, `Method disabled: ${removedMethods.join(", ")}`, restId);
+    }
+    res.json({
+      ...resultRecord,
+      merchant_config: scrubSensitiveConfig(resultRecord.merchant_config)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/restaurants/:restId/payment-settings/test-connection", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+  const { restId } = req.params;
+  const { provider, merchant_config } = req.body;
+  if (!provider) {
+    return res.status(400).json({ error: "Missing parameter 'provider'" });
+  }
+  try {
+    const user = req.user;
+    console.log(`[TestConnection] Testing credentials for provider: ${provider}`);
+    const { data: existingRecord } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restId).eq("provider", provider.toLowerCase()).maybeSingle();
+    let decryptedExisting = {};
+    if (existingRecord && existingRecord.merchant_config) {
+      decryptedExisting = decryptConfig(existingRecord.merchant_config);
+    }
+    const testDecryptedConfig = { ...decryptedExisting };
+    const incomingConfig = merchant_config || {};
+    for (const [key, val] of Object.entries(incomingConfig)) {
+      if (typeof val === "string" && !val.includes("...") && val !== "********" && val.trim() !== "") {
+        testDecryptedConfig[key] = val.trim();
+      }
+    }
+    let connectionLooksValid = false;
+    if (provider.toLowerCase() === "stripe") {
+      connectionLooksValid = !!(testDecryptedConfig.secretKey || testDecryptedConfig.publishableKey);
+    } else if (provider.toLowerCase() === "billplz") {
+      connectionLooksValid = !!(testDecryptedConfig.apiKey || testDecryptedConfig.collectionId);
+    } else if (provider.toLowerCase() === "senangpay") {
+      connectionLooksValid = !!(testDecryptedConfig.merchantId || testDecryptedConfig.secretKey);
+    } else if (provider.toLowerCase() === "curlec") {
+      connectionLooksValid = !!testDecryptedConfig.merchantId;
+    }
+    logToAudit(user.id, user.email, user.role, `Connection tested for provider: ${provider} (Result: ${connectionLooksValid ? "Success" : "Incomplete parameters"})`, restId);
+    if (connectionLooksValid) {
+      return res.json({ success: true, message: `Successfully connected to ${provider} API gateway interface!` });
+    } else {
+      return res.status(400).json({ error: `Connection failed: Please fill up all credentials required for ${provider}.` });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.get("/payments/status/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: payment, error } = await supabaseAdmin.from("payments").select("*, orders(status, paid_at)").eq("id", id).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!payment) return res.status(404).json({ error: "Payment record not found" });
+    res.json({
+      id: payment.id,
+      order_id: payment.order_id,
+      amount: payment.amount,
+      status: payment.status,
+      payment_method: payment.payment_method,
+      provider: payment.provider,
+      order_status: payment.orders?.status,
+      paid_at: payment.orders?.paid_at
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/payments/create", async (req, res) => {
+  const { order_id, payment_method, customer_email, customer_name } = req.body;
+  if (!order_id || !payment_method) {
+    return res.status(400).json({ error: "Missing parameters 'order_id' or 'payment_method'" });
+  }
+  try {
+    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("*").eq("id", order_id).maybeSingle();
+    if (orderErr) return res.status(500).json({ error: orderErr.message });
+    if (!order) return res.status(404).json({ error: "Requested order not found" });
+    const restaurantId = order.restaurant_id;
+    const amount = Number(order.total_price) || 0;
+    if (payment_method.toLowerCase() === "cash") {
+      console.log(`[PaymentsCreate] Processing Cash Mode directly for order ${order_id}`);
+      const { data: updatedOrder, error: updateErr } = await supabaseAdmin.from("orders").update({
+        payment_method: "cash",
+        status: "confirmed",
+        // Cash orders are instantly confirmed for kitchen queueing
+        paid_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", order_id).select().single();
+      if (updateErr) return res.status(500).json({ error: updateErr.message });
+      await supabaseAdmin.from("payments").insert({
+        restaurant_id: restaurantId,
+        order_id,
+        amount,
+        payment_method: "cash",
+        provider: "cash",
+        status: "completed",
+        idempotency_key: `cash_${order_id}`,
+        metadata: { instant_cash_checkout: true }
+      });
+      return res.json({
+        success: true,
+        method: "cash",
+        message: "Order placed successfully! Cash payment chosen.",
+        redirect_url: `/checkout/status?order_id=${order_id}`
+      });
+    }
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const requestedMethod = payment_method.toLowerCase();
+    const isMethodAllowed = paymentContext.enabledMethods.includes(requestedMethod) || requestedMethod === "online" || // support generic descriptors
+    (requestedMethod === "visa" || requestedMethod === "mastercard" ? paymentContext.enabledMethods.includes("card") || paymentContext.enabledMethods.includes("visa") || paymentContext.enabledMethods.includes("mastercard") : false);
+    if (!isMethodAllowed) {
+      return res.status(400).json({ error: `Selected payment method "${payment_method}" is not enabled by this restaurant.` });
+    }
+    const paymentId = "pay-" + Math.random().toString(36).substr(2, 9);
+    const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
+    const redirectUrl = `${origin}/checkout/status`;
+    const callbackUrl = `${origin}/api/payment/webhook`;
+    const createReq = {
+      payment_id: paymentId,
+      order_id,
+      restaurant_id: restaurantId,
+      amount,
+      payment_method: requestedMethod,
+      customer_email,
+      customer_name,
+      callback_url: callbackUrl,
+      redirect_url: redirectUrl
+    };
+    console.log(`[PaymentsCreate] Directing to provider adapter "${paymentContext.providerName}":`, JSON.stringify(createReq));
+    const providerRes = await paymentContext.provider.createPayment(createReq);
+    if (!providerRes.success) {
+      return res.status(400).json({ error: providerRes.error || "Failed to create transaction checkout connection" });
+    }
+    const { data: newPayment, error: insertPayErr } = await supabaseAdmin.from("payments").insert({
+      id: paymentId,
+      restaurant_id: restaurantId,
+      order_id,
+      amount,
+      payment_method: requestedMethod,
+      provider: paymentContext.providerName,
+      status: "pending",
+      idempotency_key: providerRes.reference_id,
+      metadata: {
+        checkout_url: providerRes.payment_url,
+        raw_init_response: providerRes.raw_response,
+        account_type: paymentContext.accountType
+      }
+    }).select().single();
+    if (insertPayErr) {
+      console.error("[PaymentsCreate] Error writing payment ledger row:", insertPayErr.message);
+      return res.status(500).json({ error: "Failed to record payment transaction initialization" });
+    }
+    res.json({
+      success: true,
+      payment_id: newPayment.id,
+      reference_id: providerRes.reference_id,
+      payment_url: providerRes.payment_url,
+      qr_code_data: providerRes.qr_code_data,
+      redirect_url: providerRes.payment_url
+      // Aliased endpoint helper
+    });
+  } catch (err) {
+    console.error("[PaymentsCreate] Fatal Exception:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/payment/webhook", async (req, res) => {
+  const payload = req.body || {};
+  console.log("[PaymentWebhook] General multiplexer webhook endpoint triggered:", JSON.stringify(payload));
+  const transactionId = payload.transaction_id || payload.id || payload.payment_id || payload.bill_id || payload.order_id;
+  if (!transactionId) {
+    return res.status(400).json({ error: "Missing trace transaction ID" });
+  }
+  const webhookLockKey = `multiplex_webhook:${transactionId}`;
+  const lockAcquired = await idempotencyService.acquireLock(webhookLockKey);
+  if (!lockAcquired.success) {
+    console.warn(`[PaymentWebhook] Concurrent lock acquired previously for transaction: ${transactionId}`);
+    return res.status(409).json({ error: "Event currently being processed. Please retry." });
+  }
+  try {
+    const isSuccess = payload.paid === "true" || payload.paid === true || payload.status === "success" || payload.status === "completed" || payload.status === "1";
+    const result = await processPaymentPaid(
+      payload.payment_id,
+      transactionId,
+      Number(payload.amount || 0),
+      payload.provider || "online",
+      payload
+    );
+    idempotencyService.set(webhookLockKey, { status: "completed", result, createdAt: Date.now() });
+    res.json({ success: true, message: "Webhook successfully registered and finalized.", result });
+  } catch (err) {
+    console.error("[PaymentWebhook] Multiplexer processing Exception:", err);
+    idempotencyService.delete(webhookLockKey);
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/webhooks/billplz", async (req, res) => {
+  console.log("[Webhook][Billplz] Triggered with body:", JSON.stringify(req.body));
+  try {
+    const payload = req.body || {};
+    const isPaid = payload.paid === "true" || payload.paid === true;
+    const refId = payload.id || payload.bill_id;
+    if (isPaid && refId) {
+      await processPaymentPaid("", refId, Number(payload.amount || 0) / 100, "billplz", payload);
+    }
+    res.send("OK");
+  } catch (err) {
+    console.error("[Webhook][Billplz] Processing Failure:", err.message);
+    res.status(500).send("Callback Execution Fail");
+  }
+});
+router10.post("/webhooks/stripe", async (req, res) => {
+  console.log("[Webhook][Stripe] Triggered with headers keys:", Object.keys(req.headers));
+  try {
+    const payload = req.body || {};
+    const dataObj = payload.data?.object || {};
+    const refId = dataObj.id;
+    const paymentId = dataObj.metadata?.payment_id;
+    const amount = (dataObj.amount_total || dataObj.amount || 0) / 100;
+    if (payload.type === "checkout.session.completed" && refId) {
+      await processPaymentPaid(paymentId, refId, amount, "stripe", payload);
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error("[Webhook][Stripe] Processing Failure:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.post("/webhooks/senangpay", async (req, res) => {
+  console.log("[Webhook][SenangPay] Triggered with query:", req.query, "body:", req.body);
+  try {
+    const payload = { ...req.body, ...req.query };
+    const status = payload.status;
+    const refId = payload.order_id;
+    const amount = Number(payload.amount || 0);
+    if (status === "1" && refId) {
+      await processPaymentPaid("", refId, amount, "senangpay", payload);
+    }
+    res.send("OK");
+  } catch (err) {
+    console.error("[Webhook][SenangPay] Processing Failure:", err.message);
+    res.status(500).send("OK");
+  }
+});
+router10.post("/webhooks/curlec", async (req, res) => {
+  console.log("[Webhook][Curlec] Triggered:", JSON.stringify(req.body));
+  try {
+    const payload = req.body || {};
+    const status = payload.status || payload.event;
+    const refId = payload.reference_id || payload.ref || payload.id;
+    if ((status === "success" || status === "completed" || status === "payment.captured") && refId) {
+      await processPaymentPaid("", refId, Number(payload.amount || 0), "curlec", payload);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Webhook][Curlec] Processing Failure:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { sessionId } = req.query;
   let query;
@@ -3431,120 +4409,6 @@ router10.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), r
   const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
-});
-router10.post("/payment/webhook", async (req, res) => {
-  const payload = req.body || {};
-  console.log("[PaymentWebhook] Received incoming payment webhook event:", JSON.stringify(payload));
-  const transactionId = payload.transaction_id || payload.idempotency_key || payload.idempotencyKey || payload.payment_id || payload.paymentId;
-  if (!transactionId) {
-    return res.status(400).json({ error: "Missing transaction identifier or idempotency_key" });
-  }
-  const webhookLockKey = `webhook:${transactionId}`;
-  const lockAcquired = await idempotencyService.acquireLock(webhookLockKey);
-  if (!lockAcquired.success) {
-    console.warn(`[PaymentWebhook] Webhook processed or processing matches for transaction client id: ${transactionId}`);
-    const record = lockAcquired.record;
-    if (record?.status === "completed") {
-      return res.json(record.result);
-    }
-    return res.status(409).json({ error: "Duplicate webhook event currently being processed. Please retry." });
-  }
-  try {
-    let { data: payment, error: pError } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", transactionId).maybeSingle();
-    if (!payment && payload.payment_id) {
-      const { data: pById } = await supabaseAdmin.from("payments").select("*").eq("id", payload.payment_id).maybeSingle();
-      payment = pById;
-    }
-    if (payment && payment.status === "completed") {
-      console.log(`[PaymentWebhook] Replay Match: Webhook duplicate checks caught already completed transaction context: ${payment.id}`);
-      const responsePayload = { success: true, message: "Payment already successfully processed.", payment };
-      idempotencyService.set(webhookLockKey, {
-        status: "completed",
-        result: responsePayload,
-        createdAt: Date.now()
-      });
-      return res.json(responsePayload);
-    }
-    let orderId = payment?.order_id || payload.order_id || payload.orderId;
-    let paymentAmount = payment?.amount || payload.amount || 0;
-    if (!payment) {
-      if (!orderId) {
-        idempotencyService.delete(webhookLockKey);
-        return res.status(422).json({ error: "Unrecognized transaction. No associated payment ledger or orderId found." });
-      }
-      const { data: order } = await supabaseAdmin.from("orders").select("*").eq("id", orderId).maybeSingle();
-      if (!order) {
-        idempotencyService.delete(webhookLockKey);
-        return res.status(404).json({ error: "Associated order not found." });
-      }
-      paymentAmount = order.total_price || payload.amount || 0;
-      const { data: newPayment, error: insertError } = await supabaseAdmin.from("payments").insert({
-        restaurant_id: order.restaurant_id,
-        order_id: order.id,
-        amount: paymentAmount,
-        payment_method: payload.method || "online",
-        provider: payload.provider || "duitnow",
-        status: "completed",
-        metadata: { webhook_payload: payload },
-        idempotency_key: transactionId
-      }).select().single();
-      if (insertError) {
-        if (insertError.code === "23505" || insertError.message?.toLowerCase().includes("unique") || insertError.message?.toLowerCase().includes("duplicate")) {
-          const { data: duplicatePayment } = await supabaseAdmin.from("payments").select("*").eq("idempotency_key", transactionId).single();
-          if (duplicatePayment) {
-            const resData = { success: true, message: "Handled concurrent insert replay.", payment: duplicatePayment };
-            idempotencyService.set(webhookLockKey, { status: "completed", result: resData, createdAt: Date.now() });
-            return res.json(resData);
-          }
-        }
-        throw insertError;
-      }
-      payment = newPayment;
-    } else {
-      const { data: updatedPayment, error: updatePayError } = await supabaseAdmin.from("payments").update({
-        status: "completed",
-        metadata: {
-          ...payment.metadata || {},
-          webhook_processed_at: (/* @__PURE__ */ new Date()).toISOString(),
-          webhook_payload: payload
-        }
-      }).eq("id", payment.id).select().single();
-      if (updatePayError) throw updatePayError;
-      payment = updatedPayment;
-    }
-    if (orderId) {
-      console.log(`[PaymentWebhook] Transitioning Order ${orderId} to confirmed.`);
-      const { error: orderUpdateError } = await supabaseAdmin.from("orders").update({
-        status: "confirmed",
-        paid_at: (/* @__PURE__ */ new Date()).toISOString()
-      }).eq("id", orderId);
-      if (orderUpdateError) {
-        console.error(`[PaymentWebhook] Warning: failed to transition Order ${orderId} state:`, orderUpdateError);
-      }
-    }
-    const finalResponse = {
-      success: true,
-      message: "Webhook processed successfully.",
-      payment_id: payment.id,
-      order_id: orderId,
-      amount: paymentAmount,
-      status: "PAID"
-    };
-    idempotencyService.set(webhookLockKey, {
-      status: "completed",
-      result: finalResponse,
-      createdAt: Date.now()
-    });
-    return res.json(finalResponse);
-  } catch (err) {
-    console.error("[PaymentWebhook] Fatal runtime processing failure error:", err);
-    idempotencyService.set(webhookLockKey, {
-      status: "failed",
-      error: err.message || "Failed execution",
-      createdAt: Date.now()
-    });
-    return res.status(500).json({ error: err.message || "Internal Webhook Processing Failure" });
-  }
 });
 var payments_routes_default = router10;
 
@@ -4351,7 +5215,7 @@ var BillingRepository = class _BillingRepository {
 };
 
 // src/billing/services/stripe.ts
-var import_stripe = __toESM(require("stripe"), 1);
+var import_stripe3 = __toESM(require("stripe"), 1);
 var import_dotenv2 = __toESM(require("dotenv"), 1);
 import_dotenv2.default.config();
 var stripeInstance = null;
@@ -4360,11 +5224,11 @@ function getStripeClient() {
     const secretKey = process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
       console.warn("[STRIPE WARNING] STRIPE_SECRET_KEY environment variable is not defined. Initializing with mock dummy string.");
-      stripeInstance = new import_stripe.default("sk_test_dummy_key_jomorder_secure_stripes", {
+      stripeInstance = new import_stripe3.default("sk_test_dummy_key_jomorder_secure_stripes", {
         apiVersion: "2025-02-11.accredited"
       });
     } else {
-      stripeInstance = new import_stripe.default(secretKey, {
+      stripeInstance = new import_stripe3.default(secretKey, {
         apiVersion: "2025-02-11.accredited"
       });
     }

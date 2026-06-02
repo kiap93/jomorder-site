@@ -77,6 +77,7 @@ export function Checkout() {
   const [status, setStatus] = useState<'selecting' | 'processing' | 'success' | 'failed'>('selecting');
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
   const [isMethodsCollapsed, setIsMethodsCollapsed] = useState(false);
+  const [enabledMethods, setEnabledMethods] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -97,6 +98,18 @@ export function Checkout() {
           fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
           fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`)).then(r => r.json())
         ]);
+
+        try {
+          const settingsRes = await fetch(getApiUrl(`/api/restaurants/${restId}/public-payment-settings`));
+          if (settingsRes.ok) {
+            const settingsData = await settingsRes.json();
+            setEnabledMethods(settingsData.enabled_methods || []);
+          } else {
+            setEnabledMethods(['cash', 'fpx', 'duitnow', 'tng', 'visa', 'mastercard']);
+          }
+        } catch (_) {
+          setEnabledMethods(['cash', 'fpx', 'duitnow', 'tng', 'visa', 'mastercard']);
+        }
 
         if (restRes.error) throw new Error(restRes.error);
         if (orderRes.error) throw new Error(orderRes.error);
@@ -468,11 +481,17 @@ export function Checkout() {
                 
                 <div className={`grid ${isMethodsCollapsed ? 'grid-cols-4' : 'grid-cols-1'} gap-3 transition-all duration-300`}>
                   {[
+                    { id: 'cash', name: 'Cash / Pay Counter', icon: Wallet, color: 'bg-zinc-700' },
                     { id: 'duitnow', name: 'DuitNow QR', icon: QrCode, color: 'bg-pink-500' },
                     { id: 'tng', name: 'Touch \'n Go', icon: Wallet, color: 'bg-blue-500' },
-                    { id: 'fpx', name: 'FPX Online Banking', icon: LayoutGrid, color: 'bg-emerald-500' },
-                    { id: 'card', name: 'Credit/Debit Card', icon: CreditCard, color: 'bg-zinc-600' }
-                  ].map(method => (
+                    { id: 'fpx', name: 'FPX Internet Banking', icon: LayoutGrid, color: 'bg-emerald-500' },
+                    { id: 'visa', name: 'Visa Checkout', icon: CreditCard, color: 'bg-blue-600' },
+                    { id: 'mastercard', name: 'Mastercard', icon: CreditCard, color: 'bg-red-500' },
+                    { id: 'atome', name: 'Atome BNPL', icon: LayoutGrid, color: 'bg-yellow-500' },
+                    { id: 'grab_paylater', name: 'Grab PayLater', icon: Smartphone, color: 'bg-green-600' }
+                  ]
+                  .filter(m => enabledMethods.length === 0 || enabledMethods.includes(m.id) || (m.id === 'visa' || m.id === 'mastercard' ? enabledMethods.includes('card') : false))
+                  .map(method => (
                     <button
                       key={method.id}
                       onClick={() => handleMethodSelect(method.id)}

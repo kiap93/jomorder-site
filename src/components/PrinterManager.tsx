@@ -264,16 +264,16 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
       )}
 
       {/* Hero configuration header */}
-      <div className="flex justify-between items-center bg-gray-50 p-6 rounded-[2rem] border border-gray-100">
+      <div className="flex justify-between items-center bg-gray-50 p-4 rounded-xl border border-gray-100">
         <div>
-          <h3 className="text-lg font-black text-gray-900 tracking-tight">Assigned Kitchen Stations & Hardware Printers</h3>
-          <p className="text-xs text-gray-500 font-medium">Configure network/USB and local fallback KOT printer devices. Assign food classes for immediate ticket split.</p>
+          <h3 className="text-base font-black text-gray-900 tracking-tight">Assigned Kitchen Stations & Hardware Printers</h3>
+          <p className="text-xs text-gray-500 font-medium font-sans">Configure network/USB and local fallback KOT printer devices. Assign food classes for immediate ticket split.</p>
         </div>
         <button
           onClick={handleCreateClick}
-          className="bg-gray-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-md"
+          className="bg-gray-900 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-black transition-all shadow-md text-xs"
         >
-          <Plus size={20} /> Add Printer Station
+          <Plus size={16} /> Add Printer Station
         </button>
       </div>
 
@@ -289,7 +289,7 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
           return (
             <div 
               key={printer.id} 
-              className={`bg-white border p-6 rounded-[2rem] shadow-sm transition-all flex flex-col justify-between ${
+              className={`bg-white border p-4 rounded-xl shadow-sm transition-all flex flex-col justify-between ${
                 printer.isActive ? 'border-gray-100 hover:shadow-md' : 'border-gray-100 opacity-60'
               }`}
             >
@@ -373,10 +373,10 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
       {/* Edit/Create Form Popup overlay Modal */}
       {editingPrinter && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-xl overflow-hidden shadow-2xl border border-gray-100 animate-[scaleUp_0.3s_ease-out]">
-            <header className="bg-gray-900 text-white p-6 flex justify-between items-center">
+          <div className="bg-white rounded-xl w-full max-w-xl overflow-hidden shadow-2xl border border-gray-100 animate-[scaleUp_0.3s_ease-out]">
+            <header className="bg-gray-900 text-white p-4 flex justify-between items-center">
               <div>
-                <h4 className="text-lg font-black tracking-tight">{editingPrinter.id ? 'Edit Printer Station' : 'Add Kitchen Printer Station'}</h4>
+                <h4 className="text-base font-black tracking-tight">{editingPrinter.id ? 'Edit Printer Station' : 'Add Kitchen Printer Station'}</h4>
                 <p className="text-[10px] text-gray-300 font-bold uppercase tracking-wider">Configure routing parameters & categories</p>
               </div>
               <button 
@@ -384,30 +384,30 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
                 className="text-gray-400 hover:text-white p-2 transition-colors"
                 type="button"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </header>
 
-            <form onSubmit={handleSavePrinter} className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSavePrinter} className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs text-gray-500 font-black uppercase">Station/Printer Name *</label>
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-wider">Station/Printer Name *</label>
                   <input
                     type="text"
                     required
                     value={editingPrinter.name || ''}
                     onChange={e => setEditingPrinter({ ...editingPrinter, name: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-100 bg-gray-50 rounded-2xl font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-3 py-2 border border-gray-100 bg-gray-50 rounded-xl font-bold text-gray-800 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                     placeholder="e.g. Hot Kitchen Station"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs text-gray-500 font-black uppercase">Hardware Format</label>
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-wider">Hardware Format</label>
                   <select
                     value={editingPrinter.type || 'browser'}
                     onChange={e => setEditingPrinter({ ...editingPrinter, type: e.target.value as any })}
-                    className="w-full px-4 py-3 border border-gray-100 bg-gray-50 rounded-2xl font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-3 py-2 border border-gray-100 bg-gray-50 rounded-xl font-bold text-gray-800 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                   >
                     <option value="browser">Browser fallback (`window.print`)</option>
                     <option value="thermal">Epson compatible (ESC/POS)</option>
@@ -416,11 +416,11 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs text-gray-500 font-black uppercase">Interface</label>
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-wider">Interface</label>
                   <select
                     value={editingPrinter.interfaceType || 'browser'}
                     onChange={e => setEditingPrinter({ ...editingPrinter, interfaceType: e.target.value as any })}
-                    className="w-full px-4 py-3 border border-gray-100 bg-gray-50 rounded-2xl font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-3 py-2 border border-gray-100 bg-gray-50 rounded-xl font-bold text-gray-800 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                   >
                     <option value="browser">Virtual Browser Feed</option>
                     <option value="network">Network IP Ethernet</option>
@@ -430,17 +430,17 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
                 </div>
 
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs text-gray-500 font-black uppercase">IP Address / USB Port Descriptor</label>
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-wider">IP Address / USB Port Descriptor</label>
                   <input
                     type="text"
                     value={editingPrinter.connectionAddress || ''}
                     onChange={e => setEditingPrinter({ ...editingPrinter, connectionAddress: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-100 bg-gray-50 rounded-2xl font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-3 py-2 border border-gray-100 bg-gray-50 rounded-xl font-bold text-gray-800 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                     placeholder="e.g. 192.168.1.150:9100 or Bluetooth MAC Address"
                   />
                 </div>
 
-                <div className="col-span-2 flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div className="col-span-2 flex items-center gap-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
                   <input
                     type="checkbox"
                     id="isActive"
@@ -555,7 +555,7 @@ export function PrinterManager({ restaurantId, categories }: PrinterManagerProps
       )}
 
       {/* PRINT JOBS HISTORY LOG */}
-      <section className="bg-white rounded-[2rem] border border-gray-100 p-6 overflow-hidden shadow-sm">
+      <section className="bg-white rounded-xl border border-gray-100 p-4 overflow-hidden shadow-sm">
         <header className="flex justify-between items-center mb-6 border-b pb-4">
           <div>
             <h3 className="text-base font-black text-gray-900 tracking-tight">Print Queue Logs & Station Performance</h3>

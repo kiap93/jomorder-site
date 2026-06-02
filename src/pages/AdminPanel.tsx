@@ -1360,9 +1360,9 @@ export function AdminPanel() {
   );
 
   if (error) return (
-    <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-[3rem] border border-gray-100 shadow-sm mx-4">
-      <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 font-black text-4xl">!</div>
-      <h2 className="text-2xl font-black text-gray-900 mb-2">{t('pos.error')}</h2>
+    <div className="h-[60vh] flex flex-col items-center justify-center p-4 text-center bg-white rounded-xl border border-gray-100 shadow-sm mx-4">
+      <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 font-black text-2xl">!</div>
+      <h2 className="text-xl font-black text-gray-900 mb-2">{t('pos.error')}</h2>
       <p className="text-gray-500 font-medium mb-8 max-w-xs mx-auto">{error}</p>
       <button 
         onClick={() => fetchData()}
@@ -1554,7 +1554,7 @@ export function AdminPanel() {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-8 py-4 rounded-3xl shadow-2xl z-50 flex items-center gap-3 border border-white/10"
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 border border-white/10"
           >
             <div className="bg-green-500 rounded-full p-1">
               <CheckCircle2 size={16} className="text-white" />

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import crypto from "crypto";
+import { supabaseAdmin } from "./dbService";
 
 // High-performance caching layers
 const detectionCache = new Map<string, { isEnglish: boolean; languageCode: string | null; englishTranslation: string | null } | null>();
@@ -202,6 +203,26 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
     return protectResult(translationCache.get(cacheKey));
   }
 
+  // 1.5 Check database-backed translations cache (global_translations) next
+  try {
+    const { data: dbMatch, error: dbErr } = await supabaseAdmin
+      .from('global_translations')
+      .select('translated_text')
+      .eq('term_key', sanitizedText)
+      .eq('language_code', targetLang.toLowerCase())
+      .maybeSingle();
+
+    if (!dbErr && dbMatch && dbMatch.translated_text?.trim()) {
+      const foundTranslated = dbMatch.translated_text.trim();
+      const finalVal = protectResult(foundTranslated);
+      console.log(`[Database Cache HIT] Found pre-translated text in global_translations for: "${sanitizedText.substring(0, 25)}" -> "${finalVal.substring(0, 25)}"`);
+      setInCache(translationCache, cacheKey, finalVal);
+      return finalVal;
+    }
+  } catch (err) {
+    console.warn("[Database Translation Cache Check Failed]:", err);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("Translation fallback applied", {
@@ -259,8 +280,23 @@ export async function translateTextWithGemini(text: string, targetLang: string, 
 
     const finalVal = protectResult(sanitizedTranslated);
     
-    // 2. Write to cache
+    // 2. Write to memory cache
     setInCache(translationCache, cacheKey, finalVal);
+
+    // 3. Persist to database cache (global_translations)
+    try {
+      await supabaseAdmin.from('global_translations').upsert({
+        term_key: sanitizedText,
+        language_code: targetLang.toLowerCase(),
+        translated_text: finalVal,
+        confidence_score: 1.00,
+        approved: true
+      }, { onConflict: 'term_key,language_code' });
+      console.log(`[Database Cache Save] Persisted new translation for "${sanitizedText.substring(0, 20)}" -> "${finalVal.substring(0, 20)}" to global_translations`);
+    } catch (saveErr) {
+      console.warn("[Database Translation Cache Save Failed]:", saveErr);
+    }
+
     return finalVal;
   } catch (error: any) {
     console.warn("Translation fallback applied", {

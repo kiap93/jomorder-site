@@ -5,13 +5,13 @@ export interface PaymentIntentResponse {
   paymentId: string;
   provider: string;
   paymentMethod: string;
-  qrData?: string; // For DuitNow/TNG simulation
-  redirectUrl?: string; // For FPX/Card simulation
+  qrData?: string; // For DuitNow/TNG checkout QR code rendering
+  redirectUrl?: string; // For Stripe Checkout/FPX redirection
 }
 
 /**
- * Enterprise Payment Engine for Restaurant POS + QR Ordering
- * Handles lifecycle, retries, and provider abstractions
+ * Enterprise Multi-Tenant Payment Engine for Restaurant POS + QR Ordering
+ * Connects directly to our dynamic adapters and webhooks
  */
 export const paymentEngine = {
   /**
@@ -25,33 +25,82 @@ export const paymentEngine = {
     provider: string;
     idempotencyKey?: string;
   }): Promise<Payment> {
-    const { idempotencyKey, ...restParams } = params;
-    return apiClient.post<Payment>('/api/public/payments', {
-      ...restParams,
-      idempotencyKey,
-      idempotency_key: idempotencyKey // Send both styles
+    console.log(`[PaymentEngine] Calling /api/payments/create for order ${params.orderId} and method ${params.method}`);
+    
+    const res = await apiClient.post<any>('/api/payments/create', {
+      order_id: params.orderId,
+      payment_method: params.method
     });
+    
+    // Map response back to the standard front-end Payment contract
+    return {
+      id: res.payment_id,
+      restaurant_id: params.restaurantId,
+      order_id: params.orderId,
+      amount: params.amount,
+      payment_method: params.method,
+      provider: res.provider || params.provider,
+      status: 'pending',
+      idempotency_key: res.reference_id,
+      metadata: { 
+        checkout_url: res.payment_url || res.redirect_url 
+      }
+    } as any;
   },
 
   /**
-   * Initialize a specific provider flow (DuitNow, FPX, etc)
+   * Initialize a specific provider flow (DuitNow, FPX, Stripe and Redirect or render QR)
    */
   async initializeProvider(payment: Payment): Promise<PaymentIntentResponse> {
-    return apiClient.post<PaymentIntentResponse>(`/api/public/payments/${payment.id}/initialize`);
+    const metadata = (payment as any).metadata || {};
+    const checkoutUrl = metadata.checkout_url;
+    
+    // Decide whether to view as QR Code or Redirection
+    const isQrCode = payment.payment_method === 'tng' || payment.payment_method === 'duitnow';
+    
+    // If checkoutUrl is present and we're using a Stripe sandbox, automatically redirect for smooth payments.
+    if (checkoutUrl && !isQrCode && typeof window !== 'undefined') {
+      console.log(`[PaymentEngine] Instantly redirecting user to: ${checkoutUrl}`);
+      // In non-iframe or standard browser, trigger location transfer.
+      setTimeout(() => {
+        window.location.href = checkoutUrl;
+      }, 100);
+    }
+
+    return {
+      paymentId: payment.id,
+      provider: payment.provider,
+      paymentMethod: payment.payment_method,
+      qrData: isQrCode ? (checkoutUrl || `https://jomorder.my/pay/mock-qr?id=${payment.id}`) : undefined,
+      redirectUrl: !isQrCode ? checkoutUrl : undefined
+    };
   },
 
   /**
-   * Poll for payment success or failure
+   * Poll for payment success or failure using our database checking
    */
   async checkStatus(paymentId: string): Promise<PaymentStatus> {
-    const data = await apiClient.get<any>(`/api/public/payments/${paymentId}/status`);
-    return data.status;
+    try {
+      const data = await apiClient.get<any>(`/api/payments/status/${paymentId}`);
+      return data.status as any;
+    } catch (err) {
+      console.error("[PaymentEngine] Check status query failed, assuming pendingState:", err);
+      return 'pending';
+    }
   },
 
   /**
-   * Simulate a successful payment (for dev/demo only)
+   * Simulate a successful payment (calls public webhook with realistic parameters)
    */
   async simulateSuccess(paymentId: string): Promise<void> {
-    await apiClient.post(`/api/public/payments/${paymentId}/simulate-success`);
+    console.log(`[PaymentEngine] Simulating successful payment via webhook endpoint for: ${paymentId}`);
+    await apiClient.post(`/api/payment/webhook`, {
+      payment_id: paymentId,
+      id: paymentId,
+      paid: true,
+      amount: 100,
+      status: 'success',
+      provider: 'stripe'
+    });
   }
 };
