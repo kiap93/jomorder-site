@@ -6,20 +6,25 @@ import fs from "fs";
 
 dotenv.config();
 
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is required");
+export function getJwtSecret(env?: any): string {
+  const secret = (env && env.JWT_SECRET) || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is required");
+  }
+  return secret;
 }
-export const JWT_SECRET = process.env.JWT_SECRET;
+
+export const JWT_SECRET = process.env.JWT_SECRET || "dummy_jwt_secret_for_compile_time";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 export const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
-}
+const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://dummy_url_for_compile_time.supabase.co";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "dummy_service_role_key_for_compile_time";
+
 export const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  supabaseUrl,
+  supabaseKey
 );
 
 // Global Order Investigation List
