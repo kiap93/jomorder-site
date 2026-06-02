@@ -10,7 +10,8 @@ export type UserRole =
   | 'cashier'
   | 'waiter'
   | 'kitchen'
-  | 'runner';
+  | 'runner'
+  | 'admin';
 
 export type PermissionCode =
   | 'orders.view'
@@ -65,6 +66,10 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],
   owner: [
+    'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+  ],
+  admin: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
     'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
   ],

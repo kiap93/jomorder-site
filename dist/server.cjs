@@ -736,6 +736,18 @@ var ROLE_PERMISSIONS = {
     "users.manage",
     "settings.manage"
   ],
+  admin: [
+    "orders.view",
+    "kitchen.view",
+    "orders.prepare",
+    "orders.bump",
+    "orders.ready",
+    "payments.view",
+    "payments.refund",
+    "reports.view",
+    "users.manage",
+    "settings.manage"
+  ],
   manager: [
     "orders.view",
     "kitchen.view",
