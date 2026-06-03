@@ -1,7 +1,7 @@
 import { Router, Request } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { supabaseAdmin, googleClient, JWT_SECRET, getStaffSettings } from "../services/dbService";
+import { supabaseAdmin, googleClient, getJwtSecret, getStaffSettings } from "../services/dbService";
 import { LoginSchema, RegisterSchema } from "../../lib/validation";
 import { authenticateJWT } from "../middleware/authMiddleware";
 
@@ -94,7 +94,7 @@ router.post("/login", async (req, res) => {
       }
     };
 
-    const token = jwt.sign(enrichedUser, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(enrichedUser, getJwtSecret(), { expiresIn: '7d' });
     return res.json({ token, user: enrichedUser });
   }
 
@@ -119,7 +119,7 @@ router.post("/login", async (req, res) => {
           email: profile.email, 
           role: profile.role,
           restaurantId: profile.restaurant_id 
-        }, JWT_SECRET, { expiresIn: '7d' });
+        }, getJwtSecret(), { expiresIn: '7d' });
         
         return res.json({ token, user: profile });
       }
@@ -138,7 +138,7 @@ router.post("/login", async (req, res) => {
         email: legacyProfile.email, 
         role: legacyProfile.role,
         restaurantId: legacyProfile.restaurant_id 
-      }, JWT_SECRET, { expiresIn: '7d' });
+      }, getJwtSecret(), { expiresIn: '7d' });
       
       return res.json({ token, user: legacyProfile });
     }
@@ -198,7 +198,7 @@ router.post("/register", async (req, res) => {
       email: profile.email, 
       role: profile.role,
       restaurantId: profile.restaurant_id 
-    }, JWT_SECRET, { expiresIn: '7d' });
+    }, getJwtSecret(), { expiresIn: '7d' });
 
     res.json({ token, user: profile });
   } catch (err: any) {
@@ -359,7 +359,7 @@ router.post("/google-login", async (req, res) => {
     }
 
     console.log("Generating JWT for user:", userPayload.id);
-    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(userPayload, getJwtSecret(), { expiresIn: '7d' });
     res.json({ token, user: userPayload });
   } catch (err: any) {
     console.error("Google verify failed internally:", err);

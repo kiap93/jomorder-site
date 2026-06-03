@@ -4,7 +4,7 @@ import {
   supabaseAdmin, 
   loadFallbackDB, 
   saveFallbackDB, 
-  JWT_SECRET, 
+  getJwtSecret, 
   getOrganizationSettings, 
   getTenantRegistry, 
   getStaffSettings, 
@@ -254,7 +254,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
         is_platform_admin: true,
         restaurantId: r.id
       };
-      const token = jwt.sign(guestPay, JWT_SECRET, { expiresIn: '7d' });
+      const token = jwt.sign(guestPay, getJwtSecret(), { expiresIn: '7d' });
       return res.json({ token, user: guestPay });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -454,7 +454,7 @@ router.post('/switch-workspace/:restaurantId', authenticateJWT, async (req, res)
       console.warn("[DB] Failed to save profile entry timestamp:", e);
     }
 
-    const token = jwt.sign(enriched, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(enriched, getJwtSecret(), { expiresIn: '7d' });
     return res.json({ token, user: enriched });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -726,7 +726,7 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       }
     };
 
-    const token = jwt.sign(enriched, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(enriched, getJwtSecret(), { expiresIn: '7d' });
     return res.json({ token, user: enriched });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

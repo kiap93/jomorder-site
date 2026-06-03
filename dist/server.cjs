@@ -37,16 +37,13 @@ var import_dotenv = __toESM(require("dotenv"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
 import_dotenv.default.config();
-var JWT_SECRET = (() => {
-  const secret = process.env.JWT_SECRET;
+function getJwtSecret(env) {
+  const secret = env && env.JWT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("JWT_SECRET is required");
-    }
-    return "dummy_jwt_secret_for_compile_time";
+    throw new Error("JWT_SECRET is required");
   }
   return secret;
-})();
+}
 var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 var googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
 var supabaseUrl = process.env.VITE_SUPABASE_URL || "https://dummy_url_for_compile_time.supabase.co";
@@ -1121,7 +1118,7 @@ router.post("/login", async (req, res) => {
         can_manage_staff: true
       }
     };
-    const token = import_jsonwebtoken2.default.sign(enrichedUser, JWT_SECRET, { expiresIn: "7d" });
+    const token = import_jsonwebtoken2.default.sign(enrichedUser, getJwtSecret(), { expiresIn: "7d" });
     return res.json({ token, user: enrichedUser });
   }
   try {
@@ -1137,7 +1134,7 @@ router.post("/login", async (req, res) => {
           email: profile.email,
           role: profile.role,
           restaurantId: profile.restaurant_id
-        }, JWT_SECRET, { expiresIn: "7d" });
+        }, getJwtSecret(), { expiresIn: "7d" });
         return res.json({ token, user: profile });
       }
     }
@@ -1148,7 +1145,7 @@ router.post("/login", async (req, res) => {
         email: legacyProfile.email,
         role: legacyProfile.role,
         restaurantId: legacyProfile.restaurant_id
-      }, JWT_SECRET, { expiresIn: "7d" });
+      }, getJwtSecret(), { expiresIn: "7d" });
       return res.json({ token, user: legacyProfile });
     }
     res.status(401).json({ error: "Invalid credentials" });
@@ -1190,7 +1187,7 @@ router.post("/register", async (req, res) => {
       email: profile.email,
       role: profile.role,
       restaurantId: profile.restaurant_id
-    }, JWT_SECRET, { expiresIn: "7d" });
+    }, getJwtSecret(), { expiresIn: "7d" });
     res.json({ token, user: profile });
   } catch (err) {
     console.error("Registration error:", err);
@@ -1307,7 +1304,7 @@ router.post("/google-login", async (req, res) => {
       return res.status(403).json({ error: "User not authorized for staff access" });
     }
     console.log("Generating JWT for user:", userPayload.id);
-    const token = import_jsonwebtoken2.default.sign(userPayload, JWT_SECRET, { expiresIn: "7d" });
+    const token = import_jsonwebtoken2.default.sign(userPayload, getJwtSecret(), { expiresIn: "7d" });
     res.json({ token, user: userPayload });
   } catch (err) {
     console.error("Google verify failed internally:", err);
@@ -2313,7 +2310,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
         is_platform_admin: true,
         restaurantId: r.id
       };
-      const token = import_jsonwebtoken3.default.sign(guestPay, JWT_SECRET, { expiresIn: "7d" });
+      const token = import_jsonwebtoken3.default.sign(guestPay, getJwtSecret(), { expiresIn: "7d" });
       return res.json({ token, user: guestPay });
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -2448,7 +2445,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
     } catch (e) {
       console.warn("[DB] Failed to save profile entry timestamp:", e);
     }
-    const token = import_jsonwebtoken3.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
+    const token = import_jsonwebtoken3.default.sign(enriched, getJwtSecret(), { expiresIn: "7d" });
     return res.json({ token, user: enriched });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -2662,7 +2659,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
         can_manage_staff: true
       }
     };
-    const token = import_jsonwebtoken3.default.sign(enriched, JWT_SECRET, { expiresIn: "7d" });
+    const token = import_jsonwebtoken3.default.sign(enriched, getJwtSecret(), { expiresIn: "7d" });
     return res.json({ token, user: enriched });
   } catch (err) {
     return res.status(500).json({ error: err.message });

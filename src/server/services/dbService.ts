@@ -14,17 +14,6 @@ export function getJwtSecret(env?: any): string {
   return secret;
 }
 
-export const JWT_SECRET = (() => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("JWT_SECRET is required");
-    }
-    return "dummy_jwt_secret_for_compile_time";
-  }
-  return secret;
-})();
-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 export const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
