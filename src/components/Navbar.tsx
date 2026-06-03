@@ -174,15 +174,6 @@ export function Navbar() {
                 <Settings size={20} />
               </Link>
             )}
-            {hasPermission(profile?.role, 'settings.manage', profile?.permissions) && (
-              <Link 
-                to={`/restaurant/${restId}/billing`} 
-                title="SaaS Billing"
-                className={`p-2 rounded transition-all active:scale-90 ${location.pathname.includes('/billing') ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' : 'text-zinc-600 hover:text-indigo-500'}`}
-              >
-                <CreditCard size={20} />
-              </Link>
-            )}
             {isWorkspaceSwitcherVisible && (
               <Link 
                 to="/workspace-select" 
@@ -304,6 +295,17 @@ export function Navbar() {
                       <User size={14} className="text-zinc-500" />
                       {t('navbar.viewProfile')}
                     </button>
+
+                    {hasPermission(profile?.role, 'settings.manage', profile?.permissions) && restId && (
+                      <Link
+                        to={`/restaurant/${restId}/billing`}
+                        onClick={() => setIsDropdownOpen(false)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 transition-all text-left"
+                      >
+                        <CreditCard size={14} className="text-zinc-500" />
+                        Billing Subscription
+                      </Link>
+                    )}
 
                     {isWorkspaceSwitcherVisible && (
                       <button

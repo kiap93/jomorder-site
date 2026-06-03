@@ -289,6 +289,8 @@ export function Checkout() {
   const scRate = restaurant?.serviceCharge || 0;
   const sstRate = restaurant?.sst || 0;
   
+  const isCashOnly = enabledMethods.length === 1 && enabledMethods[0] === 'cash';
+  
   // Let's compute direct subtotal from order item prices if available
   let computedSubtotal = 0;
   if (payTarget === 'session') {
@@ -630,17 +632,19 @@ export function Checkout() {
 
               {/* Payment Methods */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between px-2">
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Select Payment Method</p>
-                  <button 
-                    onClick={() => setIsMethodsCollapsed(!isMethodsCollapsed)}
-                    className="text-[10px] font-black uppercase tracking-widest text-orange-500 hover:text-orange-400 transition-colors"
-                  >
-                    {isMethodsCollapsed ? 'Show Details' : 'Compact View'}
-                  </button>
-                </div>
+                {!isCashOnly && (
+                  <div className="flex items-center justify-between px-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Select Payment Method</p>
+                    <button 
+                      onClick={() => setIsMethodsCollapsed(!isMethodsCollapsed)}
+                      className="text-[10px] font-black uppercase tracking-widest text-orange-500 hover:text-orange-400 transition-colors"
+                    >
+                      {isMethodsCollapsed ? 'Show Details' : 'Compact View'}
+                    </button>
+                  </div>
+                )}
                 
-                <div className={`grid ${isMethodsCollapsed ? 'grid-cols-4' : 'grid-cols-1'} gap-3 transition-all duration-300`}>
+                <div className={`grid ${isMethodsCollapsed && !isCashOnly ? 'grid-cols-4' : 'grid-cols-1'} gap-3 transition-all duration-300`}>
                   {[
                     { id: 'cash', name: 'Cash / Pay Counter', icon: Wallet, color: 'bg-zinc-700' },
                     { id: 'duitnow', name: 'DuitNow QR', icon: QrCode, color: 'bg-pink-500' },
@@ -663,15 +667,15 @@ export function Checkout() {
                       key={method.id}
                       onClick={() => handleMethodSelect(method.id)}
                       className={`group relative bg-zinc-900 border border-zinc-800/50 hover:border-orange-500/50 rounded-2xl transition-all active:scale-[0.98] flex items-center ${
-                        isMethodsCollapsed ? 'justify-center p-3' : 'p-4 gap-4'
+                        isMethodsCollapsed && !isCashOnly ? 'justify-center p-3' : 'p-4 gap-4'
                       }`}
-                      title={isMethodsCollapsed ? method.name : undefined}
+                      title={isMethodsCollapsed && !isCashOnly ? method.name : undefined}
                     >
-                      <div className={`${isMethodsCollapsed ? 'w-10 h-10' : 'w-12 h-12'} ${method.color} rounded-xl flex items-center justify-center text-white shadow-lg shrink-0`}>
-                        <method.icon size={isMethodsCollapsed ? 20 : 24} strokeWidth={1.5} />
+                      <div className={`${isMethodsCollapsed && !isCashOnly ? 'w-10 h-10' : 'w-12 h-12'} ${method.color} rounded-xl flex items-center justify-center text-white shadow-lg shrink-0`}>
+                        <method.icon size={isMethodsCollapsed && !isCashOnly ? 20 : 24} strokeWidth={1.5} />
                       </div>
                       
-                      {!isMethodsCollapsed && (
+                      {!(isMethodsCollapsed && !isCashOnly) && (
                         <>
                           <div className="flex-1 text-left">
                             <p className="text-sm font-bold text-white group-hover:text-orange-500 transition-colors uppercase tracking-tight">{method.name}</p>

@@ -74,6 +74,7 @@ export function PosPayments() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [loading, setLoading] = useState(true);
   const [settlingSession, setSettlingSession] = useState<ProcessedTable | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -158,7 +159,7 @@ export function PosPayments() {
     };
 
     fetchData();
-  }, [restId]);
+  }, [restId, refreshKey]);
 
   const filteredTables = tables.filter(t => {
     if (filter === 'outstanding') return t.hasUnpaid;
@@ -299,6 +300,7 @@ export function PosPayments() {
            onClose={() => setSettlingSession(null)}
            onPaymentSuccess={() => {
              setSettlingSession(null);
+             setRefreshKey(prev => prev + 1);
            }}
          />
       )}
