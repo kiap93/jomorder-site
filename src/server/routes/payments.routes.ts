@@ -113,10 +113,10 @@ router.get("/restaurants/:restaurantId/public-payment-settings", async (req, res
     if (!settings) {
       // Return beautiful defaults so guest checkout doesn't crash
       return res.json({
-        provider: "stripe",
+        provider: "none",
         account_type: "owner",
-        enabled_methods: ["cash", "visa", "mastercard"],
-        public_config: { publishableKey: "" }
+        enabled_methods: ["cash"],
+        public_config: {}
       });
     }
 

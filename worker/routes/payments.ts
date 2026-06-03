@@ -477,10 +477,10 @@ paymentRoutes.get("/api/restaurants/:restaurantId/public-payment-settings", asyn
     if (!settings) {
       // Return beautiful defaults so guest checkout doesn't crash
       return c.json({
-        provider: "stripe",
+        provider: "none",
         account_type: "owner",
-        enabled_methods: ["cash", "visa", "mastercard"],
-        public_config: { publishableKey: "" }
+        enabled_methods: ["cash"],
+        public_config: {}
       });
     }
 

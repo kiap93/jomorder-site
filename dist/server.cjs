@@ -37,7 +37,16 @@ var import_dotenv = __toESM(require("dotenv"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
 import_dotenv.default.config();
-var JWT_SECRET = process.env.JWT_SECRET || "dummy_jwt_secret_for_compile_time";
+var JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET is required");
+    }
+    return "dummy_jwt_secret_for_compile_time";
+  }
+  return secret;
+})();
 var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 var googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
 var supabaseUrl = process.env.VITE_SUPABASE_URL || "https://dummy_url_for_compile_time.supabase.co";
@@ -4026,10 +4035,10 @@ router10.get("/restaurants/:restaurantId/public-payment-settings", async (req, r
     }
     if (!settings) {
       return res.json({
-        provider: "stripe",
+        provider: "none",
         account_type: "owner",
-        enabled_methods: ["cash", "visa", "mastercard"],
-        public_config: { publishableKey: "" }
+        enabled_methods: ["cash"],
+        public_config: {}
       });
     }
     const decConfig = decryptConfig(settings.merchant_config || {});
