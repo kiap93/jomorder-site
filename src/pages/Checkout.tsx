@@ -258,6 +258,45 @@ export function Checkout() {
     
     setLoading(true);
     try {
+      if (method === 'cash') {
+        const activeIdempotencyKey = `pay_cash_${order.id}_${amountToPay.toFixed(2)}`;
+        await paymentEngine.createPayment({
+          restaurantId: restaurant.id,
+          orderId: order.id,
+          amount: amountToPay,
+          method: 'cash',
+          provider: 'cash',
+          idempotencyKey: activeIdempotencyKey
+        });
+
+        // Resolve session token for client verification
+        const storageKey = `dining_session_token_${tableId}`;
+        let sessionToken = await indexedDbStorage.getItem<string>(storageKey) || '';
+        if (sessionToken && sessionToken.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(sessionToken);
+            sessionToken = parsed.token || '';
+          } catch (_) {}
+        }
+
+        if (payTarget === 'session' && order?.sessionId) {
+          await fetch(getApiUrl(`/api/public/dining-sessions/${order.sessionId}/mark-paid`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionToken })
+          });
+        } else if (payTarget === 'order' && order) {
+          await fetch(getApiUrl(`/api/public/orders/${order.id}/mark-paid`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionToken })
+          });
+        }
+
+        setStatus('success');
+        return;
+      }
+
       const activeIdempotencyKey = `pay_${method}_${order.id}_${amountToPay.toFixed(2)}`;
 
       const payment = await paymentEngine.createPayment({

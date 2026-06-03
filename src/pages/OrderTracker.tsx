@@ -16,6 +16,7 @@ export function OrderTracker() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paymentSettings, setPaymentSettings] = useState<{ provider?: string; enabled_methods?: string[] } | null>(null);
   const { t } = useLanguageStore();
 
   useEffect(() => {
@@ -26,6 +27,17 @@ export function OrderTracker() {
 
     const fetchSessionData = async () => {
       try {
+        // Fetch public payment settings
+        try {
+          const settingsRes = await fetch(getApiUrl(`/api/restaurants/${restId}/public-payment-settings`));
+          if (settingsRes.ok) {
+            const settingsData = await settingsRes.json();
+            setPaymentSettings(settingsData);
+          }
+        } catch (settingsErr) {
+          console.error('[OrderTracker] Fetch payment settings failed:', settingsErr);
+        }
+
         // Resolve table UUID if tableId is a slug
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
         let actualTableId = tableId;
@@ -164,6 +176,10 @@ export function OrderTracker() {
   const isUnpaid = unpaidTotal > 0;
   const isCompleted = orders.every(o => o.status === OrderStatus.COMPLETED || o.status === OrderStatus.CANCELLED) && !isUnpaid;
 
+  const isCashOnly = paymentSettings?.provider === 'none' || 
+    (paymentSettings?.enabled_methods?.length === 1 && paymentSettings?.enabled_methods[0] === 'cash') ||
+    (paymentSettings && !paymentSettings.provider);
+
   return (
     <div className="max-w-md mx-auto min-h-screen p-6 bg-white pb-32">
       {/* Session Header */}
@@ -178,10 +194,16 @@ export function OrderTracker() {
         </div>
       </div>
       {isUnpaid && (
-        <div className="w-full bg-orange-600 p-6 rounded-[2.5rem] mb-12 flex flex-col items-center shadow-2xl shadow-orange-600/30">
-          <div className="flex items-center gap-2 mb-4 bg-white/10 px-3 py-1 rounded-full text-[10px] font-black text-white uppercase tracking-widest">
+        <div className={`w-full p-6 rounded-[2.5rem] mb-12 flex flex-col items-center shadow-2xl transition-all duration-300 ${
+          isCashOnly 
+            ? 'bg-zinc-900 shadow-zinc-950/20 text-white' 
+            : 'bg-orange-600 shadow-orange-600/30'
+        }`}>
+          <div className={`flex items-center gap-2 mb-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+            isCashOnly ? 'bg-zinc-800 text-zinc-300' : 'bg-white/10 text-white'
+          }`}>
             <Clock size={12} />
-            <span>Unpaid Balance</span>
+            <span>{isCashOnly ? 'Unpaid Balance (Cash)' : 'Unpaid Balance'}</span>
           </div>
           <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">RM {(unpaidTotal || 0).toFixed(2)}</h2>
           <button 
@@ -193,11 +215,19 @@ export function OrderTracker() {
                 navigate(`/restaurant/${restId}/table/${tableId}/order/${currentOrder.id}/checkout`);
               }
             }}
-            className="w-full h-14 bg-white text-orange-600 rounded-2xl text-sm font-black uppercase tracking-wider hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
+            className={`w-full h-14 rounded-2xl text-sm font-black uppercase tracking-wider transition-all shadow-xl active:scale-[0.98] ${
+              isCashOnly 
+                ? 'bg-orange-600 text-white hover:bg-orange-500' 
+                : 'bg-white text-orange-600 hover:bg-orange-50'
+            }`}
           >
-            Pay Now (Online)
+            {isCashOnly ? 'Confirm Cash Payment & Checkout' : 'Pay Now (Online)'}
           </button>
-          <p className="mt-4 text-[10px] font-bold text-white/50 uppercase tracking-widest">Processing via DuitNow/TNG</p>
+          <p className={`mt-4 text-[10px] font-bold uppercase tracking-widest ${
+            isCashOnly ? 'text-zinc-500' : 'text-white/50'
+          }`}>
+            {isCashOnly ? 'Pay with Cash/Card at counter' : 'Processing via DuitNow/TNG'}
+          </p>
         </div>
       )}
 
