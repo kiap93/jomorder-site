@@ -60,7 +60,7 @@ export function SettingsTab({
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load payment settings on mounts
-  const fetchPaymentSettings = async () => {
+  const fetchPaymentSettings = async (preserveSelectedProvider: boolean = false) => {
     if (!token || !hasPaymentsAccess) return;
     setLoadingPayments(true);
     setPaymentError(null);
@@ -74,20 +74,22 @@ export function SettingsTab({
         const data = await response.json();
         setExistingSettings(data);
         
-        // Use active configuration as the initially selected tab, if any
-        const active = data.find((s: any) => s.is_active);
-        if (active) {
-          setSelectedProvider(active.provider as any);
-          setAccountType(active.account_type);
-          setEnabledMethods(active.enabled_methods || []);
-          setMerchantConfig(active.merchant_config || {});
-          setIsActiveConfig(true);
-        } else if (data.length > 0) {
-          setSelectedProvider(data[0].provider as any);
-          setAccountType(data[0].account_type);
-          setEnabledMethods(data[0].enabled_methods || []);
-          setMerchantConfig(data[0].merchant_config || {});
-          setIsActiveConfig(data[0].is_active);
+        if (!preserveSelectedProvider) {
+          // Use active configuration as the initially selected tab, if any
+          const active = data.find((s: any) => s.is_active);
+          if (active) {
+            setSelectedProvider(active.provider as any);
+            setAccountType(active.account_type);
+            setEnabledMethods(active.enabled_methods || []);
+            setMerchantConfig(active.merchant_config || {});
+            setIsActiveConfig(true);
+          } else if (data.length > 0) {
+            setSelectedProvider(data[0].provider as any);
+            setAccountType(data[0].account_type);
+            setEnabledMethods(data[0].enabled_methods || []);
+            setMerchantConfig(data[0].merchant_config || {});
+            setIsActiveConfig(data[0].is_active);
+          }
         }
       } else {
         const txt = await response.text();
@@ -200,7 +202,7 @@ export function SettingsTab({
       if (response.ok) {
         setPaymentSuccess(`Successfully saved settings for ${selectedProvider.toUpperCase()}!`);
         // Refresh local cache to populate merged scrubbed credentials
-        await fetchPaymentSettings();
+        await fetchPaymentSettings(true);
       } else {
         const txt = await response.text();
         setPaymentError(`Could not save credentials: ${txt}`);
