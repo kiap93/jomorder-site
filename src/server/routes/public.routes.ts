@@ -391,6 +391,17 @@ router.post("/orders/:id/mark-paid", async (req, res) => {
   res.json(data);
 });
 
+// Remove order due to failed payment (Guest Session prepaid cleanup callback)
+router.post("/orders/:id/payment-failed", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .delete()
+    .eq('id', req.params.id);
+  
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: "Order deleted due to failed payment." });
+});
+
 // Mark dining session paid (Guest Session integration callback)
 router.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;

@@ -162,6 +162,7 @@ export function CustomerMenu() {
   const [diningSession, setDiningSession] = useState<{ id: string; token: string; status?: string } | null>(null);
   const [basketVersion, setBasketVersion] = useState<number>(0);
   const [isOnline, setIsOnline] = useState(true);
+  const [paymentSettings, setPaymentSettings] = useState<{ provider?: string; enabled_methods?: string[] } | null>(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -358,7 +359,7 @@ export function CustomerMenu() {
           setTimeout(() => reject(new Error("Loading restaurant data timed out. Please try again or check your connection.")), 30000)
         );
 
-        let restRes, catsRes, tableRes, itemsRes;
+        let restRes, catsRes, tableRes, itemsRes, paymentSettingsRes;
 
         try {
           console.log("Fetching primary data: restaurant, categories, table...");
@@ -367,15 +368,21 @@ export function CustomerMenu() {
               fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
               fetch(getApiUrl(`/api/public/restaurants/${restId}/categories`)).then(r => r.json()),
               fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`)).then(r => r.json()),
-              fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`)).then(r => r.json())
+              fetch(getApiUrl(`/api/public/restaurants/${restId}/menu-items`)).then(r => r.json()),
+              fetch(getApiUrl(`/api/restaurants/${restId}/public-payment-settings`)).then(r => r.ok ? r.json() : null).catch(() => null)
             ]),
             timeoutPromise
-          ]) as [unknown, unknown, unknown, unknown];
+          ]) as [unknown, unknown, unknown, unknown, unknown];
 
           restRes = responses[0];
           catsRes = responses[1];
           tableRes = responses[2];
           itemsRes = responses[3];
+          paymentSettingsRes = responses[4];
+
+          if (paymentSettingsRes) {
+            setPaymentSettings(paymentSettingsRes);
+          }
 
           // Store successful payloads to local cache
           if (restRes && !(restRes as any).error) {
@@ -476,15 +483,16 @@ export function CustomerMenu() {
         }));
 
         setRestaurant(prev => {
-          const nr = { 
+          const nr: Restaurant = { 
             id: restRes.id, 
             name: restRes.name, 
             currency: restRes.currency, 
             serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
             sst: parseFloat(restRes.sst || 0) / 100,
-            franchiseId: restRes.franchise_id
+            franchiseId: restRes.franchise_id,
+            payment_mode: restRes.payment_mode || 'pay_first'
           };
-          return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr as Restaurant;
+          return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr;
         });
         
         if (Array.isArray(catsRes)) {
@@ -951,6 +959,10 @@ export function CustomerMenu() {
   const serviceCharge = subtotal * (restaurant?.serviceCharge || 0);
   const sst = (subtotal + serviceCharge) * (restaurant?.sst || 0);
   const total = subtotal + serviceCharge + sst;
+
+  const isCashOnly = paymentSettings?.provider === 'none' || 
+    (paymentSettings?.enabled_methods?.length === 1 && paymentSettings?.enabled_methods[0] === 'cash') ||
+    (paymentSettings && !paymentSettings.provider);
   
   const placeOrderAtCounter = async () => {
     if (!restId || !tableId || cart.length === 0) return;
@@ -1075,7 +1087,38 @@ export function CustomerMenu() {
   const confirmOrder = async () => {
     if (!restId || !tableId || cart.length === 0) return;
     setLoading(true);
-    
+
+    const paymentMode = restaurant?.payment_mode || 'pay_first';
+
+    if (paymentMode === 'pay_first' || paymentMode === 'both') {
+      try {
+        const itemsWithMetadata = await prepareItemsForOrder();
+        const prepaidPayload = {
+          p_restaurant_id: restId,
+          p_table_id: table?.id || tableId,
+          p_session_id: diningSession?.id,
+          p_session_token: diningSession?.token,
+          p_order_type: orderType,
+          p_items: itemsWithMetadata,
+          p_total_price: total,
+          p_payment_method: 'online',
+          p_idempotency_key: Math.random().toString(36).slice(2, 15)
+        };
+
+        const storageKey = `prepaid_payload_${diningSession?.id}`;
+        await indexedDbStorage.setItem(storageKey, prepaidPayload);
+
+        setLoading(false);
+        navigate(`/restaurant/${restId}/table/${tableId}/session/${diningSession?.id}/order/prepaid/checkout`);
+        return;
+      } catch (err: unknown) {
+        console.error("Prepaid checkout flow failed:", err);
+        alert(err instanceof Error ? err.message : "Failed to initiate checkout");
+        setLoading(false);
+        return;
+      }
+    }
+
     const maxRetries = 2;
     let attempt = 0;
     const idempotencyKey = Math.random().toString(36).slice(2, 15);
@@ -1786,33 +1829,51 @@ export function CustomerMenu() {
                 </div>
               </div>
               
-              <div className="p-3.5 flex gap-3 bg-blue-50/50 rounded-xl border border-blue-100">
-                <Info className="text-blue-500 shrink-0" size={18} />
-                <p className="text-[11px] font-medium text-blue-700 leading-relaxed">
-                  Your order will be sent to the kitchen. Payment can be made at the counter during or after your meal.
+              <div className="p-3.5 flex gap-3 bg-zinc-50 rounded-xl border border-zinc-100/80">
+                <Info className="text-zinc-500 shrink-0" size={18} />
+                <p className="text-[11px] font-medium text-zinc-600 leading-relaxed">
+                  {restaurant?.payment_mode === 'pay_first' ? (
+                    "Please complete your payment to submit your order to the kitchen. Unsubmitted selections are saved in your basket."
+                  ) : restaurant?.payment_mode === 'pay_later' ? (
+                    "Your order will start preparing when submitted. You can pay at the counter during or after your meal."
+                  ) : (
+                    "Choose online payment for fast-tracking, or pay at the counter/table during or after your meal."
+                  )}
                 </p>
               </div>
             </div>
 
             <div className="p-4 bg-white border-t border-zinc-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] space-y-3">
-              <button
-                onClick={confirmOrder}
-                disabled={loading || cart.length === 0 || !diningSession?.id}
-                className="w-full h-14 bg-zinc-900 text-white rounded-xl font-bold text-base hover:bg-black transition-all flex items-center justify-center shadow-lg shadow-zinc-900/10 disabled:bg-zinc-200 disabled:text-zinc-400"
-              >
-                {loading ? (
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-                ) : (
-                  "Pay Now (DuitNow/TNG)"
-                )}
-              </button>
-              <button
-                onClick={placeOrderAtCounter}
-                disabled={loading || cart.length === 0 || !diningSession?.id}
-                className="w-full h-12 bg-white text-zinc-900 border border-zinc-200 rounded-xl font-bold text-sm hover:bg-zinc-50 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Place Order, Pay Later
-              </button>
+              {!isCashOnly && (restaurant?.payment_mode === 'pay_first' || restaurant?.payment_mode === 'both' || !restaurant?.payment_mode) && (
+                <button
+                  onClick={confirmOrder}
+                  disabled={loading || cart.length === 0 || !diningSession?.id}
+                  className="w-full h-14 bg-zinc-900 text-white rounded-xl font-bold text-base hover:bg-black transition-all flex items-center justify-center shadow-lg shadow-zinc-900/10 disabled:bg-zinc-200 disabled:text-zinc-400"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                  ) : (
+                    "Pay Now (DuitNow/TNG)"
+                  )}
+                </button>
+              )}
+              {(isCashOnly || restaurant?.payment_mode === 'pay_later' || restaurant?.payment_mode === 'both' || !restaurant?.payment_mode) && (
+                <button
+                  onClick={placeOrderAtCounter}
+                  disabled={loading || cart.length === 0 || !diningSession?.id}
+                  className={`w-full font-bold transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isCashOnly || restaurant?.payment_mode === 'pay_later'
+                      ? "h-14 bg-zinc-900 text-white rounded-xl text-base hover:bg-black shadow-lg shadow-zinc-900/10"
+                      : "h-12 bg-white text-zinc-900 border border-zinc-200 rounded-xl text-sm hover:bg-zinc-50"
+                  }`}
+                >
+                  {loading && (isCashOnly || restaurant?.payment_mode === 'pay_later') ? (
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                  ) : (
+                    isCashOnly || restaurant?.payment_mode === 'pay_later' ? "Confirm Order & Pay Later" : "Place Order, Pay Later"
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
         )}

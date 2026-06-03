@@ -315,6 +315,74 @@ export function SettingsTab({
                 />
               </div>
 
+              <div>
+                <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">Order Payment Mode</label>
+                <div className="grid grid-cols-1 gap-2.5">
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    (restaurant.payment_mode || 'pay_first') === 'pay_first'
+                      ? 'border-orange-500 bg-orange-50/20'
+                      : 'border-gray-150 bg-gray-50/50 hover:bg-gray-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="payment_code"
+                      value="pay_first"
+                      checked={(restaurant.payment_mode || 'pay_first') === 'pay_first'}
+                      onChange={() => setRestaurant({ ...restaurant, payment_mode: 'pay_first' })}
+                      className="mt-1 border-gray-300 text-orange-500 focus:ring-orange-500"
+                    />
+                    <div>
+                      <span className="block text-xs font-black text-gray-950">Pay First (Prepaid)</span>
+                      <span className="block text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                        Customer must complete payment before order is submitted. Status starts as Paid → Preparing. (Ideal for Quick Service)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    restaurant.payment_mode === 'pay_later'
+                      ? 'border-orange-500 bg-orange-50/20'
+                      : 'border-gray-150 bg-gray-50/50 hover:bg-gray-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="payment_code"
+                      value="pay_later"
+                      checked={restaurant.payment_mode === 'pay_later'}
+                      onChange={() => setRestaurant({ ...restaurant, payment_mode: 'pay_later' })}
+                      className="mt-1 border-gray-300 text-orange-500 focus:ring-orange-500"
+                    />
+                    <div>
+                      <span className="block text-xs font-black text-gray-950">Pay Later (Postpaid)</span>
+                      <span className="block text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                        Customer submits order first. Staff collects payment at counter, table, or after meal. Status starts as Pending Payment. (Ideal for Table Service)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    restaurant.payment_mode === 'both'
+                      ? 'border-orange-500 bg-orange-50/20'
+                      : 'border-gray-150 bg-gray-50/50 hover:bg-gray-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="payment_code"
+                      value="both"
+                      checked={restaurant.payment_mode === 'both'}
+                      onChange={() => setRestaurant({ ...restaurant, payment_mode: 'both' })}
+                      className="mt-1 border-gray-300 text-orange-500 focus:ring-orange-500"
+                    />
+                    <div>
+                      <span className="block text-xs font-black text-gray-950">Allow Both (Customer Chooses)</span>
+                      <span className="block text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                        Allow customers to choose between instant checkout ("Pay Now") or pay later ("Pay at Counter"). (Highly Flexible)
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <button
                 onClick={updateRestaurantSettings}
                 disabled={savingSettings}

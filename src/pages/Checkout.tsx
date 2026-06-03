@@ -60,6 +60,39 @@ interface DbOrder {
   restaurant_id?: string;
 }
 
+async function getSessionTokenRobust(tableId?: string): Promise<string> {
+  if (!tableId) return '';
+  const storageKey = `dining_session_token_${tableId}`;
+  try {
+    const raw = await indexedDbStorage.getItem<unknown>(storageKey);
+    if (!raw) return '';
+    if (typeof raw === 'object' && raw !== null) {
+      const rawObj = raw as Record<string, unknown>;
+      if (rawObj.token !== undefined && rawObj.token !== null) {
+        return String(rawObj.token).trim();
+      }
+    }
+    if (typeof raw === 'string') {
+      const trimmedRaw = raw.trim();
+      if (trimmedRaw.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmedRaw);
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.token !== undefined && parsed.token !== null) {
+              return String(parsed.token).trim();
+            }
+          }
+        } catch (_) {}
+      }
+      return trimmedRaw;
+    }
+    return String(raw).trim();
+  } catch (e) {
+    console.warn("Error getting session token robustly:", e);
+    return '';
+  }
+}
+
 export function Checkout() {
   const { restId, orderId, tableId, sessionId } = useParams();
   const [searchParams] = useSearchParams();
@@ -94,21 +127,62 @@ export function Checkout() {
           }
         }
 
-        const [restRes, orderRes] = await Promise.all([
-          fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
-          fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`)).then(r => r.json())
-        ]);
+        let restRes: any;
+        let orderRes: any;
+
+        if (orderId === 'prepaid') {
+          restRes = await fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json());
+          
+          const storageKey = `prepaid_payload_${sessionId}`;
+          const prepaidPayload = await indexedDbStorage.getItem<any>(storageKey);
+          
+          if (!prepaidPayload) {
+            throw new Error("Prepackaged payment payload expired or not found. Please go back to the menu and checkout again.");
+          }
+
+          orderRes = {
+            id: 'prepaid',
+            restaurant_id: restId,
+            table_id: prepaidPayload.p_table_id,
+            session_id: prepaidPayload.p_session_id,
+            order_type: prepaidPayload.p_order_type,
+            status: 'pending_payment',
+            total_price: prepaidPayload.p_total_price,
+            payment_method: 'online',
+            items: prepaidPayload.p_items.map((i: any, idx: number) => ({
+              id: `item_${idx}`,
+              product_id: i.menuItemId,
+              quantity: i.quantity,
+              price: i.price,
+              configuration: i.configuration || {},
+              special_instructions: i.specialInstructions || '',
+              product: { name: i.name }
+            })),
+            created_at: new Date().toISOString()
+          };
+        } else {
+          const results = await Promise.all([
+            fetch(getApiUrl(`/api/public/restaurants/${restId}`)).then(r => r.json()),
+            fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`)).then(r => r.json())
+          ]);
+          restRes = results[0];
+          orderRes = results[1];
+        }
 
         try {
           const settingsRes = await fetch(getApiUrl(`/api/restaurants/${restId}/public-payment-settings`));
           if (settingsRes.ok) {
             const settingsData = await settingsRes.json();
-            setEnabledMethods(settingsData.enabled_methods || []);
+            if (settingsData && settingsData.provider !== 'none') {
+              setEnabledMethods(settingsData.enabled_methods || []);
+            } else {
+              setEnabledMethods(['cash']); // Unticked provider active restricts to cash only
+            }
           } else {
-            setEnabledMethods(['cash', 'fpx', 'duitnow', 'tng', 'visa', 'mastercard']);
+            setEnabledMethods(['cash']);
           }
         } catch (_) {
-          setEnabledMethods(['cash', 'fpx', 'duitnow', 'tng', 'visa', 'mastercard']);
+          setEnabledMethods(['cash']);
         }
 
         if (restRes.error) throw new Error(restRes.error);
@@ -253,40 +327,95 @@ export function Checkout() {
     calculatedSST = (calculatedSubtotal + calculatedSC) * sstRate;
   }
 
+  const [realCreatedOrderId, setRealCreatedOrderId] = useState<string | null>(null);
+
+  const handleCancelPayment = async () => {
+    if (orderId === 'prepaid' && order?.id && order.id !== 'prepaid') {
+      try {
+        await fetch(getApiUrl(`/api/public/orders/${order.id}/payment-failed`), { method: 'POST' });
+        setOrder(prev => prev ? { ...prev, id: 'prepaid' } : null);
+        setRealCreatedOrderId(null);
+      } catch (err) {
+        console.warn("Could not cleanup order on cancel payment:", err);
+      }
+    }
+    setStatus('selecting');
+  };
+
   const handleMethodSelect = async (method: string) => {
     if (!restaurant || !order) return;
     
     setLoading(true);
     try {
+      let currentOrderActive = order;
+
+      if (order.id === 'prepaid') {
+        const storageKey = `prepaid_payload_${sessionId}`;
+        const prepaidPayload = await indexedDbStorage.getItem<any>(storageKey);
+        if (!prepaidPayload) {
+          throw new Error("Payment payload expired. Please return to the menu and check out again.");
+        }
+
+        // 1. Check if 'cash' is selected, place order and navigate to tracker as counter mode
+        if (method === 'cash') {
+          const payloadInput = {
+            ...prepaidPayload,
+            p_payment_method: 'counter'
+          };
+          const response = await fetch(getApiUrl(`/api/public/place-order`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadInput)
+          });
+          if (!response.ok) throw new Error("Order placement failed");
+          const resJson = await response.json() as { order_id?: string };
+          const realId = resJson.order_id;
+          if (!realId) throw new Error("Could not create customer order");
+
+          await indexedDbStorage.setItem(`last_order_${restId}_${tableId}`, realId);
+          
+          navigate(`/restaurant/${restId}/table/${tableId}/session/${sessionId}/order/${realId}`);
+          return;
+        }
+
+        // 2. Online Payment: create the order first in the database with status 'pending'
+        const response = await fetch(getApiUrl(`/api/public/place-order`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(prepaidPayload)
+        });
+        if (!response.ok) throw new Error("Order placement failed");
+        const resJson = await response.json() as { order_id?: string };
+        const realId = resJson.order_id;
+        if (!realId) throw new Error("Could not create customer order");
+
+        setRealCreatedOrderId(realId);
+        currentOrderActive = { ...order, id: realId };
+        setOrder(currentOrderActive);
+      }
+
+      // 3. Complete Payment processing
       if (method === 'cash') {
-        const activeIdempotencyKey = `pay_cash_${order.id}_${amountToPay.toFixed(2)}`;
+        const activeIdempotencyKey = `pay_cash_${currentOrderActive.id}_${amountToPay.toFixed(2)}`;
         await paymentEngine.createPayment({
           restaurantId: restaurant.id,
-          orderId: order.id,
+          orderId: currentOrderActive.id,
           amount: amountToPay,
           method: 'cash',
           provider: 'cash',
           idempotencyKey: activeIdempotencyKey
         });
 
-        // Resolve session token for client verification
-        const storageKey = `dining_session_token_${tableId}`;
-        let sessionToken = await indexedDbStorage.getItem<string>(storageKey) || '';
-        if (sessionToken && sessionToken.trim().startsWith('{')) {
-          try {
-            const parsed = JSON.parse(sessionToken);
-            sessionToken = parsed.token || '';
-          } catch (_) {}
-        }
+        const sessionToken = await getSessionTokenRobust(tableId);
 
-        if (payTarget === 'session' && order?.sessionId) {
-          await fetch(getApiUrl(`/api/public/dining-sessions/${order.sessionId}/mark-paid`), {
+        if (payTarget === 'session' && currentOrderActive.sessionId) {
+          await fetch(getApiUrl(`/api/public/dining-sessions/${currentOrderActive.sessionId}/mark-paid`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionToken })
           });
-        } else if (payTarget === 'order' && order) {
-          await fetch(getApiUrl(`/api/public/orders/${order.id}/mark-paid`), {
+        } else if (payTarget === 'order') {
+          await fetch(getApiUrl(`/api/public/orders/${currentOrderActive.id}/mark-paid`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionToken })
@@ -297,11 +426,11 @@ export function Checkout() {
         return;
       }
 
-      const activeIdempotencyKey = `pay_${method}_${order.id}_${amountToPay.toFixed(2)}`;
+      const activeIdempotencyKey = `pay_${method}_${currentOrderActive.id}_${amountToPay.toFixed(2)}`;
 
       const payment = await paymentEngine.createPayment({
         restaurantId: restaurant.id,
-        orderId: order.id,
+        orderId: currentOrderActive.id,
         amount: amountToPay,
         method: method,
         provider: 'pos_saas_internal',
@@ -322,14 +451,7 @@ export function Checkout() {
     if (!paymentIntent) return;
     
     // Recovery of session token from IndexedDB
-    const storageKey = `dining_session_token_${tableId}`;
-    let sessionToken = await indexedDbStorage.getItem<string>(storageKey) || '';
-    if (sessionToken && sessionToken.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(sessionToken);
-        sessionToken = parsed.token || '';
-      } catch (_) {}
-    }
+    const sessionToken = await getSessionTokenRobust(tableId);
 
     // If it was a session payment, mark all session orders as paid and close the session
     if (payTarget === 'session' && order?.sessionId) {
@@ -529,7 +651,13 @@ export function Checkout() {
                     { id: 'atome', name: 'Atome BNPL', icon: LayoutGrid, color: 'bg-yellow-500' },
                     { id: 'grab_paylater', name: 'Grab PayLater', icon: Smartphone, color: 'bg-green-600' }
                   ]
-                  .filter(m => enabledMethods.length === 0 || enabledMethods.includes(m.id) || (m.id === 'visa' || m.id === 'mastercard' ? enabledMethods.includes('card') : false))
+                  .filter(m => {
+                    const payMode = restaurant?.payment_mode || 'pay_first';
+                    if (payMode === 'pay_first' && m.id === 'cash') {
+                      return false;
+                    }
+                    return enabledMethods.length === 0 || enabledMethods.includes(m.id) || (m.id === 'visa' || m.id === 'mastercard' ? enabledMethods.includes('card') : false);
+                  })
                   .map(method => (
                     <button
                       key={method.id}
@@ -603,7 +731,7 @@ export function Checkout() {
                 </button>
 
                 <button
-                  onClick={() => setStatus('selecting')}
+                  onClick={handleCancelPayment}
                   className="text-xs font-bold text-zinc-500 hover:text-white transition-colors"
                 >
                   Cancel & Change Method

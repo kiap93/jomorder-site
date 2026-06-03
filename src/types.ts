@@ -21,6 +21,7 @@ export interface Restaurant {
   serviceCharge: number;
   sst: number;
   franchiseId?: string;
+  payment_mode?: 'pay_first' | 'pay_later' | 'both';
 }
 
 export interface Table {

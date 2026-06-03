@@ -565,7 +565,8 @@ export function AdminPanel() {
           name: restaurant.name,
           service_charge: restaurant.serviceCharge * 100,
           sst: restaurant.sst * 100,
-          currency: restaurant.currency
+          currency: restaurant.currency,
+          payment_mode: restaurant.payment_mode || 'pay_first'
         })
       });
 
