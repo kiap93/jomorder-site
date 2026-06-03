@@ -804,7 +804,7 @@ paymentRoutes.post("/api/payments/create", async (c) => {
     }
 
     // 4. Create pending payments row context safely
-    const paymentId = 'pay-' + Math.random().toString(36).substr(2, 9);
+    const paymentId = crypto.randomUUID();
     
     // Create base callback and success parameters
     const origin = c.req.header('origin') || process.env.VITE_API_BASE_URL || `http://${c.req.header('host')}`;

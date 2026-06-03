@@ -3376,6 +3376,7 @@ var sessions_routes_default = router9;
 
 // src/server/routes/payments.routes.ts
 var import_express10 = require("express");
+var import_crypto5 = __toESM(require("crypto"), 1);
 
 // src/server/services/idempotencyService.ts
 var IdempotencyService = class {
@@ -4254,7 +4255,7 @@ router10.post("/payments/create", async (req, res) => {
     if (!isMethodAllowed) {
       return res.status(400).json({ error: `Selected payment method "${payment_method}" is not enabled by this restaurant.` });
     }
-    const paymentId = "pay-" + Math.random().toString(36).substr(2, 9);
+    const paymentId = import_crypto5.default.randomUUID();
     const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
     const redirectUrl = `${origin}/checkout/status`;
     const callbackUrl = `${origin}/api/payment/webhook`;

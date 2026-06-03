@@ -1,5 +1,6 @@
 import { Router } from "express";
 import express from "express";
+import crypto from "crypto";
 import { supabaseAdmin } from "../services/dbService";
 import { authenticateJWT, requireTenantIsolation, requirePermissions, AuthenticatedRequest } from "../middleware/authMiddleware";
 import { idempotencyService } from "../services/idempotencyService";
@@ -450,7 +451,7 @@ router.post("/payments/create", async (req, res) => {
     }
 
     // 4. Create pending payments row context safely
-    const paymentId = 'pay-' + Math.random().toString(36).substr(2, 9);
+    const paymentId = crypto.randomUUID();
     
     // Create base callback and success parameters
     const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
