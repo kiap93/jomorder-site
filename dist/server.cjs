@@ -3881,28 +3881,26 @@ function decrypt(text) {
     if (parts.length !== 2) return text;
     const iv = Buffer.from(parts[0], "hex");
     const encryptedText = Buffer.from(parts[1], "hex");
-    try {
-      const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
-      let decrypted = decipher.update(encryptedText);
-      decrypted = Buffer.concat([decrypted, decipher.final()]);
-      return decrypted.toString("utf8");
-    } catch (primaryErr) {
-      const fallbackKey = "jomorder-super-secret-key-32-chars-max!".substring(0, 32).padEnd(32, "0");
-      if (ENCRYPTION_KEY !== fallbackKey) {
-        try {
-          const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(fallbackKey), iv);
-          let decrypted = decipher.update(encryptedText);
-          decrypted = Buffer.concat([decrypted, decipher.final()]);
-          console.log("[Encryption] Decryption succeeded with system fallback key.");
-          return decrypted.toString("utf8");
-        } catch (fallbackErr) {
-          throw new Error("Both primary and fallback encryption decryptions failed");
-        }
+    const candidatesStr = [
+      process.env.PAYMENT_ENCRYPTION_KEY,
+      "123",
+      "jomorder-super-secret-key-32-chars-max!"
+    ].filter((k) => typeof k === "string" && k.trim() !== "");
+    const candidateKeys = Array.from(new Set(
+      candidatesStr.map((k) => k.substring(0, 32).padEnd(32, "0"))
+    ));
+    for (const keyStr of candidateKeys) {
+      try {
+        const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyStr), iv);
+        let decrypted = decipher.update(encryptedText);
+        decrypted = Buffer.concat([decrypted, decipher.final()]);
+        return decrypted.toString("utf8");
+      } catch (err) {
       }
-      throw primaryErr;
     }
+    throw new Error("All decryption candidate keys failed");
   } catch (err) {
-    console.warn("[Encryption] Decryption failed, returning input fallback:", err);
+    console.warn("[Encryption] Decryption failed, returning plain text fallback:", err);
     return text;
   }
 }
