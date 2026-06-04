@@ -3879,12 +3879,28 @@ function decrypt(text) {
   try {
     const parts = text.split(":");
     if (parts.length !== 2) return text;
-    const iv = Buffer.from(parts.shift(), "hex");
-    const encryptedText = Buffer.from(parts.join(":"), "hex");
-    const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
-    let decrypted = decipher.update(encryptedText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString("utf8");
+    const iv = Buffer.from(parts[0], "hex");
+    const encryptedText = Buffer.from(parts[1], "hex");
+    try {
+      const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+      let decrypted = decipher.update(encryptedText);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+      return decrypted.toString("utf8");
+    } catch (primaryErr) {
+      const fallbackKey = "jomorder-super-secret-key-32-chars-max!".substring(0, 32).padEnd(32, "0");
+      if (ENCRYPTION_KEY !== fallbackKey) {
+        try {
+          const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(fallbackKey), iv);
+          let decrypted = decipher.update(encryptedText);
+          decrypted = Buffer.concat([decrypted, decipher.final()]);
+          console.log("[Encryption] Decryption succeeded with system fallback key.");
+          return decrypted.toString("utf8");
+        } catch (fallbackErr) {
+          throw new Error("Both primary and fallback encryption decryptions failed");
+        }
+      }
+      throw primaryErr;
+    }
   } catch (err) {
     console.warn("[Encryption] Decryption failed, returning input fallback:", err);
     return text;
@@ -3948,6 +3964,10 @@ async function getPaymentProviderForRestaurant(restaurantId) {
       const providerName = (settings.provider || "stripe").toLowerCase();
       const accountType = settings.account_type || "owner";
       const enabledMethods = Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [];
+      console.log(`[PaymentFactory] Found active settings for provider: ${providerName}. Keys available: ${Object.keys(decryptedConfig).join(", ")}`);
+      if (providerName === "stripe") {
+        console.log(`[PaymentFactory] Stripe config - secretKey length: ${decryptedConfig.secretKey ? decryptedConfig.secretKey.length : 0}, startsWith sk_: ${decryptedConfig.secretKey ? decryptedConfig.secretKey.startsWith("sk_") : false}, value (masked): ${decryptedConfig.secretKey ? decryptedConfig.secretKey.substring(0, 7) + "..." : "none"}`);
+      }
       let provider;
       switch (providerName) {
         case "billplz":

@@ -30,6 +30,11 @@ export async function getPaymentProviderForRestaurant(restaurantId: string): Pro
       const accountType = settings.account_type || "owner";
       const enabledMethods = Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [];
 
+      console.log(`[PaymentFactory] Found active settings for provider: ${providerName}. Keys available: ${Object.keys(decryptedConfig).join(", ")}`);
+      if (providerName === "stripe") {
+        console.log(`[PaymentFactory] Stripe config - secretKey length: ${decryptedConfig.secretKey ? decryptedConfig.secretKey.length : 0}, startsWith sk_: ${decryptedConfig.secretKey ? decryptedConfig.secretKey.startsWith('sk_') : false}, value (masked): ${decryptedConfig.secretKey ? decryptedConfig.secretKey.substring(0, 7) + '...' : 'none'}`);
+      }
+
       let provider: PaymentProvider;
       switch (providerName) {
         case "billplz":

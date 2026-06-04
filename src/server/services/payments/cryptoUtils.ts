@@ -22,12 +22,32 @@ export function decrypt(text: string): string {
   try {
     const parts = text.split(':');
     if (parts.length !== 2) return text; // If not in encrypted structure (hex:hex), return unchanged
-    const iv = Buffer.from(parts.shift()!, 'hex');
-    const encryptedText = Buffer.from(parts.join(':'), 'hex');
-    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
-    let decrypted = decipher.update(encryptedText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString("utf8");
+    const iv = Buffer.from(parts[0], 'hex');
+    const encryptedText = Buffer.from(parts[1], 'hex');
+    
+    try {
+      // 1. Try decrypting with prime key
+      const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+      let decrypted = decipher.update(encryptedText);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+      return decrypted.toString("utf8");
+    } catch (primaryErr) {
+      // 2. Try decrypting with build-in system fallback key
+      const fallbackKey = 'jomorder-super-secret-key-32-chars-max!'.substring(0, 32).padEnd(32, '0');
+      if (ENCRYPTION_KEY !== fallbackKey) {
+        try {
+          const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(fallbackKey), iv);
+          let decrypted = decipher.update(encryptedText);
+          decrypted = Buffer.concat([decrypted, decipher.final()]);
+          console.log("[Encryption] Decryption succeeded with system fallback key.");
+          return decrypted.toString("utf8");
+        } catch (fallbackErr) {
+          // both failed
+          throw new Error("Both primary and fallback encryption decryptions failed");
+        }
+      }
+      throw primaryErr;
+    }
   } catch (err) {
     console.warn("[Encryption] Decryption failed, returning input fallback:", err);
     return text; // Return plain text as fallback
