@@ -69,8 +69,8 @@ export async function getPaymentProviderForRestaurant(restaurantId: string): Pro
       console.log(`[PaymentFactory] Succesfully resolved provider "${providerName}" for restaurant ${restaurantId}`);
       return { provider, providerName, accountType, enabledMethods };
     }
-  } catch (err) {
-    console.warn("[PaymentFactory] Failure reading database configuration, using default sandbox Stripe fallback", err);
+  } catch (err: any) {
+    console.warn("[PaymentFactory] Failure reading database configuration, using default sandbox Stripe fallback:", err.message);
   }
 
   // Resilient system-wide sandbox fallback configuration

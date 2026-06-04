@@ -4002,7 +4002,7 @@ async function getPaymentProviderForRestaurant(restaurantId) {
       return { provider, providerName, accountType, enabledMethods };
     }
   } catch (err) {
-    console.warn("[PaymentFactory] Failure reading database configuration, using default sandbox Stripe fallback", err);
+    console.warn("[PaymentFactory] Failure reading database configuration, using default sandbox Stripe fallback:", err.message);
   }
   console.log(`[PaymentFactory] Resilient default system-wide sandbox fallback applied for ${restaurantId}`);
   const defaultProvider = new StripeProvider({
