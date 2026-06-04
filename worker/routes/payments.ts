@@ -791,7 +791,7 @@ paymentRoutes.post("/api/payments/create", async (c) => {
     }
 
     // 3. For digital payment, resolve active restaurant payment settings
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, c.env.PAYMENT_ENCRYPTION_KEY);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, c.env.PAYMENT_ENCRYPTION_KEY, supabase);
     
     // Check if selected payment method is enabled
     const requestedMethod = payment_method.toLowerCase();

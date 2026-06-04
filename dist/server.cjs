@@ -3952,10 +3952,11 @@ function scrubSensitiveConfig(config, customKey) {
 }
 
 // src/server/services/payments/index.ts
-async function getPaymentProviderForRestaurant(restaurantId, encryptionKey) {
+async function getPaymentProviderForRestaurant(restaurantId, encryptionKey, customSupabase) {
   console.log(`[PaymentFactory] Resolving payment provider for restaurant: ${restaurantId}`);
+  const clientToUse = customSupabase || supabaseAdmin;
   try {
-    const { data: settings, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
+    const { data: settings, error } = await clientToUse.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
     if (error) {
       console.error("[PaymentFactory] Database error pulling payment settings:", error.message);
     }

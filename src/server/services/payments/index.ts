@@ -9,11 +9,12 @@ import { PaymentProvider } from "./types";
 export * from "./types";
 export * from "./cryptoUtils";
 
-export async function getPaymentProviderForRestaurant(restaurantId: string, encryptionKey?: string): Promise<{ provider: PaymentProvider; providerName: string; accountType: string; enabledMethods: string[] }> {
+export async function getPaymentProviderForRestaurant(restaurantId: string, encryptionKey?: string, customSupabase?: any): Promise<{ provider: PaymentProvider; providerName: string; accountType: string; enabledMethods: string[] }> {
   console.log(`[PaymentFactory] Resolving payment provider for restaurant: ${restaurantId}`);
   
+  const clientToUse = customSupabase || supabaseAdmin;
   try {
-    const { data: settings, error } = await supabaseAdmin
+    const { data: settings, error } = await clientToUse
       .from('payment_settings')
       .select('*')
       .eq('restaurant_id', restaurantId)
