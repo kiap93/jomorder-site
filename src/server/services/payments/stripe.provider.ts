@@ -29,7 +29,13 @@ export class StripeProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
     
-    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret") {
+    if (
+      !this.secretKey || 
+      this.secretKey === "mock" || 
+      this.secretKey === "mock_secret" || 
+      this.secretKey.includes("sample") || 
+      this.secretKey.includes("mock")
+    ) {
       return {
         success: false,
         error: "Stripe Secret Key is not configured for this restaurant.",
@@ -108,7 +114,13 @@ export class StripeProvider implements PaymentProvider {
   }
 
   async getPaymentStatus(reference: string): Promise<PaymentStatusResponse> {
-    if (!this.secretKey || this.secretKey === "mock" || reference.startsWith("cs_test_")) {
+    if (
+      !this.secretKey || 
+      this.secretKey === "mock" || 
+      this.secretKey.includes("sample") || 
+      this.secretKey.includes("mock") ||
+      reference.startsWith("cs_test_")
+    ) {
       return {
         success: false,
         status: 'pending',
@@ -174,7 +186,7 @@ export class StripeProvider implements PaymentProvider {
       if (!sig) {
         throw new Error("Missing stripe-signature header");
       }
-      if (!this.webhookSecret) {
+      if (!this.webhookSecret || this.webhookSecret.includes("sample") || this.webhookSecret.includes("mock")) {
         throw new Error("Stripe Webhook Secret is not configured");
       }
       const rawBody = payload.rawBody || (typeof payload === 'string' ? payload : JSON.stringify(payload));

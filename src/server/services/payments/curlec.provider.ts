@@ -12,14 +12,25 @@ export class CurlecProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[CurlecProvider] Creating payment. Merchant: ${this.merchantId}, Amount: ${data.amount}`);
     
+    if (
+      !this.merchantId || 
+      !this.apiKey || 
+      this.merchantId.includes("test") || 
+      this.merchantId.includes("sample") || 
+      this.apiKey.includes("sample") || 
+      this.apiKey.includes("mock")
+    ) {
+      return {
+        success: false,
+        error: "Curlec integration credentials are not configured.",
+        reference_id: "error"
+      };
+    }
+
     const referenceId = `cur_${Math.random().toString(36).substr(2, 9)}`;
 
     // Build redirection link
-    let paymentUrl = `https://checkout.curlec.com/pay?merchant=${this.merchantId}&amount=${data.amount}&ref=${referenceId}`;
-
-    if (!this.merchantId || this.merchantId.includes("test")) {
-      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=curlec&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
-    }
+    const paymentUrl = `https://checkout.curlec.com/pay?merchant=${this.merchantId}&amount=${data.amount}&ref=${referenceId}`;
 
     return {
       success: true,

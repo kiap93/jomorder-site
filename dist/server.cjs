@@ -3630,11 +3630,15 @@ var CurlecProvider = class {
   }
   async createPayment(data) {
     console.log(`[CurlecProvider] Creating payment. Merchant: ${this.merchantId}, Amount: ${data.amount}`);
-    const referenceId = `cur_${Math.random().toString(36).substr(2, 9)}`;
-    let paymentUrl = `https://checkout.curlec.com/pay?merchant=${this.merchantId}&amount=${data.amount}&ref=${referenceId}`;
-    if (!this.merchantId || this.merchantId.includes("test")) {
-      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=curlec&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    if (!this.merchantId || !this.apiKey || this.merchantId.includes("test") || this.merchantId.includes("sample") || this.apiKey.includes("sample") || this.apiKey.includes("mock")) {
+      return {
+        success: false,
+        error: "Curlec integration credentials are not configured.",
+        reference_id: "error"
+      };
     }
+    const referenceId = `cur_${Math.random().toString(36).substr(2, 9)}`;
+    const paymentUrl = `https://checkout.curlec.com/pay?merchant=${this.merchantId}&amount=${data.amount}&ref=${referenceId}`;
     return {
       success: true,
       payment_url: paymentUrl,
@@ -3690,7 +3694,7 @@ var StripeProvider = class {
   }
   async createPayment(data) {
     console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
-    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret") {
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret" || this.secretKey.includes("sample") || this.secretKey.includes("mock")) {
       return {
         success: false,
         error: "Stripe Secret Key is not configured for this restaurant.",
@@ -3761,7 +3765,7 @@ var StripeProvider = class {
     }
   }
   async getPaymentStatus(reference) {
-    if (!this.secretKey || this.secretKey === "mock" || reference.startsWith("cs_test_")) {
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey.includes("sample") || this.secretKey.includes("mock") || reference.startsWith("cs_test_")) {
       return {
         success: false,
         status: "pending",
@@ -3822,7 +3826,7 @@ var StripeProvider = class {
       if (!sig) {
         throw new Error("Missing stripe-signature header");
       }
-      if (!this.webhookSecret) {
+      if (!this.webhookSecret || this.webhookSecret.includes("sample") || this.webhookSecret.includes("mock")) {
         throw new Error("Stripe Webhook Secret is not configured");
       }
       const rawBody = payload.rawBody || (typeof payload === "string" ? payload : JSON.stringify(payload));
