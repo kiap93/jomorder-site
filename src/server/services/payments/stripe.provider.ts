@@ -33,8 +33,7 @@ export class StripeProvider implements PaymentProvider {
       !this.secretKey || 
       this.secretKey === "mock" || 
       this.secretKey === "mock_secret" || 
-      this.secretKey.includes("sample") || 
-      this.secretKey.includes("mock")
+      this.secretKey === "sk_test_sample"
     ) {
       return {
         success: false,
@@ -117,8 +116,8 @@ export class StripeProvider implements PaymentProvider {
     if (
       !this.secretKey || 
       this.secretKey === "mock" || 
-      this.secretKey.includes("sample") || 
-      this.secretKey.includes("mock") ||
+      this.secretKey === "mock_secret" ||
+      this.secretKey === "sk_test_sample" ||
       reference.startsWith("cs_test_")
     ) {
       return {
@@ -186,7 +185,7 @@ export class StripeProvider implements PaymentProvider {
       if (!sig) {
         throw new Error("Missing stripe-signature header");
       }
-      if (!this.webhookSecret || this.webhookSecret.includes("sample") || this.webhookSecret.includes("mock")) {
+      if (!this.webhookSecret || this.webhookSecret === "whsec_sample") {
         throw new Error("Stripe Webhook Secret is not configured");
       }
       const rawBody = payload.rawBody || (typeof payload === 'string' ? payload : JSON.stringify(payload));

@@ -3568,7 +3568,7 @@ var SenangPayProvider = class {
   }
   async createPayment(data) {
     console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
-    if (!this.merchantId || this.merchantId.includes("test") || !this.secretKey) {
+    if (!this.merchantId || !this.secretKey) {
       return {
         success: false,
         error: "SenangPay integration credentials are not configured.",
@@ -3630,7 +3630,7 @@ var CurlecProvider = class {
   }
   async createPayment(data) {
     console.log(`[CurlecProvider] Creating payment. Merchant: ${this.merchantId}, Amount: ${data.amount}`);
-    if (!this.merchantId || !this.apiKey || this.merchantId.includes("test") || this.merchantId.includes("sample") || this.apiKey.includes("sample") || this.apiKey.includes("mock")) {
+    if (!this.merchantId || !this.apiKey) {
       return {
         success: false,
         error: "Curlec integration credentials are not configured.",
@@ -3694,7 +3694,7 @@ var StripeProvider = class {
   }
   async createPayment(data) {
     console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
-    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret" || this.secretKey.includes("sample") || this.secretKey.includes("mock")) {
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret" || this.secretKey === "sk_test_sample") {
       return {
         success: false,
         error: "Stripe Secret Key is not configured for this restaurant.",
@@ -3765,7 +3765,7 @@ var StripeProvider = class {
     }
   }
   async getPaymentStatus(reference) {
-    if (!this.secretKey || this.secretKey === "mock" || this.secretKey.includes("sample") || this.secretKey.includes("mock") || reference.startsWith("cs_test_")) {
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret" || this.secretKey === "sk_test_sample" || reference.startsWith("cs_test_")) {
       return {
         success: false,
         status: "pending",
@@ -3826,7 +3826,7 @@ var StripeProvider = class {
       if (!sig) {
         throw new Error("Missing stripe-signature header");
       }
-      if (!this.webhookSecret || this.webhookSecret.includes("sample") || this.webhookSecret.includes("mock")) {
+      if (!this.webhookSecret || this.webhookSecret === "whsec_sample") {
         throw new Error("Stripe Webhook Secret is not configured");
       }
       const rawBody = payload.rawBody || (typeof payload === "string" ? payload : JSON.stringify(payload));

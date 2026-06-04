@@ -14,11 +14,7 @@ export class CurlecProvider implements PaymentProvider {
     
     if (
       !this.merchantId || 
-      !this.apiKey || 
-      this.merchantId.includes("test") || 
-      this.merchantId.includes("sample") || 
-      this.apiKey.includes("sample") || 
-      this.apiKey.includes("mock")
+      !this.apiKey
     ) {
       return {
         success: false,

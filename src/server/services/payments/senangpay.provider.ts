@@ -17,7 +17,7 @@ export class SenangPayProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
     
-    if (!this.merchantId || this.merchantId.includes("test") || !this.secretKey) {
+    if (!this.merchantId || !this.secretKey) {
       return {
         success: false,
         error: "SenangPay integration credentials are not configured.",
