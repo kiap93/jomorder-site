@@ -63,7 +63,15 @@ export const paymentEngine = {
       console.log(`[PaymentEngine] Instantly redirecting user to: ${checkoutUrl}`);
       // In non-iframe or standard browser, trigger location transfer.
       setTimeout(() => {
-        window.location.href = checkoutUrl;
+        try {
+          if (window.top && window.top !== window) {
+            window.top.location.href = checkoutUrl;
+          } else {
+            window.location.href = checkoutUrl;
+          }
+        } catch (e) {
+          window.location.href = checkoutUrl;
+        }
       }, 100);
     }
 

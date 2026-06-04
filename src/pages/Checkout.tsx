@@ -284,6 +284,22 @@ export function Checkout() {
     return () => clearInterval(interval);
   }, [status, paymentIntent]);
 
+  // Automatic Redirection logic for Credit Card / Online gateways
+  useEffect(() => {
+    if (status === 'processing' && paymentIntent?.redirectUrl) {
+      console.log(`[Checkout] Redirecting automatically to secure payment provider: ${paymentIntent.redirectUrl}`);
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.href = paymentIntent.redirectUrl;
+        } else {
+          window.location.href = paymentIntent.redirectUrl;
+        }
+      } catch (e) {
+        window.location.href = paymentIntent.redirectUrl;
+      }
+    }
+  }, [status, paymentIntent]);
+
   // Security & Billing Calculations
   const amountToPay = payTarget === 'session' && sessionUnpaidTotal !== null ? sessionUnpaidTotal : (order?.totalPrice || 0);
   const scRate = restaurant?.serviceCharge || 0;
@@ -658,40 +674,81 @@ export function Checkout() {
               exit={{ x: -20, opacity: 0 }}
               className="flex flex-col items-center"
             >
-              {/* Payment Processing Card */}
-              <div className="w-full bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-[3rem] p-10 flex flex-col items-center text-center">
-                <div className="flex items-center gap-2 mb-8 text-[11px] font-black text-orange-500 uppercase tracking-[0.2em]">
-                  <Timer size={14} className="animate-spin" />
-                  <span>Awaiting Payment Verification</span>
-                </div>
-
-                {paymentIntent?.qrData ? (
-                  <div className="relative p-6 bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(249,115,22,0.15)] mb-8">
-                    <QRCodeSVG 
-                      value={paymentIntent.qrData} 
-                      size={200}
-                      level="H"
-                    />
-                    <div className="absolute inset-0 border-[3px] border-white rounded-[2.5rem]" />
+              {paymentIntent?.redirectUrl ? (
+                /* REDIRECT VIEW */
+                <div className="w-full bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-[3rem] p-10 flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2 mb-8 text-[11px] font-black text-orange-500 uppercase tracking-[0.2em]">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
+                    <span>Secure Gateway Redirect</span>
                   </div>
-                ) : (
-                  <div className="w-48 h-48 bg-zinc-800 rounded-[2.5rem] flex items-center justify-center mb-8 border border-zinc-700 animate-pulse">
-                    <Smartphone size={48} className="text-zinc-600" />
+
+                  <div className="w-20 h-20 bg-orange-500/10 text-orange-500 rounded-full flex items-center justify-center mb-8 animate-bounce">
+                    <CreditCard size={32} />
                   </div>
-                )}
 
-                <div className="space-y-1 mb-8">
-                  <h2 className="text-xl font-bold">Scanning...</h2>
-                  <p className="text-zinc-500 text-sm font-medium">Please scan the QR code using your {paymentIntent?.paymentMethod?.toUpperCase() || 'SCANNER'} wallet app.</p>
+                  <div className="space-y-2 mb-8 max-w-sm">
+                    <h2 className="text-xl font-bold">Redirecting...</h2>
+                    <p className="text-zinc-500 text-sm font-medium leading-relaxed">
+                      We are securely redirecting you to our billing provider to finalize your session payment of <span className="text-white font-bold">RM {amountToPay.toFixed(2)}</span>.
+                    </p>
+                  </div>
+
+                  <a
+                    href={paymentIntent.redirectUrl}
+                    target="_top"
+                    className="w-full max-w-xs h-14 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2.5 transition-all shadow-[0_10px_25px_rgba(249,115,22,0.25)] mb-4"
+                  >
+                    <CreditCard size={18} />
+                    PROCEED TO SECURE PAYMENT
+                  </a>
+
+                  <p className="text-[10px] text-zinc-500 mb-8 font-medium">
+                    Click the button above if you are not automatically redirected.
+                  </p>
+
+                  <button
+                    onClick={handleCancelPayment}
+                    className="text-xs font-bold text-zinc-500 hover:text-white transition-colors"
+                  >
+                    Cancel & Change Method
+                  </button>
                 </div>
+              ) : (
+                /* QR CODE / SCAN VIEW (For TNG, DuitNow) */
+                <div className="w-full bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-[3rem] p-10 flex flex-col items-center text-center">
+                  <div className="flex items-center gap-2 mb-8 text-[11px] font-black text-orange-500 uppercase tracking-[0.2em]">
+                    <Timer size={14} className="animate-spin" />
+                    <span>Awaiting QR Scan Code</span>
+                  </div>
 
-                <button
-                  onClick={handleCancelPayment}
-                  className="text-xs font-bold text-zinc-500 hover:text-white transition-colors"
-                >
-                  Cancel & Change Method
-                </button>
-              </div>
+                  {paymentIntent?.qrData ? (
+                    <div className="relative p-6 bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(249,115,22,0.15)] mb-8">
+                      <QRCodeSVG 
+                        value={paymentIntent.qrData} 
+                        size={200}
+                        level="H"
+                      />
+                      <div className="absolute inset-0 border-[3px] border-white rounded-[2.5rem]" />
+                    </div>
+                  ) : (
+                    <div className="w-48 h-48 bg-zinc-800 rounded-[2.5rem] flex items-center justify-center mb-8 border border-zinc-700 animate-pulse">
+                      <Smartphone size={48} className="text-zinc-600" />
+                    </div>
+                  )}
+
+                  <div className="space-y-1 mb-8">
+                    <h2 className="text-xl font-bold">Scan to Pay</h2>
+                    <p className="text-zinc-500 text-sm font-medium">Please scan this QR code using your {paymentIntent?.paymentMethod?.toUpperCase() || 'SCANNER'} app to complete payment.</p>
+                  </div>
+
+                  <button
+                    onClick={handleCancelPayment}
+                    className="text-xs font-bold text-zinc-500 hover:text-white transition-colors"
+                  >
+                    Cancel & Change Method
+                  </button>
+                </div>
+              )}
 
               {/* Help text */}
               <div className="mt-10 flex items-center gap-3 p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl">
