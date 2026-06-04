@@ -3,11 +3,12 @@ import crypto from "crypto";
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || 'jomorder-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
 
-export function encrypt(text: string): string {
+export function encrypt(text: string, customKey?: string): string {
   if (!text) return "";
   try {
+    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || 'jomorder-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
     let encrypted = cipher.update(text, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
@@ -17,7 +18,7 @@ export function encrypt(text: string): string {
   }
 }
 
-export function decrypt(text: string): string {
+export function decrypt(text: string, customKey?: string): string {
   if (!text) return "";
   try {
     const parts = text.split(':');
@@ -27,6 +28,7 @@ export function decrypt(text: string): string {
     
     // Collect all unique candidate 32-character key Buffers to try
     const candidatesStr = [
+      customKey,
       process.env.PAYMENT_ENCRYPTION_KEY,
       "123",
       "jomorder-super-secret-key-32-chars-max!"
@@ -54,7 +56,7 @@ export function decrypt(text: string): string {
   }
 }
 
-export function encryptConfig(config: Record<string, any>): Record<string, any> {
+export function encryptConfig(config: Record<string, any>, customKey?: string): Record<string, any> {
   const encrypted: Record<string, any> = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === 'string' && (
@@ -66,9 +68,9 @@ export function encryptConfig(config: Record<string, any>): Record<string, any> 
       key.toLowerCase().includes('password') || 
       key.toLowerCase().includes('token')
     )) {
-      encrypted[key] = encrypt(val);
+      encrypted[key] = encrypt(val, customKey);
     } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-      encrypted[key] = encryptConfig(val);
+      encrypted[key] = encryptConfig(val, customKey);
     } else {
       encrypted[key] = val;
     }
@@ -76,7 +78,7 @@ export function encryptConfig(config: Record<string, any>): Record<string, any> 
   return encrypted;
 }
 
-export function decryptConfig(config: Record<string, any>): Record<string, any> {
+export function decryptConfig(config: Record<string, any>, customKey?: string): Record<string, any> {
   const decrypted: Record<string, any> = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === 'string' && (
@@ -88,9 +90,9 @@ export function decryptConfig(config: Record<string, any>): Record<string, any> 
       key.toLowerCase().includes('password') || 
       key.toLowerCase().includes('token')
     )) {
-      decrypted[key] = decrypt(val);
+      decrypted[key] = decrypt(val, customKey);
     } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-      decrypted[key] = decryptConfig(val);
+      decrypted[key] = decryptConfig(val, customKey);
     } else {
       decrypted[key] = val;
     }
@@ -98,7 +100,7 @@ export function decryptConfig(config: Record<string, any>): Record<string, any> 
   return decrypted;
 }
 
-export function scrubSensitiveConfig(config: Record<string, any>): Record<string, any> {
+export function scrubSensitiveConfig(config: Record<string, any>, customKey?: string): Record<string, any> {
   const scrubbed: Record<string, any> = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === 'string' && (
@@ -110,14 +112,14 @@ export function scrubSensitiveConfig(config: Record<string, any>): Record<string
       key.toLowerCase().includes('password') || 
       key.toLowerCase().includes('token')
     )) {
-      const dec = decrypt(val);
+      const dec = decrypt(val, customKey);
       if (dec.length > 8) {
         scrubbed[key] = `${dec.substring(0, 4)}...${dec.substring(dec.length - 4)}`;
       } else {
         scrubbed[key] = "********";
       }
     } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-      scrubbed[key] = scrubSensitiveConfig(val);
+      scrubbed[key] = scrubSensitiveConfig(val, customKey);
     } else {
       scrubbed[key] = val;
     }

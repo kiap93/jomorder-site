@@ -484,7 +484,7 @@ paymentRoutes.get("/api/restaurants/:restaurantId/public-payment-settings", asyn
       });
     }
 
-    const decConfig = decryptConfig(settings.merchant_config || {});
+    const decConfig = decryptConfig(settings.merchant_config || {}, c.env.PAYMENT_ENCRYPTION_KEY);
     // Extract only non-sensitive config keys like publishableKey or merchantId
     const publicConfig: Record<string, any> = {};
     if (decConfig.publishableKey) publicConfig.publishableKey = decConfig.publishableKey;
@@ -554,7 +554,7 @@ paymentRoutes.post("/api/restaurants/:restId/payment-settings", authenticate, re
 
     let decryptedExisting: Record<string, any> = {};
     if (existingRecord && existingRecord.merchant_config) {
-      decryptedExisting = decryptConfig(existingRecord.merchant_config);
+      decryptedExisting = decryptConfig(existingRecord.merchant_config, c.env.PAYMENT_ENCRYPTION_KEY);
     }
 
     // 2. Consolidate submitted settings. Replace only if value has actual updates.
@@ -573,7 +573,7 @@ paymentRoutes.post("/api/restaurants/:restId/payment-settings", authenticate, re
     }
 
     // 3. Encrypt the consolidated config keys
-    const encryptedConfig = encryptConfig(finalDecryptedConfig);
+    const encryptedConfig = encryptConfig(finalDecryptedConfig, c.env.PAYMENT_ENCRYPTION_KEY);
 
     // 4. Update other providers' active is_active mapping to false if saving this provider as active
     if (is_active === true) {
@@ -661,7 +661,7 @@ paymentRoutes.post("/api/restaurants/:restId/payment-settings/test-connection", 
 
     let decryptedExisting: Record<string, any> = {};
     if (existingRecord && existingRecord.merchant_config) {
-      decryptedExisting = decryptConfig(existingRecord.merchant_config);
+      decryptedExisting = decryptConfig(existingRecord.merchant_config, c.env.PAYMENT_ENCRYPTION_KEY);
     }
 
     const testDecryptedConfig = { ...decryptedExisting };
@@ -791,7 +791,7 @@ paymentRoutes.post("/api/payments/create", async (c) => {
     }
 
     // 3. For digital payment, resolve active restaurant payment settings
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, c.env.PAYMENT_ENCRYPTION_KEY);
     
     // Check if selected payment method is enabled
     const requestedMethod = payment_method.toLowerCase();

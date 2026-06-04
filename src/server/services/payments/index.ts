@@ -9,7 +9,7 @@ import { PaymentProvider } from "./types";
 export * from "./types";
 export * from "./cryptoUtils";
 
-export async function getPaymentProviderForRestaurant(restaurantId: string): Promise<{ provider: PaymentProvider; providerName: string; accountType: string; enabledMethods: string[] }> {
+export async function getPaymentProviderForRestaurant(restaurantId: string, encryptionKey?: string): Promise<{ provider: PaymentProvider; providerName: string; accountType: string; enabledMethods: string[] }> {
   console.log(`[PaymentFactory] Resolving payment provider for restaurant: ${restaurantId}`);
   
   try {
@@ -25,7 +25,7 @@ export async function getPaymentProviderForRestaurant(restaurantId: string): Pro
     }
 
     if (settings) {
-      const decryptedConfig = decryptConfig(settings.merchant_config || {});
+      const decryptedConfig = decryptConfig(settings.merchant_config || {}, encryptionKey);
       const providerName = (settings.provider || "stripe").toLowerCase();
       const accountType = settings.account_type || "owner";
       const enabledMethods = Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [];

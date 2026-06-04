@@ -3861,11 +3861,12 @@ var StripeProvider = class {
 var import_crypto4 = __toESM(require("crypto"), 1);
 var ENCRYPTION_ALGORITHM = "aes-256-cbc";
 var ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
-function encrypt(text) {
+function encrypt(text, customKey) {
   if (!text) return "";
   try {
+    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
     const iv = import_crypto4.default.randomBytes(16);
-    const cipher = import_crypto4.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+    const cipher = import_crypto4.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
     let encrypted = cipher.update(text, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString("hex") + ":" + encrypted.toString("hex");
@@ -3874,7 +3875,7 @@ function encrypt(text) {
     return text;
   }
 }
-function decrypt(text) {
+function decrypt(text, customKey) {
   if (!text) return "";
   try {
     const parts = text.split(":");
@@ -3882,6 +3883,7 @@ function decrypt(text) {
     const iv = Buffer.from(parts[0], "hex");
     const encryptedText = Buffer.from(parts[1], "hex");
     const candidatesStr = [
+      customKey,
       process.env.PAYMENT_ENCRYPTION_KEY,
       "123",
       "jomorder-super-secret-key-32-chars-max!"
@@ -3904,44 +3906,44 @@ function decrypt(text) {
     return text;
   }
 }
-function encryptConfig(config) {
+function encryptConfig(config, customKey) {
   const encrypted = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
-      encrypted[key] = encrypt(val);
+      encrypted[key] = encrypt(val, customKey);
     } else if (val && typeof val === "object" && !Array.isArray(val)) {
-      encrypted[key] = encryptConfig(val);
+      encrypted[key] = encryptConfig(val, customKey);
     } else {
       encrypted[key] = val;
     }
   }
   return encrypted;
 }
-function decryptConfig(config) {
+function decryptConfig(config, customKey) {
   const decrypted = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
-      decrypted[key] = decrypt(val);
+      decrypted[key] = decrypt(val, customKey);
     } else if (val && typeof val === "object" && !Array.isArray(val)) {
-      decrypted[key] = decryptConfig(val);
+      decrypted[key] = decryptConfig(val, customKey);
     } else {
       decrypted[key] = val;
     }
   }
   return decrypted;
 }
-function scrubSensitiveConfig(config) {
+function scrubSensitiveConfig(config, customKey) {
   const scrubbed = {};
   for (const [key, val] of Object.entries(config)) {
     if (typeof val === "string" && (key.toLowerCase().includes("key") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("pk_") || key.toLowerCase().includes("sk_") || key.toLowerCase().includes("credential") || key.toLowerCase().includes("password") || key.toLowerCase().includes("token"))) {
-      const dec = decrypt(val);
+      const dec = decrypt(val, customKey);
       if (dec.length > 8) {
         scrubbed[key] = `${dec.substring(0, 4)}...${dec.substring(dec.length - 4)}`;
       } else {
         scrubbed[key] = "********";
       }
     } else if (val && typeof val === "object" && !Array.isArray(val)) {
-      scrubbed[key] = scrubSensitiveConfig(val);
+      scrubbed[key] = scrubSensitiveConfig(val, customKey);
     } else {
       scrubbed[key] = val;
     }
@@ -3950,7 +3952,7 @@ function scrubSensitiveConfig(config) {
 }
 
 // src/server/services/payments/index.ts
-async function getPaymentProviderForRestaurant(restaurantId) {
+async function getPaymentProviderForRestaurant(restaurantId, encryptionKey) {
   console.log(`[PaymentFactory] Resolving payment provider for restaurant: ${restaurantId}`);
   try {
     const { data: settings, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
@@ -3958,7 +3960,7 @@ async function getPaymentProviderForRestaurant(restaurantId) {
       console.error("[PaymentFactory] Database error pulling payment settings:", error.message);
     }
     if (settings) {
-      const decryptedConfig = decryptConfig(settings.merchant_config || {});
+      const decryptedConfig = decryptConfig(settings.merchant_config || {}, encryptionKey);
       const providerName = (settings.provider || "stripe").toLowerCase();
       const accountType = settings.account_type || "owner";
       const enabledMethods = Array.isArray(settings.enabled_methods) ? settings.enabled_methods : [];
@@ -4283,7 +4285,7 @@ router10.post("/payments/create", async (req, res) => {
         redirect_url: `/checkout/status?order_id=${order_id}`
       });
     }
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, process.env.PAYMENT_ENCRYPTION_KEY);
     const requestedMethod = payment_method.toLowerCase();
     const isMethodAllowed = paymentContext.enabledMethods.includes(requestedMethod) || requestedMethod === "online" || // support generic descriptors
     (requestedMethod === "visa" || requestedMethod === "mastercard" ? paymentContext.enabledMethods.includes("card") || paymentContext.enabledMethods.includes("visa") || paymentContext.enabledMethods.includes("mastercard") : false);
@@ -4411,7 +4413,7 @@ router10.post("/webhooks/stripe", async (req, res) => {
     if (!restaurantId) {
       throw new Error(`Unable to determine restaurant context for Stripe Webhook. PaymentId: ${paymentId}, RefId: ${refId}`);
     }
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, process.env.PAYMENT_ENCRYPTION_KEY);
     if (paymentContext.providerName !== "stripe") {
       throw new Error(`Restaurant ${restaurantId} payment provider is configured as ${paymentContext.providerName}, but received Stripe Webhook`);
     }

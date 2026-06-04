@@ -437,7 +437,7 @@ router.post("/payments/create", async (req, res) => {
     }
 
     // 3. For digital payment, resolve active restaurant payment settings
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, process.env.PAYMENT_ENCRYPTION_KEY);
     
     // Check if selected payment method is enabled
     // Support aliases: cash, fpx, duitnow, tng, grabpay, boost, visa, mastercard, atome, grab_paylater
@@ -612,7 +612,7 @@ router.post("/webhooks/stripe", async (req, res) => {
     }
 
     // 2. Load payment config for this restaurant
-    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId, process.env.PAYMENT_ENCRYPTION_KEY);
     if (paymentContext.providerName !== "stripe") {
       throw new Error(`Restaurant ${restaurantId} payment provider is configured as ${paymentContext.providerName}, but received Stripe Webhook`);
     }

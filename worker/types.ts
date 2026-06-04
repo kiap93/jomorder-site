@@ -6,6 +6,7 @@ export type Bindings = {
   GEMINI_API_KEY: string;
   ADMIN_USER_EMAIL?: string;
   ADMIN_USER_PASSWORD?: string;
+  PAYMENT_ENCRYPTION_KEY?: string;
 };
 
 export type Variables = {
