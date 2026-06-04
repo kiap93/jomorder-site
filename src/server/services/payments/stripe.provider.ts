@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { CreatePaymentRequest, CreatePaymentResponse, PaymentProvider, PaymentStatusResponse, RefundPaymentResponse, VerifyWebhookResponse } from "./types";
+import { supabaseAdmin } from "../dbService";
 
 export class StripeProvider implements PaymentProvider {
   private publishableKey: string;
@@ -28,22 +29,33 @@ export class StripeProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
     
-    // If it's a mock key or empty, use fallback simulator
-    if (!this.secretKey || this.secretKey.includes("mock") || this.secretKey.includes("test")) {
-      const mockSessionId = `cs_test_${Math.random().toString(36).substr(2, 9)}`;
-      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret") {
       return {
-        success: true,
-        payment_url: paymentUrl,
-        reference_id: mockSessionId,
-        raw_response: { mock: true, sessionId: mockSessionId }
+        success: false,
+        error: "Stripe Secret Key is not configured for this restaurant.",
+        reference_id: "error"
       };
+    }
+
+    // Load organization_id to map to tenantId
+    let tenantId = data.restaurant_id;
+    try {
+      const { data: rest } = await supabaseAdmin
+        .from('restaurants')
+        .select('organization_id')
+        .eq('id', data.restaurant_id)
+        .maybeSingle();
+      if (rest?.organization_id) {
+        tenantId = rest.organization_id;
+      }
+    } catch (dbErr: any) {
+      console.warn("[StripeProvider] Could not load organization_id from database:", dbErr.message);
     }
 
     try {
       const stripe = this.getStripe();
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
+        payment_method_types: ["card", "fpx"],
         line_items: [
           {
             price_data: {
@@ -62,7 +74,20 @@ export class StripeProvider implements PaymentProvider {
         metadata: {
           payment_id: data.payment_id,
           order_id: data.order_id,
-          restaurant_id: data.restaurant_id
+          restaurant_id: data.restaurant_id,
+          orderId: data.order_id,
+          tenantId: tenantId,
+          workspaceId: data.restaurant_id
+        },
+        payment_intent_data: {
+          metadata: {
+            payment_id: data.payment_id,
+            order_id: data.order_id,
+            restaurant_id: data.restaurant_id,
+            orderId: data.order_id,
+            tenantId: tenantId,
+            workspaceId: data.restaurant_id
+          }
         }
       });
 
@@ -73,23 +98,20 @@ export class StripeProvider implements PaymentProvider {
         raw_response: session
       };
     } catch (err: any) {
-      console.error("[StripeProvider] Failed to create Stripe Session, fallback to simulator:", err.message);
-      const mockSessionId = `cs_test_fallback_${Math.random().toString(36).substr(2, 9)}`;
-      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+      console.error("[StripeProvider] Failed to create Stripe Session:", err.message);
       return {
-        success: true,
-        payment_url: paymentUrl,
-        reference_id: mockSessionId,
-        raw_response: { mock: true, error: err.message, sessionId: mockSessionId }
+        success: false,
+        error: err.message,
+        reference_id: "failed"
       };
     }
   }
 
   async getPaymentStatus(reference: string): Promise<PaymentStatusResponse> {
-    if (!this.secretKey || this.secretKey.includes("mock") || reference.startsWith("cs_test_")) {
+    if (!this.secretKey || this.secretKey === "mock" || reference.startsWith("cs_test_")) {
       return {
-        success: true,
-        status: 'completed',
+        success: false,
+        status: 'pending',
         reference_id: reference,
         amount: 0
       };
@@ -146,34 +168,23 @@ export class StripeProvider implements PaymentProvider {
   async verifyWebhook(payload: any, headers?: any): Promise<VerifyWebhookResponse> {
     console.log("[StripeProvider] Verifying Webhook Event.");
     
-    // Fallback simulation processing
-    if (!this.webhookSecret || !headers || !headers["stripe-signature"]) {
-      console.log("[StripeProvider] Webhook verification fallback - ignoring signature verification");
-      const dataObj = payload.data?.object || payload;
-      const ref = dataObj.id;
-      const pId = dataObj.metadata?.payment_id;
-      const amt = (dataObj.amount_total || dataObj.amount || 0) / 100;
-      return {
-        success: true,
-        payment_id: pId,
-        reference_id: ref,
-        amount: amt,
-        status: payload.type === "checkout.session.completed" ? "completed" : "failed",
-        raw_payload: payload
-      };
-    }
-
     try {
       const stripe = this.getStripe();
-      const sig = headers["stripe-signature"];
-      const rawBody = payload.rawBody || JSON.stringify(payload);
+      const sig = headers ? headers["stripe-signature"] : null;
+      if (!sig) {
+        throw new Error("Missing stripe-signature header");
+      }
+      if (!this.webhookSecret) {
+        throw new Error("Stripe Webhook Secret is not configured");
+      }
+      const rawBody = payload.rawBody || (typeof payload === 'string' ? payload : JSON.stringify(payload));
       const event = stripe.webhooks.constructEvent(rawBody, sig, this.webhookSecret);
       
       if (event.type === "checkout.session.completed") {
         const session = event.data.object as Stripe.Checkout.Session;
         return {
           success: true,
-          payment_id: session.metadata?.payment_id,
+          payment_id: session.metadata?.payment_id || undefined,
           reference_id: session.id,
           amount: (session.amount_total || 0) / 100,
           status: "completed",

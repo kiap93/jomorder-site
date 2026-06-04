@@ -58,6 +58,10 @@ export function PaymentSuccess() {
   );
 
   const totalPaid = orders.reduce((sum, o) => sum + (o.paid_at ? (o.totalPrice || 0) : 0), 0);
+  const resolvedSessionId = sessionId && sessionId !== 'undefined' ? sessionId : (orders[0] as any)?.session_id;
+  const backToMenuUrl = resolvedSessionId 
+    ? `/restaurant/${restId}/table/${tableId}/session/${resolvedSessionId}` 
+    : `/restaurant/${restId}/table/${tableId}`;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white font-sans selection:bg-emerald-500/30">
@@ -144,7 +148,7 @@ export function PaymentSuccess() {
               <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Get Receipt</span>
            </button>
            <Link 
-              to={`/restaurant/${restId}/table/${tableId}/session/${sessionId}`}
+              to={backToMenuUrl}
               className="h-16 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all group"
            >
               <Home size={18} className="text-zinc-400 group-hover:text-orange-500 transition-colors" />

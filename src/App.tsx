@@ -15,6 +15,7 @@ import { Register } from './pages/Register';
 import { OrderTracker } from './pages/OrderTracker';
 import { Checkout } from './pages/Checkout';
 import { PaymentSuccess } from './pages/PaymentSuccess';
+import { CheckoutStatusRedirect } from './pages/CheckoutStatusRedirect';
 import { BillingPage } from './features/billing/pages/BillingPage';
 
 import { Onboarding } from './pages/Onboarding';
@@ -107,6 +108,10 @@ export default function App() {
             <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId/success" element={<PaymentSuccess />} />
             <Route path="/restaurant/:restId/table/:tableId/order/:orderId" element={<OrderTracker />} />
             <Route path="/restaurant/:restId/table/:tableId/session/:sessionId/order/:orderId" element={<OrderTracker />} />
+            
+            {/* Payment Back-Redirect Route Receivers */}
+            <Route path="/checkout" element={<CheckoutStatusRedirect />} />
+            <Route path="/checkout/status" element={<CheckoutStatusRedirect />} />
             
             {/* Staff Flow */}
             <Route path="/restaurant/:restId/orders" element={

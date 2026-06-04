@@ -371,24 +371,32 @@ router.post("/orders/:id/mark-paid", async (req, res) => {
     .eq('session_id', session.id)
     .single();
 
-  if (existingOrder && existingOrder.paid_at) {
+  if (!existingOrder) return res.status(404).json({ error: "Order not found" });
+
+  if (existingOrder.paid_at) {
     return res.json(existingOrder);
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('orders')
-    .update({ 
-      paid_at: new Date().toISOString(), 
-      status: 'confirmed', 
-      payment_method: 'online' 
-    })
-    .eq('id', req.params.id)
-    .eq('session_id', session.id)
-    .select()
-    .single();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  // Only allow direct confirmation for CASH payments
+  if (existingOrder.payment_method === 'cash') {
+    const { data, error } = await supabaseAdmin
+      .from('orders')
+      .update({ 
+        paid_at: new Date().toISOString(), 
+        status: 'confirmed', 
+        payment_method: 'cash' 
+      })
+      .eq('id', req.params.id)
+      .eq('session_id', session.id)
+      .select()
+      .single();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  }
+
+  // Reject direct mark-paid requests for digital/online orders
+  return res.status(400).json({ error: "Online orders can only be marked PAID via verified Stripe signature webhook." });
 });
 
 // Remove order due to failed payment (Guest Session prepaid cleanup callback)
@@ -414,6 +422,18 @@ router.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   
   if (!session) return res.status(401).json({ error: "Invalid session token" });
 
+  // Check if session has any non-cash orders
+  const { data: orders } = await supabaseAdmin
+    .from('orders')
+    .select('payment_method')
+    .eq('session_id', session.id);
+
+  const hasOnlineOrders = orders?.some(o => o.payment_method && o.payment_method !== 'cash');
+
+  if (hasOnlineOrders) {
+    return res.status(400).json({ error: "Online payments must only be completed via verified Stripe signature webhooks." });
+  }
+
   if (session.status === 'paid') {
     const { data: fullSession } = await supabaseAdmin
       .from('dining_sessions')
@@ -428,7 +448,7 @@ router.post("/dining-sessions/:id/mark-paid", async (req, res) => {
     .update({ 
       paid_at: now, 
       status: 'confirmed', 
-      payment_method: 'online' 
+      payment_method: 'cash' 
     })
     .eq('session_id', session.id)
     .is('paid_at', null)
@@ -623,6 +643,9 @@ router.post("/payments/:id/initialize", async (req, res) => {
     status: 'initiated'
   });
 
+  const metadata = (payment.metadata || {}) as any;
+  const checkoutUrl = metadata.checkout_url || "";
+
   switch (payment.payment_method) {
     case 'duitnow':
     case 'tng':
@@ -638,7 +661,7 @@ router.post("/payments/:id/initialize", async (req, res) => {
         paymentId: payment.id,
         provider: payment.provider,
         paymentMethod: payment.payment_method,
-        redirectUrl: '/simulated-gateway'
+        redirectUrl: checkoutUrl || `/checkout/status?error=Missing+checkout+url&id=${payment.id}`
       });
     default:
       res.status(400).json({ error: "Unsupported method" });
@@ -656,37 +679,7 @@ router.get("/payments/:id/status", async (req, res) => {
   res.json(data);
 });
 
-// Simulate checkout simulation successes
-router.post("/payments/:id/simulate-success", async (req, res) => {
-  const { id } = req.params;
-  const { data: payment, error: fetchError } = await supabaseAdmin
-    .from('payments')
-    .select('order_id')
-    .eq('id', id)
-    .single();
-  
-  if (fetchError) return res.status(500).json({ error: fetchError.message });
-
-  const paidAt = new Date().toISOString();
-  await supabaseAdmin.from('payments').update({ 
-    status: 'paid',
-    paid_at: paidAt,
-    external_id: `SIM_${Math.random().toString(36).substring(7).toUpperCase()}`
-  }).eq('id', id);
-
-  await supabaseAdmin.from('orders').update({ 
-    paid_at: paidAt,
-    status: 'confirmed'
-  }).eq('id', payment.order_id);
-
-  await supabaseAdmin.from('payment_attempts').insert({
-    payment_id: id,
-    status: 'success',
-    provider_response: { mode: 'simulation', timestamp: paidAt }
-  });
-
-  res.json({ success: true });
-});
+// Simulate checkout simulation successes has been disabled and removed to enforce real FPX payments only.
 
 // Batch translate menus for specific guests languages
 router.post("/batch-translate", async (req, res) => {

@@ -3454,55 +3454,57 @@ var BillplzProvider = class {
   }
   async createPayment(data) {
     console.log(`[BillplzProvider] Creating bill. Collection: ${this.collectionId}, Amount: RM${data.amount}`);
-    if (this.apiKey.startsWith("billplz_") || this.apiKey && this.collectionId) {
-      try {
-        const body = {
-          collection_id: this.collectionId,
-          email: data.customer_email || "customer@example.com",
-          name: data.customer_name || "Customer",
-          amount: Math.round(data.amount * 100),
-          // in cents
-          callback_url: data.callback_url,
-          redirect_url: data.redirect_url,
-          description: `Order ${data.order_id} at JomOrder`
-        };
-        const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
-        const res = await fetch("https://www.billplz.com/api/v3/bills", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Basic ${authHeader}`
-          },
-          body: JSON.stringify(body)
-        });
-        if (res.ok) {
-          const raw = await res.json();
-          return {
-            success: true,
-            payment_url: raw.url,
-            reference_id: raw.id,
-            raw_response: raw
-          };
-        } else {
-          const errMsg = await res.text();
-          throw new Error(errMsg);
-        }
-      } catch (err) {
-        console.error("[BillplzProvider] Connection failed, using fallback simulator:", err.message);
-      }
+    if (!this.apiKey || !this.collectionId) {
+      return {
+        success: false,
+        error: "Billplz API Key or Collection ID is not configured.",
+        reference_id: "error"
+      };
     }
-    const mockBillId = `bill_${Math.random().toString(36).substr(2, 9)}`;
-    const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=billplz&sim_ref=${mockBillId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
-    return {
-      success: true,
-      payment_url: paymentUrl,
-      reference_id: mockBillId,
-      raw_response: { mock: true, billplzId: mockBillId }
-    };
+    try {
+      const body = {
+        collection_id: this.collectionId,
+        email: data.customer_email || "customer@example.com",
+        name: data.customer_name || "Customer",
+        amount: Math.round(data.amount * 100),
+        // in cents
+        callback_url: data.callback_url,
+        redirect_url: data.redirect_url,
+        description: `Order ${data.order_id} at JomOrder`
+      };
+      const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
+      const res = await fetch("https://www.billplz.com/api/v3/bills", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Basic ${authHeader}`
+        },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        const raw = await res.json();
+        return {
+          success: true,
+          payment_url: raw.url,
+          reference_id: raw.id,
+          raw_response: raw
+        };
+      } else {
+        const errMsg = await res.text();
+        throw new Error(errMsg);
+      }
+    } catch (err) {
+      console.error("[BillplzProvider] Connection failed:", err.message);
+      return {
+        success: false,
+        error: err.message,
+        reference_id: "failed"
+      };
+    }
   }
   async getPaymentStatus(reference) {
     console.log(`[BillplzProvider] Retrieving status for reference ID: ${reference}`);
-    if (this.apiKey && reference.startsWith("bill_")) {
+    if (this.apiKey) {
       try {
         const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
         const res = await fetch(`https://www.billplz.com/api/v3/bills/${reference}`, {
@@ -3526,10 +3528,10 @@ var BillplzProvider = class {
       }
     }
     return {
-      success: true,
-      status: "completed",
+      success: false,
+      status: "pending",
       reference_id: reference,
-      amount: 10
+      amount: 0
     };
   }
   async refundPayment(reference) {
@@ -3566,6 +3568,13 @@ var SenangPayProvider = class {
   }
   async createPayment(data) {
     console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
+    if (!this.merchantId || this.merchantId.includes("test") || !this.secretKey) {
+      return {
+        success: false,
+        error: "SenangPay integration credentials are not configured.",
+        reference_id: "error"
+      };
+    }
     const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
     const description = `Order ${data.order_id} at JomOrder`;
     const hashString = `${this.secretKey}${description}${data.amount}${referenceId}`;
@@ -3578,10 +3587,7 @@ var SenangPayProvider = class {
       email: data.customer_email || "guest@example.com",
       hash
     });
-    let paymentUrl = `https://app.senangpay.my/payment/${this.merchantId}?${queryParams.toString()}`;
-    if (!this.merchantId || this.merchantId.includes("test")) {
-      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=senangpay&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
-    }
+    const paymentUrl = `https://app.senangpay.my/payment/${this.merchantId}?${queryParams.toString()}`;
     return {
       success: true,
       payment_url: paymentUrl,
@@ -3684,20 +3690,26 @@ var StripeProvider = class {
   }
   async createPayment(data) {
     console.log(`[StripeProvider] Initiating Stripe Checkout. Amount: RM${data.amount}`);
-    if (!this.secretKey || this.secretKey.includes("mock") || this.secretKey.includes("test")) {
-      const mockSessionId = `cs_test_${Math.random().toString(36).substr(2, 9)}`;
-      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+    if (!this.secretKey || this.secretKey === "mock" || this.secretKey === "mock_secret") {
       return {
-        success: true,
-        payment_url: paymentUrl,
-        reference_id: mockSessionId,
-        raw_response: { mock: true, sessionId: mockSessionId }
+        success: false,
+        error: "Stripe Secret Key is not configured for this restaurant.",
+        reference_id: "error"
       };
+    }
+    let tenantId = data.restaurant_id;
+    try {
+      const { data: rest } = await supabaseAdmin.from("restaurants").select("organization_id").eq("id", data.restaurant_id).maybeSingle();
+      if (rest?.organization_id) {
+        tenantId = rest.organization_id;
+      }
+    } catch (dbErr) {
+      console.warn("[StripeProvider] Could not load organization_id from database:", dbErr.message);
     }
     try {
       const stripe = this.getStripe();
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
+        payment_method_types: ["card", "fpx"],
         line_items: [
           {
             price_data: {
@@ -3717,7 +3729,20 @@ var StripeProvider = class {
         metadata: {
           payment_id: data.payment_id,
           order_id: data.order_id,
-          restaurant_id: data.restaurant_id
+          restaurant_id: data.restaurant_id,
+          orderId: data.order_id,
+          tenantId,
+          workspaceId: data.restaurant_id
+        },
+        payment_intent_data: {
+          metadata: {
+            payment_id: data.payment_id,
+            order_id: data.order_id,
+            restaurant_id: data.restaurant_id,
+            orderId: data.order_id,
+            tenantId,
+            workspaceId: data.restaurant_id
+          }
         }
       });
       return {
@@ -3727,22 +3752,19 @@ var StripeProvider = class {
         raw_response: session
       };
     } catch (err) {
-      console.error("[StripeProvider] Failed to create Stripe Session, fallback to simulator:", err.message);
-      const mockSessionId = `cs_test_fallback_${Math.random().toString(36).substr(2, 9)}`;
-      const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=stripe&sim_ref=${mockSessionId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
+      console.error("[StripeProvider] Failed to create Stripe Session:", err.message);
       return {
-        success: true,
-        payment_url: paymentUrl,
-        reference_id: mockSessionId,
-        raw_response: { mock: true, error: err.message, sessionId: mockSessionId }
+        success: false,
+        error: err.message,
+        reference_id: "failed"
       };
     }
   }
   async getPaymentStatus(reference) {
-    if (!this.secretKey || this.secretKey.includes("mock") || reference.startsWith("cs_test_")) {
+    if (!this.secretKey || this.secretKey === "mock" || reference.startsWith("cs_test_")) {
       return {
-        success: true,
-        status: "completed",
+        success: false,
+        status: "pending",
         reference_id: reference,
         amount: 0
       };
@@ -3794,31 +3816,22 @@ var StripeProvider = class {
   }
   async verifyWebhook(payload, headers) {
     console.log("[StripeProvider] Verifying Webhook Event.");
-    if (!this.webhookSecret || !headers || !headers["stripe-signature"]) {
-      console.log("[StripeProvider] Webhook verification fallback - ignoring signature verification");
-      const dataObj = payload.data?.object || payload;
-      const ref = dataObj.id;
-      const pId = dataObj.metadata?.payment_id;
-      const amt = (dataObj.amount_total || dataObj.amount || 0) / 100;
-      return {
-        success: true,
-        payment_id: pId,
-        reference_id: ref,
-        amount: amt,
-        status: payload.type === "checkout.session.completed" ? "completed" : "failed",
-        raw_payload: payload
-      };
-    }
     try {
       const stripe = this.getStripe();
-      const sig = headers["stripe-signature"];
-      const rawBody = payload.rawBody || JSON.stringify(payload);
+      const sig = headers ? headers["stripe-signature"] : null;
+      if (!sig) {
+        throw new Error("Missing stripe-signature header");
+      }
+      if (!this.webhookSecret) {
+        throw new Error("Stripe Webhook Secret is not configured");
+      }
+      const rawBody = payload.rawBody || (typeof payload === "string" ? payload : JSON.stringify(payload));
       const event = stripe.webhooks.constructEvent(rawBody, sig, this.webhookSecret);
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
         return {
           success: true,
-          payment_id: session.metadata?.payment_id,
+          payment_id: session.metadata?.payment_id || void 0,
           reference_id: session.id,
           amount: (session.amount_total || 0) / 100,
           status: "completed",
@@ -4359,15 +4372,43 @@ router10.post("/webhooks/stripe", async (req, res) => {
     const payload = req.body || {};
     const dataObj = payload.data?.object || {};
     const refId = dataObj.id;
-    const paymentId = dataObj.metadata?.payment_id;
-    const amount = (dataObj.amount_total || dataObj.amount || 0) / 100;
-    if (payload.type === "checkout.session.completed" && refId) {
-      await processPaymentPaid(paymentId, refId, amount, "stripe", payload);
+    const paymentId = dataObj.metadata?.payment_id || "";
+    let restaurantId = "";
+    if (paymentId || refId) {
+      const q = supabaseAdmin.from("payments").select("restaurant_id");
+      if (paymentId) {
+        q.eq("id", paymentId);
+      } else {
+        q.eq("idempotency_key", refId);
+      }
+      const { data: payRec } = await q.maybeSingle();
+      if (payRec) {
+        restaurantId = payRec.restaurant_id;
+      }
     }
+    if (!restaurantId) {
+      throw new Error(`Unable to determine restaurant context for Stripe Webhook. PaymentId: ${paymentId}, RefId: ${refId}`);
+    }
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    if (paymentContext.providerName !== "stripe") {
+      throw new Error(`Restaurant ${restaurantId} payment provider is configured as ${paymentContext.providerName}, but received Stripe Webhook`);
+    }
+    const rawPayload = {
+      rawBody: req.rawBody,
+      ...req.body
+    };
+    const verifyRes = await paymentContext.provider.verifyWebhook(rawPayload, req.headers);
+    if (!verifyRes.success || verifyRes.status !== "completed") {
+      throw new Error(`Stripe signature verification failed or event type not completed`);
+    }
+    const verifiedPaymentId = verifyRes.payment_id || paymentId;
+    const verifiedRefId = verifyRes.reference_id || refId;
+    const verifiedAmount = verifyRes.amount || (dataObj.amount_total || 0) / 100;
+    await processPaymentPaid(verifiedPaymentId, verifiedRefId, verifiedAmount, "stripe", verifyRes.raw_payload);
     res.json({ received: true });
   } catch (err) {
-    console.error("[Webhook][Stripe] Processing Failure:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("[Webhook][Stripe] Signature/Processing Failure:", err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 router10.post("/webhooks/senangpay", async (req, res) => {
@@ -4644,16 +4685,20 @@ router11.post("/orders/:id/mark-paid", async (req, res) => {
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
   const { data: existingOrder } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).eq("session_id", session.id).single();
-  if (existingOrder && existingOrder.paid_at) {
+  if (!existingOrder) return res.status(404).json({ error: "Order not found" });
+  if (existingOrder.paid_at) {
     return res.json(existingOrder);
   }
-  const { data, error } = await supabaseAdmin.from("orders").update({
-    paid_at: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "confirmed",
-    payment_method: "online"
-  }).eq("id", req.params.id).eq("session_id", session.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  if (existingOrder.payment_method === "cash") {
+    const { data, error } = await supabaseAdmin.from("orders").update({
+      paid_at: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "confirmed",
+      payment_method: "cash"
+    }).eq("id", req.params.id).eq("session_id", session.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  }
+  return res.status(400).json({ error: "Online orders can only be marked PAID via verified Stripe signature webhook." });
 });
 router11.post("/orders/:id/payment-failed", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").delete().eq("id", req.params.id);
@@ -4664,6 +4709,11 @@ router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id, status").eq("id", req.params.id).eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
+  const { data: orders } = await supabaseAdmin.from("orders").select("payment_method").eq("session_id", session.id);
+  const hasOnlineOrders = orders?.some((o) => o.payment_method && o.payment_method !== "cash");
+  if (hasOnlineOrders) {
+    return res.status(400).json({ error: "Online payments must only be completed via verified Stripe signature webhooks." });
+  }
   if (session.status === "paid") {
     const { data: fullSession } = await supabaseAdmin.from("dining_sessions").select("*").eq("id", session.id).single();
     return res.json(fullSession || session);
@@ -4672,7 +4722,7 @@ router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   await supabaseAdmin.from("orders").update({
     paid_at: now,
     status: "confirmed",
-    payment_method: "online"
+    payment_method: "cash"
   }).eq("session_id", session.id).is("paid_at", null).neq("status", "cancelled");
   const { data, error } = await supabaseAdmin.from("dining_sessions").update({
     status: "paid",
@@ -4806,6 +4856,8 @@ router11.post("/payments/:id/initialize", async (req, res) => {
     payment_id: id,
     status: "initiated"
   });
+  const metadata = payment.metadata || {};
+  const checkoutUrl = metadata.checkout_url || "";
   switch (payment.payment_method) {
     case "duitnow":
     case "tng":
@@ -4821,7 +4873,7 @@ router11.post("/payments/:id/initialize", async (req, res) => {
         paymentId: payment.id,
         provider: payment.provider,
         paymentMethod: payment.payment_method,
-        redirectUrl: "/simulated-gateway"
+        redirectUrl: checkoutUrl || `/checkout/status?error=Missing+checkout+url&id=${payment.id}`
       });
     default:
       res.status(400).json({ error: "Unsupported method" });
@@ -4831,27 +4883,6 @@ router11.get("/payments/:id/status", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").select("status").eq("id", req.params.id).single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
-});
-router11.post("/payments/:id/simulate-success", async (req, res) => {
-  const { id } = req.params;
-  const { data: payment, error: fetchError } = await supabaseAdmin.from("payments").select("order_id").eq("id", id).single();
-  if (fetchError) return res.status(500).json({ error: fetchError.message });
-  const paidAt = (/* @__PURE__ */ new Date()).toISOString();
-  await supabaseAdmin.from("payments").update({
-    status: "paid",
-    paid_at: paidAt,
-    external_id: `SIM_${Math.random().toString(36).substring(7).toUpperCase()}`
-  }).eq("id", id);
-  await supabaseAdmin.from("orders").update({
-    paid_at: paidAt,
-    status: "confirmed"
-  }).eq("id", payment.order_id);
-  await supabaseAdmin.from("payment_attempts").insert({
-    payment_id: id,
-    status: "success",
-    provider_response: { mode: "simulation", timestamp: paidAt }
-  });
-  res.json({ success: true });
 });
 router11.post("/batch-translate", async (req, res) => {
   const { items, categories, context } = req.body;

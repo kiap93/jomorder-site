@@ -14,62 +14,60 @@ export class BillplzProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[BillplzProvider] Creating bill. Collection: ${this.collectionId}, Amount: RM${data.amount}`);
     
-    // If we have actual valid-looking API credentials, we can do a real post, otherwise simulate.
-    if (this.apiKey.startsWith("billplz_") || (this.apiKey && this.collectionId)) {
-      try {
-        const body = {
-          collection_id: this.collectionId,
-          email: data.customer_email || "customer@example.com",
-          name: data.customer_name || "Customer",
-          amount: Math.round(data.amount * 100), // in cents
-          callback_url: data.callback_url,
-          redirect_url: data.redirect_url,
-          description: `Order ${data.order_id} at JomOrder`
-        };
-
-        const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
-        const res = await fetch("https://www.billplz.com/api/v3/bills", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Basic ${authHeader}`
-          },
-          body: JSON.stringify(body)
-        });
-
-        if (res.ok) {
-          const raw = await res.json();
-          return {
-            success: true,
-            payment_url: raw.url,
-            reference_id: raw.id,
-            raw_response: raw
-          };
-        } else {
-          const errMsg = await res.text();
-          throw new Error(errMsg);
-        }
-      } catch (err: any) {
-        console.error("[BillplzProvider] Connection failed, using fallback simulator:", err.message);
-      }
+    if (!this.apiKey || !this.collectionId) {
+      return {
+        success: false,
+        error: "Billplz API Key or Collection ID is not configured.",
+        reference_id: "error"
+      };
     }
 
-    // Default Sandbox Simulation
-    const mockBillId = `bill_${Math.random().toString(36).substr(2, 9)}`;
-    // Leverage checkout or fallback simulation in app
-    const paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=billplz&sim_ref=${mockBillId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
-    
-    return {
-      success: true,
-      payment_url: paymentUrl,
-      reference_id: mockBillId,
-      raw_response: { mock: true, billplzId: mockBillId }
-    };
+    try {
+      const body = {
+        collection_id: this.collectionId,
+        email: data.customer_email || "customer@example.com",
+        name: data.customer_name || "Customer",
+        amount: Math.round(data.amount * 100), // in cents
+        callback_url: data.callback_url,
+        redirect_url: data.redirect_url,
+        description: `Order ${data.order_id} at JomOrder`
+      };
+
+      const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
+      const res = await fetch("https://www.billplz.com/api/v3/bills", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Basic ${authHeader}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        const raw = await res.json();
+        return {
+          success: true,
+          payment_url: raw.url,
+          reference_id: raw.id,
+          raw_response: raw
+        };
+      } else {
+        const errMsg = await res.text();
+        throw new Error(errMsg);
+      }
+    } catch (err: any) {
+      console.error("[BillplzProvider] Connection failed:", err.message);
+      return {
+        success: false,
+        error: err.message,
+        reference_id: "failed"
+      };
+    }
   }
 
   async getPaymentStatus(reference: string): Promise<PaymentStatusResponse> {
     console.log(`[BillplzProvider] Retrieving status for reference ID: ${reference}`);
-    if (this.apiKey && reference.startsWith("bill_")) {
+    if (this.apiKey) {
       try {
         const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
         const res = await fetch(`https://www.billplz.com/api/v3/bills/${reference}`, {
@@ -95,10 +93,10 @@ export class BillplzProvider implements PaymentProvider {
     }
 
     return {
-      success: true,
-      status: 'completed',
+      success: false,
+      status: 'pending',
       reference_id: reference,
-      amount: 10.00
+      amount: 0
     };
   }
 

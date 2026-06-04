@@ -17,6 +17,14 @@ export class SenangPayProvider implements PaymentProvider {
   async createPayment(data: CreatePaymentRequest): Promise<CreatePaymentResponse> {
     console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
     
+    if (!this.merchantId || this.merchantId.includes("test") || !this.secretKey) {
+      return {
+        success: false,
+        error: "SenangPay integration credentials are not configured.",
+        reference_id: "error"
+      };
+    }
+
     const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
     const description = `Order ${data.order_id} at JomOrder`;
     
@@ -34,12 +42,7 @@ export class SenangPayProvider implements PaymentProvider {
       hash
     });
 
-    let paymentUrl = `https://app.senangpay.my/payment/${this.merchantId}?${queryParams.toString()}`;
-
-    // If no credentials or sandbox, fallback to mock checkout simulator route
-    if (!this.merchantId || this.merchantId.includes("test")) {
-      paymentUrl = `${new URL(data.redirect_url).origin}/checkout?sim_provider=senangpay&sim_ref=${referenceId}&sim_order=${data.order_id}&sim_payment_id=${data.payment_id}&amount=${data.amount}`;
-    }
+    const paymentUrl = `https://app.senangpay.my/payment/${this.merchantId}?${queryParams.toString()}`;
 
     return {
       success: true,

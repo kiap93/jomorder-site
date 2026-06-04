@@ -590,16 +590,55 @@ router.post("/webhooks/stripe", async (req, res) => {
     const payload = req.body || {};
     const dataObj = payload.data?.object || {};
     const refId = dataObj.id;
-    const paymentId = dataObj.metadata?.payment_id;
-    const amount = (dataObj.amount_total || dataObj.amount || 0) / 100;
-    
-    if (payload.type === "checkout.session.completed" && refId) {
-      await processPaymentPaid(paymentId, refId, amount, "stripe", payload);
+    const paymentId = dataObj.metadata?.payment_id || "";
+
+    // 1. Find the payment record in the database using paymentId or refId to get restaurant_id
+    let restaurantId = "";
+    if (paymentId || refId) {
+      const q = supabaseAdmin.from('payments').select('restaurant_id');
+      if (paymentId) {
+        q.eq('id', paymentId);
+      } else {
+        q.eq('idempotency_key', refId);
+      }
+      const { data: payRec } = await q.maybeSingle();
+      if (payRec) {
+        restaurantId = payRec.restaurant_id;
+      }
     }
+
+    if (!restaurantId) {
+      throw new Error(`Unable to determine restaurant context for Stripe Webhook. PaymentId: ${paymentId}, RefId: ${refId}`);
+    }
+
+    // 2. Load payment config for this restaurant
+    const paymentContext = await getPaymentProviderForRestaurant(restaurantId);
+    if (paymentContext.providerName !== "stripe") {
+      throw new Error(`Restaurant ${restaurantId} payment provider is configured as ${paymentContext.providerName}, but received Stripe Webhook`);
+    }
+
+    // 3. Verify Stripe signature via Stripe provider
+    const rawPayload = {
+      rawBody: (req as any).rawBody,
+      ...req.body
+    };
+    const verifyRes = await paymentContext.provider.verifyWebhook(rawPayload, req.headers);
+
+    if (!verifyRes.success || verifyRes.status !== "completed") {
+      throw new Error(`Stripe signature verification failed or event type not completed`);
+    }
+
+    // 4. Extract verified success parameters and process payment
+    const verifiedPaymentId = verifyRes.payment_id || paymentId;
+    const verifiedRefId = verifyRes.reference_id || refId;
+    const verifiedAmount = verifyRes.amount || (dataObj.amount_total || 0) / 100;
+
+    await processPaymentPaid(verifiedPaymentId, verifiedRefId, verifiedAmount, "stripe", verifyRes.raw_payload);
+
     res.json({ received: true });
   } catch (err: any) {
-    console.error("[Webhook][Stripe] Processing Failure:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("[Webhook][Stripe] Signature/Processing Failure:", err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

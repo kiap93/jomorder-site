@@ -87,20 +87,5 @@ export const paymentEngine = {
       console.error("[PaymentEngine] Check status query failed, assuming pendingState:", err);
       return 'pending';
     }
-  },
-
-  /**
-   * Simulate a successful payment (calls public webhook with realistic parameters)
-   */
-  async simulateSuccess(paymentId: string): Promise<void> {
-    console.log(`[PaymentEngine] Simulating successful payment via webhook endpoint for: ${paymentId}`);
-    await apiClient.post(`/api/payment/webhook`, {
-      payment_id: paymentId,
-      id: paymentId,
-      paid: true,
-      amount: 100,
-      status: 'success',
-      provider: 'stripe'
-    });
   }
 };

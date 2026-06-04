@@ -408,22 +408,6 @@ export function Checkout() {
           idempotencyKey: activeIdempotencyKey
         });
 
-        const sessionToken = await getSessionTokenRobust(tableId);
-
-        if (payTarget === 'session' && currentOrderActive.sessionId) {
-          await fetch(getApiUrl(`/api/public/dining-sessions/${currentOrderActive.sessionId}/mark-paid`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionToken })
-          });
-        } else if (payTarget === 'order') {
-          await fetch(getApiUrl(`/api/public/orders/${currentOrderActive.id}/mark-paid`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionToken })
-          });
-        }
-
         setStatus('success');
         return;
       }
@@ -447,31 +431,6 @@ export function Checkout() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const simulateSuccess = async () => {
-    if (!paymentIntent) return;
-    
-    // Recovery of session token from IndexedDB
-    const sessionToken = await getSessionTokenRobust(tableId);
-
-    // If it was a session payment, mark all session orders as paid and close the session
-    if (payTarget === 'session' && order?.sessionId) {
-       await fetch(getApiUrl(`/api/public/dining-sessions/${order.sessionId}/mark-paid`), {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ sessionToken })
-       });
-    } else if (payTarget === 'order' && order) {
-       // Just update this single order
-       await fetch(getApiUrl(`/api/public/orders/${order.id}/mark-paid`), {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ sessionToken })
-       });
-    }
-
-    await paymentEngine.simulateSuccess(paymentIntent.paymentId);
   };
 
   if (error) return (
@@ -725,14 +684,6 @@ export function Checkout() {
                   <h2 className="text-xl font-bold">Scanning...</h2>
                   <p className="text-zinc-500 text-sm font-medium">Please scan the QR code using your {paymentIntent?.paymentMethod?.toUpperCase() || 'SCANNER'} wallet app.</p>
                 </div>
-
-                {/* Simulation Shortcut for AI Studio */}
-                <button 
-                  onClick={simulateSuccess}
-                  className="w-full h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all mb-4"
-                >
-                  SIMULATE PAYMENT SUCCESS
-                </button>
 
                 <button
                   onClick={handleCancelPayment}
