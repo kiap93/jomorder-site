@@ -226,9 +226,10 @@ export function Checkout() {
 
         const orderData = mapDbOrderToOrder(orderRes as DbOrder);
         
-        // Fetch session orders if exists
+        // Fetch session orders if exists (only for actual post-placed ordertrackers or pay-after flows, never for prepaid checkout flows)
         const currentSessionId = orderData.sessionId;
-        if (currentSessionId) {
+        const isPrepaidFlow = orderId === 'prepaid' || restRes?.payment_mode === 'pay_first';
+        if (currentSessionId && !isPrepaidFlow) {
           const sRes = await fetch(getApiUrl(`/api/public/dining-sessions/${currentSessionId}/orders`));
           if (sRes.ok) {
             const sOrdersJson = await sRes.json() as DbOrder[];
