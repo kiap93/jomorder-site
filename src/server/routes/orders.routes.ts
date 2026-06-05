@@ -80,9 +80,59 @@ router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAn
     const auditAction = req.body.auditAction;
     delete req.body.auditAction;
 
+    const allowedColumns = [
+      'restaurant_id',
+      'table_id',
+      'session_id',
+      'order_type',
+      'status',
+      'total_price',
+      'payment_method',
+      'payment_id',
+      'paid_at',
+      'idempotency_key',
+      'session_token',
+      'items',
+      'created_at',
+      'updated_at',
+      'discount',
+      'voided',
+      'void_reason',
+      'voided_by',
+      'voided_at',
+      'void_approved_by'
+    ];
+
+    const camelCaseMap: Record<string, string> = {
+      restaurantId: 'restaurant_id',
+      tableId: 'table_id',
+      sessionId: 'session_id',
+      orderType: 'order_type',
+      totalPrice: 'total_price',
+      paymentMethod: 'payment_method',
+      paymentId: 'payment_id',
+      paidAt: 'paid_at',
+      idempotencyKey: 'idempotency_key',
+      sessionToken: 'session_token',
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+      voidReason: 'void_reason',
+      voidedBy: 'voided_by',
+      voidedAt: 'voided_at',
+      voidApprovedBy: 'void_approved_by'
+    };
+
+    const updatePayload: Record<string, any> = {};
+    for (const key of Object.keys(req.body)) {
+      const dbColumn = camelCaseMap[key] || key;
+      if (allowedColumns.includes(dbColumn) && req.body[key] !== undefined) {
+        updatePayload[dbColumn] = req.body[key];
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .update(req.body)
+      .update(updatePayload)
       .eq('id', orderId)
       .select()
       .single();
