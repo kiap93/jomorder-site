@@ -455,7 +455,9 @@ router.post("/payments/create", async (req, res) => {
     
     // Create base callback and success parameters
     const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
-    const redirectUrl = `${origin}/checkout/status`;
+    const tableId = order.table_id || 'default';
+    const sessionId = order.session_id || '';
+    const redirectUrl = `${origin}/checkout/status?order_id=${order_id}&restaurant_id=${restaurantId}&table_id=${tableId}&session_id=${sessionId}`;
     const callbackUrl = `${origin}/api/payment/webhook`; // General multiplex webhook
 
     // 5. Invoke selected adapter to formulate checkout URLs

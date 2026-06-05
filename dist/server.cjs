@@ -3728,8 +3728,8 @@ var StripeProvider = class {
           }
         ],
         mode: "payment",
-        success_url: `${data.redirect_url}?session_id={CHECKOUT_SESSION_ID}&id=${data.payment_id}`,
-        cancel_url: data.redirect_url,
+        success_url: `${data.redirect_url}${data.redirect_url.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}&id=${data.payment_id}`,
+        cancel_url: `${data.redirect_url}${data.redirect_url.includes("?") ? "&" : "?"}status=cancelled`,
         metadata: {
           payment_id: data.payment_id,
           order_id: data.order_id,
@@ -4295,7 +4295,9 @@ router10.post("/payments/create", async (req, res) => {
     }
     const paymentId = import_crypto5.default.randomUUID();
     const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
-    const redirectUrl = `${origin}/checkout/status`;
+    const tableId = order.table_id || "default";
+    const sessionId = order.session_id || "";
+    const redirectUrl = `${origin}/checkout/status?order_id=${order_id}&restaurant_id=${restaurantId}&table_id=${tableId}&session_id=${sessionId}`;
     const callbackUrl = `${origin}/api/payment/webhook`;
     const createReq = {
       payment_id: paymentId,

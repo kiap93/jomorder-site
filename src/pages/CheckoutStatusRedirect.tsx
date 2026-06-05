@@ -13,6 +13,9 @@ export function CheckoutStatusRedirect() {
         const orderId = searchParams.get('order_id') || searchParams.get('orderId') || searchParams.get('sim_order');
         const paymentId = searchParams.get('id') || searchParams.get('payment_id') || searchParams.get('sim_payment_id');
         const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+        const restParamId = searchParams.get('restaurant_id') || searchParams.get('restaurantId');
+        const tableParamId = searchParams.get('table_id') || searchParams.get('tableId');
+        const isCancelled = searchParams.get('status') === 'cancelled' || searchParams.get('billing_status') === 'cancelled';
 
         let targetOrderId = orderId;
         const pId = paymentId;
@@ -25,6 +28,35 @@ export function CheckoutStatusRedirect() {
             const statusData = await statusRes.json();
             targetOrderId = statusData.order_id;
           }
+        }
+
+        // Helper function to handle cancellation/fallback direction to menu
+        const redirectToCustomerMenu = (rId: string | null, tId: string | null, sId: string | null) => {
+          if (rId) {
+            const finalTable = tId || 'default';
+            if (sId) {
+              navigate(`/restaurant/${rId}/table/${finalTable}/session/${sId}`, { replace: true });
+            } else {
+              navigate(`/restaurant/${rId}/table/${finalTable}`, { replace: true });
+            }
+            return true;
+          }
+          return false;
+        };
+
+        if (isCancelled) {
+          setStatusText("Payment cancelled. Returning to menu...");
+          if (targetOrderId) {
+            const orderRes = await fetch(getApiUrl(`/api/public/orders/${targetOrderId}`));
+            if (orderRes.ok) {
+              const orderData = await orderRes.json();
+              const restId = orderData.restaurant_id;
+              const tableId = orderData.table_id || 'default';
+              const sId = orderData.session_id || sessionId || '';
+              if (redirectToCustomerMenu(restId, tableId, sId)) return;
+            }
+          }
+          if (redirectToCustomerMenu(restParamId, tableParamId, sessionId)) return;
         }
 
         if (targetOrderId) {
@@ -48,11 +80,26 @@ export function CheckoutStatusRedirect() {
         }
 
         // Ultimate fallbacks
+        if (redirectToCustomerMenu(restParamId, tableParamId, sessionId)) return;
+
         setStatusText("Redirecting back to menu...");
         navigate('/');
       } catch (err) {
         console.error("Error in CheckoutStatusRedirect:", err);
-        navigate('/');
+        // Try fallback to parameters first
+        const restParamId = searchParams.get('restaurant_id') || searchParams.get('restaurantId');
+        const tableParamId = searchParams.get('table_id') || searchParams.get('tableId');
+        const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+        if (restParamId) {
+          const finalTable = tableParamId || 'default';
+          if (sessionId) {
+            navigate(`/restaurant/${restParamId}/table/${finalTable}/session/${sessionId}`, { replace: true });
+          } else {
+            navigate(`/restaurant/${restParamId}/table/${finalTable}`, { replace: true });
+          }
+        } else {
+          navigate('/');
+        }
       }
     };
 

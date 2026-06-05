@@ -74,8 +74,8 @@ export class StripeProvider implements PaymentProvider {
           },
         ],
         mode: "payment",
-        success_url: `${data.redirect_url}?session_id={CHECKOUT_SESSION_ID}&id=${data.payment_id}`,
-        cancel_url: data.redirect_url,
+        success_url: `${data.redirect_url}${data.redirect_url.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}&id=${data.payment_id}`,
+        cancel_url: `${data.redirect_url}${data.redirect_url.includes('?') ? '&' : '?'}status=cancelled`,
         metadata: {
           payment_id: data.payment_id,
           order_id: data.order_id,
