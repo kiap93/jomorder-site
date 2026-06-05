@@ -53,65 +53,111 @@ app.use(apiRouter);
 // Background translation job definition for food items
 async function runBackgroundTranslationJob() {
   try {
-    const { data: items, error: fetchErr } = await supabaseAdmin
-      .from('menu_items')
-      .select('name, description');
-    
-    if (fetchErr || !items) {
+    const { data: jobs, error: fetchErr } = await supabaseAdmin
+      .from('translation_jobs')
+      .select('id, restaurant_id, entity_type, entity_id, field_name, source_language, target_language')
+      .eq('status', 'pending')
+      .limit(5);
+
+    if (fetchErr) {
+      console.error('[Background Translation Job] Error fetching pending jobs:', fetchErr);
       return;
     }
 
-    const terms = new Set<string>();
-    items.forEach(it => {
-      if (it.name && it.name.trim()) terms.add(it.name.trim());
-      if (it.description && it.description.trim()) terms.add(it.description.trim());
-    });
+    if (!jobs || jobs.length === 0) {
+      return;
+    }
 
-    const termList = Array.from(terms);
-    const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+    console.log(`[Background Translation Job] Found ${jobs.length} pending translation jobs to process.`);
 
-    let translationCount = 0;
-    const maxTranslationsPerRun = 5;
+    for (const job of jobs) {
+      // Mark job as processing to avoid double processing
+      await supabaseAdmin
+        .from('translation_jobs')
+        .update({ status: 'processing' })
+        .eq('id', job.id);
 
-    for (const term of termList) {
-      if (translationCount >= maxTranslationsPerRun) break;
+      try {
+        let textToTranslate = '';
+        if (job.entity_type === 'menu_item') {
+          const { data: item } = await supabaseAdmin
+            .from('menu_items')
+            .select('name, description')
+            .eq('id', job.entity_id)
+            .maybeSingle();
 
-      for (const lang of targetLangs) {
-        if (translationCount >= maxTranslationsPerRun) break;
-
-        const { data: existing, error: existingErr } = await supabaseAdmin
-          .from('global_translations')
-          .select('id')
-          .eq('term_key', term)
-          .eq('language_code', lang)
-          .maybeSingle();
-
-        if (existingErr) continue;
-
-        if (!existing) {
-          console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
-          const translated = await translateTextWithGemini(term, lang);
-          if (translated) {
-            const { error: insertErr } = await supabaseAdmin
-              .from('global_translations')
-              .upsert({
-                term_key: term,
-                language_code: lang,
-                translated_text: translated,
-                confidence_score: 1.00,
-                approved: true
-              }, { onConflict: 'term_key,language_code' });
-
-            if (insertErr) {
-              console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
-            } else {
-              console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
-              translationCount++;
-            }
+          if (item) {
+            textToTranslate = job.field_name === 'description' ? item.description : item.name;
           }
-          await new Promise(resolve => setTimeout(resolve, 500));
         }
+
+        if (!textToTranslate || !textToTranslate.trim()) {
+          console.log(`[Background Translation Job] Empty text or item not found for job ${job.id}. Marking as completed.`);
+          await supabaseAdmin
+            .from('translation_jobs')
+            .update({ 
+              status: 'completed', 
+              ai_generated_text: '', 
+              reviewed_text: '', 
+              review_status: 'approved'
+            })
+            .eq('id', job.id);
+          continue;
+        }
+
+        console.log(`[Background Translation Job] Translating text for job ${job.id} to ${job.target_language}...`);
+        const translated = await translateTextWithGemini(textToTranslate, job.target_language);
+
+        if (translated) {
+          // 1. Update the translation job
+          await supabaseAdmin
+            .from('translation_jobs')
+            .update({
+              status: 'completed',
+              ai_generated_text: translated,
+              reviewed_text: translated,
+              review_status: 'draft'
+            })
+            .eq('id', job.id);
+
+          // 2. Mirror/save immediately to tenant_translations so the restaurant has access to it
+          await supabaseAdmin
+            .from('tenant_translations')
+            .upsert({
+              restaurant_id: job.restaurant_id,
+              entity_type: job.entity_type,
+              entity_id: job.entity_id,
+              field_name: job.field_name,
+              language_code: job.target_language,
+              translated_text: translated,
+              translation_status: 'translated',
+              override_global: true
+            }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+
+          // 3. Mirror/save to global_translations for fallback cache
+          await supabaseAdmin
+            .from('global_translations')
+            .upsert({
+              term_key: textToTranslate,
+              language_code: job.target_language,
+              translated_text: translated,
+              confidence_score: 1.00,
+              approved: true
+            }, { onConflict: 'term_key,language_code' });
+
+          console.log(`[Background Translation Job] Saved translations for "${textToTranslate.substring(0, 30)}" in ${job.target_language} -> "${translated.substring(0, 30)}"`);
+        } else {
+          throw new Error("Translation service returned empty result");
+        }
+      } catch (jobErr: any) {
+        console.error(`[Background Translation Job] Failed processing job ${job.id}:`, jobErr);
+        await supabaseAdmin
+          .from('translation_jobs')
+          .update({ status: 'failed' })
+          .eq('id', job.id);
       }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   } catch (err) {
     console.error('[Background Translation Job] Error in translation loop:', err);

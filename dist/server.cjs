@@ -40,7 +40,7 @@ import_dotenv.default.config();
 function getJwtSecret(env) {
   const secret = env && env.JWT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.GITHUB_ACTIONS === "true" || process.env.CI || process.env.NODE_ENV === "production") {
+    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
       return "dummy_jwt_secret_for_ci_bypass";
     }
     throw new Error("JWT_SECRET is required");
@@ -820,7 +820,7 @@ function hasPermission(role, permission, customPermissions) {
 var getSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.GITHUB_ACTIONS === "true" || process.env.CI || process.env.NODE_ENV === "production") {
+    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
       return "dummy_jwt_secret_for_ci_bypass";
     }
     throw new Error("JWT_SECRET is required but was not defined in environment variables");
@@ -1069,7 +1069,7 @@ router.post("/login", async (req, res) => {
   const isAdminEnvMatch = envAdminEmail && email === envAdminEmail && password === envAdminPass;
   const isDevAdminMatch = email === "admin@saas.com" && password === "admin123" || email === "test@example.com" && password === "password123" || email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123";
   if (isAdminEnvMatch || isDevAdminMatch) {
-    let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    let { data: profile } = await supabaseAdmin.from("profiles").select("id,email,role,restaurant_id,updated_at").eq("email", email).maybeSingle();
     if (!profile) {
       let authUserId = null;
       try {
@@ -1133,7 +1133,7 @@ router.post("/login", async (req, res) => {
       password
     });
     if (authData && authData.user) {
-      const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("*").eq("id", authData.user.id).maybeSingle();
+      const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("id,email,role,restaurant_id,updated_at").eq("id", authData.user.id).maybeSingle();
       if (profile) {
         const token = import_jsonwebtoken2.default.sign({
           id: profile.id,
@@ -1144,7 +1144,7 @@ router.post("/login", async (req, res) => {
         return res.json({ token, user: profile });
       }
     }
-    const { data: legacyProfile, error: legacyError } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+    const { data: legacyProfile, error: legacyError } = await supabaseAdmin.from("profiles").select("id,email,role,restaurant_id,updated_at").eq("email", email).maybeSingle();
     if (legacyProfile && (password === "staff123" || envAdminPass && password === envAdminPass)) {
       const token = import_jsonwebtoken2.default.sign({
         id: legacyProfile.id,
@@ -1230,7 +1230,7 @@ router.post("/google-login", async (req, res) => {
     const isSuperAdminEmail = process.env.ADMIN_USER_EMAIL && email === process.env.ADMIN_USER_EMAIL || email === "admin@saas.com" || email === "test@example.com" || email && email.toLowerCase() === "kiap93.kmj@gmail.com";
     if (isSuperAdminEmail) {
       console.log("Admin email match:", email);
-      let { data: profile } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+      let { data: profile } = await supabaseAdmin.from("profiles").select("id,email,role,restaurant_id,updated_at").eq("email", email).maybeSingle();
       if (!profile) {
         let authUserId = null;
         try {
@@ -1288,7 +1288,7 @@ router.post("/google-login", async (req, res) => {
       };
     } else {
       console.log("Checking profiles for email:", email);
-      const { data: profile, error } = await supabaseAdmin.from("profiles").select("*").eq("email", email).maybeSingle();
+      const { data: profile, error } = await supabaseAdmin.from("profiles").select("id,email,role,restaurant_id,updated_at").eq("email", email).maybeSingle();
       if (error) {
         console.error("Supabase profile error:", error);
         throw error;
@@ -1355,6 +1355,9 @@ router2.post("/translate", authenticateJWT, requireTenantIsolation(), requirePer
 });
 router2.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const userRestId = user.restaurantId || user.restaurant_id;
   const { filter } = req.query;
   let query = supabaseAdmin.from("translation_jobs").select("*").order("created_at", { ascending: false });
@@ -1471,7 +1474,10 @@ router3.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIso
 });
 router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
-  if (caller && caller.is_platform_admin !== true) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  if (caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -1525,6 +1531,33 @@ router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePe
             }
           }
         }
+        const targetLangs = ["zh", "ms", "th", "ja", "ko"];
+        for (const lang of targetLangs) {
+          if (body.name || originalNameInput) {
+            await supabaseAdmin.from("translation_jobs").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "name",
+              source_language: "en",
+              target_language: lang,
+              status: "pending",
+              review_status: "draft"
+            }, { onConflict: "restaurant_id,entity_id,target_language,field_name" });
+          }
+          if (body.description || originalDescInput) {
+            await supabaseAdmin.from("translation_jobs").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "description",
+              source_language: "en",
+              target_language: lang,
+              status: "pending",
+              review_status: "draft"
+            }, { onConflict: "restaurant_id,entity_id,target_language,field_name" });
+          }
+        }
       } catch (err) {
         console.error("[Background AI POST] Error running translation:", err);
       }
@@ -1537,7 +1570,10 @@ router3.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePe
 });
 router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;
-  if (caller && caller.is_platform_admin !== true) {
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  if (caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -1589,6 +1625,33 @@ router3.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requ
             if (cleanedDesc && cleanedDesc !== originalDescInput) {
               await supabaseAdmin.from("menu_items").update({ description: cleanedDesc }).eq("id", data.id);
             }
+          }
+        }
+        const targetLangs = ["zh", "ms", "th", "ja", "ko"];
+        for (const lang of targetLangs) {
+          if (body.name || originalNameInput) {
+            await supabaseAdmin.from("translation_jobs").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "name",
+              source_language: "en",
+              target_language: lang,
+              status: "pending",
+              review_status: "draft"
+            }, { onConflict: "restaurant_id,entity_id,target_language,field_name" });
+          }
+          if (body.description || originalDescInput) {
+            await supabaseAdmin.from("translation_jobs").upsert({
+              restaurant_id: restaurantId,
+              entity_type: "menu_item",
+              entity_id: data.id,
+              field_name: "description",
+              source_language: "en",
+              target_language: lang,
+              status: "pending",
+              review_status: "draft"
+            }, { onConflict: "restaurant_id,entity_id,target_language,field_name" });
           }
         }
       } catch (err) {
@@ -4051,7 +4114,7 @@ async function processPaymentPaid(paymentId, referenceId, amount, providerName, 
     metadata: {
       ...payment.metadata || {},
       webhook_processed_at: (/* @__PURE__ */ new Date()).toISOString(),
-      webhook_payload: rawPayload
+      webhook_event_id: rawPayload && typeof rawPayload === "object" ? rawPayload.id || rawPayload.event_id || rawPayload.event || null : null
     }
   }).eq("id", payment.id).select().single();
   if (uError) throw uError;
@@ -4511,7 +4574,7 @@ router11.get("/restaurants/:id", async (req, res) => {
   return res.json(data || {});
 });
 router11.get("/restaurants/:restId/categories", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
+  const { data, error } = await supabaseAdmin.from("categories").select("id,restaurant_id,name,sort_order,created_at").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -4527,7 +4590,7 @@ router11.get("/restaurants/:restId/menu-items", async (req, res) => {
 router11.get("/tables/:tableId", async (req, res) => {
   const { restId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.tableId);
-  let query = supabaseAdmin.from("tables").select("*");
+  let query = supabaseAdmin.from("tables").select("id,restaurant_id,name,status,created_at");
   if (isUuid) {
     query = query.eq("id", req.params.tableId);
   } else {
@@ -4580,7 +4643,7 @@ router11.get("/baskets", async (req, res) => {
   res.json(data);
 });
 router11.get("/baskets/:basketId/items", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("basket_items").select("*").eq("basket_id", req.params.basketId);
+  const { data, error } = await supabaseAdmin.from("basket_items").select("id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at").eq("basket_id", req.params.basketId);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -4694,7 +4757,7 @@ router11.post("/place-order", async (req, res) => {
 router11.get("/orders/:id", async (req, res) => {
   const { sessionId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
-  let query = supabaseAdmin.from("orders").select("*").eq("id", req.params.id);
+  let query = supabaseAdmin.from("orders").select("id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at").eq("id", req.params.id);
   if (isUuid) {
     query = query.eq("session_id", sessionId);
   }
@@ -4703,7 +4766,7 @@ router11.get("/orders/:id", async (req, res) => {
   res.json(data);
 });
 router11.get("/dining-sessions/:sessionId/orders", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("orders").select("*").eq("session_id", req.params.sessionId).neq("status", "cancelled");
+  const { data, error } = await supabaseAdmin.from("orders").select("id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at").eq("session_id", req.params.sessionId).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -4711,7 +4774,7 @@ router11.post("/orders/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
-  const { data: existingOrder } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).eq("session_id", session.id).single();
+  const { data: existingOrder } = await supabaseAdmin.from("orders").select("id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at").eq("id", req.params.id).eq("session_id", session.id).single();
   if (!existingOrder) return res.status(404).json({ error: "Order not found" });
   if (existingOrder.paid_at) {
     return res.json(existingOrder);
@@ -5580,6 +5643,9 @@ var service = new BillingService();
 var repo = new BillingRepository();
 router12.get("/billing/overview", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id || req.query.restId;
   if (!tenantId) {
     return res.status(400).json({ error: "Missing active restaurant workspace coordinates in context." });
@@ -5593,6 +5659,9 @@ router12.get("/billing/overview", authenticateJWT, async (req, res) => {
 });
 router12.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
   const { plan } = req.body;
   if (!tenantId) {
@@ -5614,6 +5683,9 @@ router12.post("/billing/create-checkout-session", authenticateJWT, async (req, r
 });
 router12.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
   if (!tenantId) {
     return res.status(400).json({ error: "No active restaurant workspace." });
@@ -5630,6 +5702,9 @@ router12.post("/billing/create-portal-session", authenticateJWT, async (req, res
 });
 router12.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
   const { plan } = req.body;
   if (!tenantId) return res.status(400).json({ error: "Restaurant context missing." });
@@ -5643,6 +5718,9 @@ router12.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
 });
 router12.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
   if (!tenantId) return res.status(400).json({ error: "Workspace context ID missing." });
   try {
@@ -5654,6 +5732,9 @@ router12.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
 });
 router12.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
   const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
   const tenantId = user.restaurantId || user.restaurant_id;
   const { plan } = req.body;
   if (!tenantId) {
@@ -5944,46 +6025,70 @@ app.get("/api/health", (req, res) => {
 app.use(routes_default);
 async function runBackgroundTranslationJob() {
   try {
-    const { data: items, error: fetchErr } = await supabaseAdmin.from("menu_items").select("name, description");
-    if (fetchErr || !items) {
+    const { data: jobs, error: fetchErr } = await supabaseAdmin.from("translation_jobs").select("id, restaurant_id, entity_type, entity_id, field_name, source_language, target_language").eq("status", "pending").limit(5);
+    if (fetchErr) {
+      console.error("[Background Translation Job] Error fetching pending jobs:", fetchErr);
       return;
     }
-    const terms = /* @__PURE__ */ new Set();
-    items.forEach((it) => {
-      if (it.name && it.name.trim()) terms.add(it.name.trim());
-      if (it.description && it.description.trim()) terms.add(it.description.trim());
-    });
-    const termList = Array.from(terms);
-    const targetLangs = ["zh", "ms", "th", "ja", "ko"];
-    let translationCount = 0;
-    const maxTranslationsPerRun = 5;
-    for (const term of termList) {
-      if (translationCount >= maxTranslationsPerRun) break;
-      for (const lang of targetLangs) {
-        if (translationCount >= maxTranslationsPerRun) break;
-        const { data: existing, error: existingErr } = await supabaseAdmin.from("global_translations").select("id").eq("term_key", term).eq("language_code", lang).maybeSingle();
-        if (existingErr) continue;
-        if (!existing) {
-          console.log(`[Background Translation Job] Translating "${term}" to ${lang}...`);
-          const translated = await translateTextWithGemini(term, lang);
-          if (translated) {
-            const { error: insertErr } = await supabaseAdmin.from("global_translations").upsert({
-              term_key: term,
-              language_code: lang,
-              translated_text: translated,
-              confidence_score: 1,
-              approved: true
-            }, { onConflict: "term_key,language_code" });
-            if (insertErr) {
-              console.error(`[Background Translation Job] Failed to save translation for "${term}" in ${lang}:`, insertErr);
-            } else {
-              console.log(`[Background Translation Job] Saved global translation for "${term}" to ${lang}: "${translated}"`);
-              translationCount++;
-            }
+    if (!jobs || jobs.length === 0) {
+      return;
+    }
+    console.log(`[Background Translation Job] Found ${jobs.length} pending translation jobs to process.`);
+    for (const job of jobs) {
+      await supabaseAdmin.from("translation_jobs").update({ status: "processing" }).eq("id", job.id);
+      try {
+        let textToTranslate = "";
+        if (job.entity_type === "menu_item") {
+          const { data: item } = await supabaseAdmin.from("menu_items").select("name, description").eq("id", job.entity_id).maybeSingle();
+          if (item) {
+            textToTranslate = job.field_name === "description" ? item.description : item.name;
           }
-          await new Promise((resolve) => setTimeout(resolve, 500));
         }
+        if (!textToTranslate || !textToTranslate.trim()) {
+          console.log(`[Background Translation Job] Empty text or item not found for job ${job.id}. Marking as completed.`);
+          await supabaseAdmin.from("translation_jobs").update({
+            status: "completed",
+            ai_generated_text: "",
+            reviewed_text: "",
+            review_status: "approved"
+          }).eq("id", job.id);
+          continue;
+        }
+        console.log(`[Background Translation Job] Translating text for job ${job.id} to ${job.target_language}...`);
+        const translated = await translateTextWithGemini(textToTranslate, job.target_language);
+        if (translated) {
+          await supabaseAdmin.from("translation_jobs").update({
+            status: "completed",
+            ai_generated_text: translated,
+            reviewed_text: translated,
+            review_status: "draft"
+          }).eq("id", job.id);
+          await supabaseAdmin.from("tenant_translations").upsert({
+            restaurant_id: job.restaurant_id,
+            entity_type: job.entity_type,
+            entity_id: job.entity_id,
+            field_name: job.field_name,
+            language_code: job.target_language,
+            translated_text: translated,
+            translation_status: "translated",
+            override_global: true
+          }, { onConflict: "restaurant_id,entity_id,language_code,field_name" });
+          await supabaseAdmin.from("global_translations").upsert({
+            term_key: textToTranslate,
+            language_code: job.target_language,
+            translated_text: translated,
+            confidence_score: 1,
+            approved: true
+          }, { onConflict: "term_key,language_code" });
+          console.log(`[Background Translation Job] Saved translations for "${textToTranslate.substring(0, 30)}" in ${job.target_language} -> "${translated.substring(0, 30)}"`);
+        } else {
+          throw new Error("Translation service returned empty result");
+        }
+      } catch (jobErr) {
+        console.error(`[Background Translation Job] Failed processing job ${job.id}:`, jobErr);
+        await supabaseAdmin.from("translation_jobs").update({ status: "failed" }).eq("id", job.id);
       }
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   } catch (err) {
     console.error("[Background Translation Job] Error in translation loop:", err);

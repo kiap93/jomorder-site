@@ -41,6 +41,7 @@ export interface UserSession {
   email: string;
   role: UserRole;
   restaurantId: string;
+  restaurant_id?: string | null;
   platform_role?: string | null;
   organizationId?: string | null;
 }

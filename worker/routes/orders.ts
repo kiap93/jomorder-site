@@ -13,7 +13,7 @@ orderRoutes.get('/api/public/tables/:tableId', async (c) => {
   const restId = c.req.query('restId');
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.req.param('tableId'));
   
-  let query = supabase.from('tables').select('*');
+  let query = supabase.from('tables').select('id,restaurant_id,name,status,created_at');
   if (isUuid) {
     query = query.eq('id', c.req.param('tableId'));
   } else {
@@ -69,7 +69,7 @@ orderRoutes.get('/api/public/baskets/:basketId/items', async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('basket_items')
-    .select('*')
+    .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
     .eq('basket_id', c.req.param('basketId'));
   
   if (error) return c.json({ error: error.message }, 500);
@@ -134,7 +134,7 @@ orderRoutes.post('/api/public/sync-basket-item', async (c) => {
     // 3. Fetch current basket items to handle merge and identify column names
     const { data: items, error: itemsErr } = await supabase
       .from('basket_items')
-      .select('*')
+      .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
       .eq('basket_id', basketId);
 
     if (itemsErr) return c.json({ error: itemsErr.message }, 500);
@@ -286,7 +286,7 @@ orderRoutes.get('/api/public/orders/:id', async (c) => {
 
   let query = supabase
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('id', c.req.param('id'));
 
   if (isUuid) {
@@ -303,7 +303,7 @@ orderRoutes.get('/api/public/dining-sessions/:sessionId/orders', async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('session_id', c.req.param('sessionId'))
     .neq('status', 'cancelled');
   
@@ -325,7 +325,7 @@ orderRoutes.post('/api/public/orders/:id/mark-paid', async (c) => {
   // Idempotency check
   const { data: existingOrder } = await supabase
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('id', c.req.param('id'))
     .eq('session_id', session.id)
     .single();
@@ -365,7 +365,7 @@ orderRoutes.post('/api/public/dining-sessions/:id/mark-paid', async (c) => {
   if (session.status === 'paid') {
     const { data: fullSession } = await supabase
       .from('dining_sessions')
-      .select('*')
+      .select('id,restaurant_id,table_id,session_token,status,started_at,last_activity_at,closed_at,created_by_device,metadata')
       .eq('id', session.id)
       .single();
     return c.json(fullSession || session);

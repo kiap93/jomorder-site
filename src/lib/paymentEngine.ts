@@ -1,5 +1,6 @@
 import { Payment, PaymentStatus } from '../types';
 import { apiClient } from './apiClient';
+import { logger } from './logger';
 
 export interface PaymentIntentResponse {
   paymentId: string;
@@ -25,7 +26,7 @@ export const paymentEngine = {
     provider: string;
     idempotencyKey?: string;
   }): Promise<Payment> {
-    console.log(`[PaymentEngine] Calling /api/payments/create for order ${params.orderId} and method ${params.method}`);
+    logger.log(`[PaymentEngine] Calling /api/payments/create for order ${params.orderId} and method ${params.method}`);
     
     const res = await apiClient.post<any>('/api/payments/create', {
       order_id: params.orderId,
@@ -60,7 +61,7 @@ export const paymentEngine = {
     
     // If checkoutUrl is present and we're using a Stripe sandbox, automatically redirect for smooth payments.
     if (checkoutUrl && !isQrCode && typeof window !== 'undefined') {
-      console.log(`[PaymentEngine] Instantly redirecting user to: ${checkoutUrl}`);
+      logger.log(`[PaymentEngine] Instantly redirecting user to: ${checkoutUrl}`);
       // In non-iframe or standard browser, trigger location transfer.
       setTimeout(() => {
         try {

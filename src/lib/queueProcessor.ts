@@ -2,6 +2,7 @@ import { IndexedDbRepository, OfflineMutation } from './indexedDbRepository';
 import { NetworkMonitor } from './networkMonitor';
 import { MutationJob } from '../types';
 import { indexedDbStorage } from './indexedDbStorage';
+import { logger } from './logger';
 
 let lastQueueTimestamp = Date.now();
 
@@ -169,7 +170,7 @@ export class QueueProcessor {
   async processQueue(): Promise<void> {
     if (this.isProcessing) return;
     if (!this.networkMonitor.isOnline) {
-      console.log('[QueueProcessor] Device is offline, skipping background sync');
+      logger.log('[QueueProcessor] Device is offline, skipping background sync');
       return;
     }
 
@@ -321,7 +322,7 @@ export class QueueProcessor {
     const backoffTime = Math.pow(2, mutation.retry_count) * this.baseBackoffMs;
 
     try {
-      console.log(`[QueueProcessor] Syncing mutation ${mutation.id} (${mutation.description || mutation.url})`);
+      logger.log(`[QueueProcessor] Syncing mutation ${mutation.id} (${mutation.description || mutation.url})`);
       
       const response = await fetch(mutation.url, {
         method: mutation.method,
@@ -330,7 +331,7 @@ export class QueueProcessor {
       });
 
       if (response.ok) {
-        console.log(`[QueueProcessor] Mutation ${mutation.id} synchronized successfully.`);
+        logger.log(`[QueueProcessor] Mutation ${mutation.id} synchronized successfully.`);
         await this.repository.deleteMutation(mutation.id);
         this.notify();
 
@@ -409,7 +410,7 @@ export class QueueProcessor {
     const backoffTime = Math.pow(2, job.retries) * this.baseBackoffMs;
 
     try {
-      console.log(`[QueueProcessor] Syncing MutationJob ${job.id} [${job.entity}/${job.operation}]`);
+      logger.log(`[QueueProcessor] Syncing MutationJob ${job.id} [${job.entity}/${job.operation}]`);
 
       let url = '';
       let method = 'POST';
@@ -465,7 +466,7 @@ export class QueueProcessor {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      console.log(`[QueueProcessor] Dispatching fetch to resolved path: ${url}`);
+      logger.log(`[QueueProcessor] Dispatching fetch to resolved path: ${url}`);
       const response = await fetch(url, {
         method,
         headers,
@@ -473,7 +474,7 @@ export class QueueProcessor {
       });
 
       if (response.ok) {
-        console.log(`[QueueProcessor] MutationJob ${job.id} synchronized successfully.`);
+        logger.log(`[QueueProcessor] MutationJob ${job.id} synchronized successfully.`);
         await this.repository.deleteMutationJob(job.id);
         this.notify();
         return true;

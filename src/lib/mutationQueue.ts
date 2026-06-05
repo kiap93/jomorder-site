@@ -1,5 +1,6 @@
 import { offlineService } from './offlineService';
 import { OfflineMutation } from './indexedDbRepository';
+import { logger } from './logger';
 
 function parseHeaders(headers?: HeadersInit): Record<string, string> {
   const result: Record<string, string> = {};
@@ -113,7 +114,7 @@ export class MutationQueue {
       const isOnline = offlineService.isOnline;
 
       if (!isOnline || hasBacklog) {
-        console.log('[MutationQueue] Durable backlog present or system offline. Request persisted securely as pending in IndexedDB.');
+        logger.log('[MutationQueue] Durable backlog present or system offline. Request persisted securely as pending in IndexedDB.');
         
         await offlineService.queueProcessor.enqueue(
           url,

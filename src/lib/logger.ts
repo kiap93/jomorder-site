@@ -24,6 +24,12 @@ class StandardLogger {
     return `[${timestamp}] [${level.toUpperCase()}] ${message}`;
   }
 
+  public log(message: string, ...args: any[]): void {
+    if (!this.isProduction) {
+      console.log(this.formatMessage('info', message), ...args);
+    }
+  }
+
   public debug(message: string, ...args: any[]): void {
     if (!this.isProduction) {
       console.debug(this.formatMessage('debug', message), ...args);

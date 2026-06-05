@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
-import { authenticateJWT, requireTenantIsolation, requirePermissions } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, AuthenticatedRequest } from "../middleware/authMiddleware";
 import { translateTextWithGemini } from "../services/translationService";
 
 const router = Router();
@@ -26,9 +26,12 @@ router.post("/translate", authenticateJWT, requireTenantIsolation(), requirePerm
 });
 
 // Translation Jobs
-router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
-  const user = (req as any).user;
-  const userRestId = user.restaurantId || user.restaurant_id;
+router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req: AuthenticatedRequest, res) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const userRestId = user.restaurantId || (user as any).restaurant_id;
   const { filter } = req.query;
 
   let query = supabaseAdmin

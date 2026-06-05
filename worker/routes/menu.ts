@@ -176,9 +176,10 @@ menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
   if (error) return c.json({ error: error.message }, 500);
 
   if (data && data.id) {
+    const restaurantId = data.restaurant_id || caller.restaurantId;
     for (const item of originalNames) {
       await supabase.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
+        restaurant_id: restaurantId,
         entity_type: 'menu_item',
         entity_id: data.id,
         field_name: 'name',
@@ -189,7 +190,7 @@ menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
     }
     for (const item of originalDescs) {
       await supabase.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
+        restaurant_id: restaurantId,
         entity_type: 'menu_item',
         entity_id: data.id,
         field_name: 'description',
@@ -197,6 +198,36 @@ menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
         translated_text: item.text,
         override_global: true
       }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+    }
+
+    // Queue translation jobs for target languages (zh, ms, th, ja, ko) in worker PATCH list
+    const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+    for (const lang of targetLangs) {
+      if (body.name || (originalNames.length > 0)) {
+        await supabase.from('translation_jobs').upsert({
+          restaurant_id: restaurantId,
+          entity_type: 'menu_item',
+          entity_id: data.id,
+          field_name: 'name',
+          source_language: 'en',
+          target_language: lang,
+          status: 'pending',
+          review_status: 'draft'
+        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+      }
+
+      if (body.description || (originalDescs.length > 0)) {
+        await supabase.from('translation_jobs').upsert({
+          restaurant_id: restaurantId,
+          entity_type: 'menu_item',
+          entity_id: data.id,
+          field_name: 'description',
+          source_language: 'en',
+          target_language: lang,
+          status: 'pending',
+          review_status: 'draft'
+        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+      }
     }
   }
 
@@ -253,9 +284,10 @@ menuRoutes.post("/api/menu-items", authenticate, async (c) => {
   if (error) return c.json({ error: error.message }, 500);
 
   if (data && data.id) {
+    const restaurantId = data.restaurant_id || caller.restaurantId;
     for (const item of originalNames) {
       await supabase.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
+        restaurant_id: restaurantId,
         entity_type: 'menu_item',
         entity_id: data.id,
         field_name: 'name',
@@ -266,7 +298,7 @@ menuRoutes.post("/api/menu-items", authenticate, async (c) => {
     }
     for (const item of originalDescs) {
       await supabase.from('tenant_translations').upsert({
-        restaurant_id: data.restaurant_id || caller.restaurantId,
+        restaurant_id: restaurantId,
         entity_type: 'menu_item',
         entity_id: data.id,
         field_name: 'description',
@@ -274,6 +306,36 @@ menuRoutes.post("/api/menu-items", authenticate, async (c) => {
         translated_text: item.text,
         override_global: true
       }, { onConflict: 'restaurant_id,entity_id,language_code,field_name' });
+    }
+
+    // Queue translation jobs for target languages (zh, ms, th, ja, ko) in worker POST list
+    const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+    for (const lang of targetLangs) {
+      if (body.name || (originalNames.length > 0)) {
+        await supabase.from('translation_jobs').upsert({
+          restaurant_id: restaurantId,
+          entity_type: 'menu_item',
+          entity_id: data.id,
+          field_name: 'name',
+          source_language: 'en',
+          target_language: lang,
+          status: 'pending',
+          review_status: 'draft'
+        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+      }
+
+      if (body.description || (originalDescs.length > 0)) {
+        await supabase.from('translation_jobs').upsert({
+          restaurant_id: restaurantId,
+          entity_type: 'menu_item',
+          entity_id: data.id,
+          field_name: 'description',
+          source_language: 'en',
+          target_language: lang,
+          status: 'pending',
+          review_status: 'draft'
+        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+      }
     }
   }
 

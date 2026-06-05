@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl, getOrderDisplayNo } from '../lib/api';
-import { Category, MenuItem, Table, Restaurant, ProductType, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ComboGroupItem, Modifier, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
+import { Category, MenuItem, Table, Restaurant, ProductType, MenuItemStatus, LanguageCode, ProductGroup, DisplayBehavior, RenderImportance, ProductGroupItem, Product, VisibilityFlags, ComboGroup, ComboGroupItem, Modifier, ModifierGroup, DiningSession, Order, WorkspaceMembership, QueueJob, AuditLog, OrderItem } from '../types';
 import { hasCircularDependency } from '../lib/graphUtils';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { Plus, Trash2, Edit2, BarChart2, List, Grid, UtensilsCrossed, Monitor, X, Save, Image as ImageIcon, CheckCircle2, Globe, AlertCircle, ShoppingBag, Settings2, RefreshCw, Zap, ClipboardList, Users, Shield, Printer, Download, QrCode } from 'lucide-react';
@@ -178,8 +178,8 @@ export function AdminPanel() {
     }
   };
 
-  const handleRoleChangeForNewStaff = (role: string) => {
-    setNewStaffRole(role as any);
+  const handleRoleChangeForNewStaff = (role: 'owner' | 'manager' | 'cashier' | 'kitchen' | 'waiter' | 'runner') => {
+    setNewStaffRole(role);
     const isOwner = role === 'owner';
     const isManager = role === 'manager';
     const isCashier = role === 'cashier';
@@ -1384,27 +1384,34 @@ export function AdminPanel() {
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
-        {[
-          { id: 'menu', icon: UtensilsCrossed, key: 'admin.menuItems' },
-          { id: 'categories', icon: List, key: 'admin.categories' },
-          { id: 'tables', icon: Monitor, key: 'admin.tablesQR' },
-          { id: 'printers', icon: Printer, name: 'Kitchen Printers', key: 'admin.kitchenPrinters' },
-          { id: 'orders', icon: ClipboardList, key: 'admin.orderHistory' },
-          { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
-          { id: 'localization', icon: Globe, key: 'admin.translations' },
-          ...(canManageStaff ? [{ id: 'staff', icon: Users, key: 'admin.staffAudits' }] : []),
-          { id: 'offline-sync', icon: RefreshCw, name: 'Sync & Conflicts', key: 'admin.offlineSync' },
-          { id: 'settings', icon: Save, key: 'admin.settings' }
-        ].map(tab => (
+        {(
+          [
+            { id: 'menu', icon: UtensilsCrossed, key: 'admin.menuItems' },
+            { id: 'categories', icon: List, key: 'admin.categories' },
+            { id: 'tables', icon: Monitor, key: 'admin.tablesQR' },
+            { id: 'printers', icon: Printer, name: 'Kitchen Printers', key: 'admin.kitchenPrinters' },
+            { id: 'orders', icon: ClipboardList, key: 'admin.orderHistory' },
+            { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
+            { id: 'localization', icon: Globe, key: 'admin.translations' },
+            ...(canManageStaff ? [{ id: 'staff', icon: Users, key: 'admin.staffAudits' }] : []),
+            { id: 'offline-sync', icon: RefreshCw, name: 'Sync & Conflicts', key: 'admin.offlineSync' },
+            { id: 'settings', icon: Save, key: 'admin.settings' }
+          ] as Array<{
+            id: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync';
+            icon: React.ComponentType<{ size?: number }>;
+            key: string;
+            name?: string;
+          }>
+        ).map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-bold text-xs transition-all whitespace-nowrap ${
               activeTab === tab.id ? 'bg-gray-900 text-white shadow-md' : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
             }`}
           >
             <tab.icon size={16} />
-            {(tab as any).name || t(tab.key)}
+            {tab.name || t(tab.key)}
           </button>
         ))}
       </div>
@@ -1631,7 +1638,7 @@ export function AdminPanel() {
                     <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.productType')}</label>
                     <select
                       value={editingItem.productType || 'single'}
-                      onChange={e => setEditingItem({ ...editingItem, productType: e.target.value as any })}
+                      onChange={e => setEditingItem({ ...editingItem, productType: e.target.value as ProductType })}
                       className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs mb-1"
                     >
                       <option value="single">{t('admin.singleItem')}</option>
@@ -1648,7 +1655,7 @@ export function AdminPanel() {
                     <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.status')}</label>
                     <select
                       value={editingItem.status || 'Available'}
-                      onChange={e => setEditingItem({ ...editingItem, status: e.target.value as any })}
+                      onChange={e => setEditingItem({ ...editingItem, status: e.target.value as MenuItemStatus })}
                       className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                     >
                       {['Available', 'Low Stock', 'Out of Stock', 'Paused', 'Hidden', 'Scheduled', 'Seasonal'].map(status => (
@@ -1667,8 +1674,8 @@ export function AdminPanel() {
                     <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.categoryName')}</label>
                     <input
                       autoFocus
-                      value={(editingItem as any).newCategoryName || ''}
-                      onChange={e => setEditingItem({ ...editingItem, newCategoryName: e.target.value } as any)}
+                      value={editingItem.newCategoryName || ''}
+                      onChange={e => setEditingItem({ ...editingItem, newCategoryName: e.target.value })}
                       className="w-full px-3 py-2 rounded-lg bg-orange-50 border border-orange-150 focus:bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 font-bold text-xs"
                       placeholder="e.g. Signature Mains"
                     />

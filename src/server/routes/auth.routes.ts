@@ -25,9 +25,9 @@ router.post("/login", async (req, res) => {
 
   // 1. Check for system admin hardcoded credentials or seed dev fallbacks
   if (isAdminEnvMatch || isDevAdminMatch) {
-    let { data: profile } = await supabaseAdmin
+    let { data: profile }: { data: any } = await supabaseAdmin
       .from('profiles')
-      .select('*')
+      .select('id,email,role,restaurant_id,updated_at')
       .eq('email', email)
       .maybeSingle();
 
@@ -107,9 +107,9 @@ router.post("/login", async (req, res) => {
 
     if (authData && authData.user) {
       // Authentication successful, now get the profile
-      const { data: profile, error: profileError } = await supabaseAdmin
+      const { data: profile, error: profileError }: { data: any, error: any } = await supabaseAdmin
         .from('profiles')
-        .select('*')
+        .select('id,email,role,restaurant_id,updated_at')
         .eq('id', authData.user.id)
         .maybeSingle();
       
@@ -126,9 +126,9 @@ router.post("/login", async (req, res) => {
     }
 
     // 3. Fallback for legacy staff accounts or hardcoded "staff123"
-    const { data: legacyProfile, error: legacyError } = await supabaseAdmin
+    const { data: legacyProfile, error: legacyError }: { data: any, error: any } = await supabaseAdmin
       .from('profiles')
-      .select('*')
+      .select('id,email,role,restaurant_id,updated_at')
       .eq('email', email)
       .maybeSingle();
 
@@ -258,9 +258,9 @@ router.post("/google-login", async (req, res) => {
 
     if (isSuperAdminEmail) {
       console.log("Admin email match:", email);
-      let { data: profile } = await supabaseAdmin
+      let { data: profile }: { data: any } = await supabaseAdmin
         .from('profiles')
-        .select('*')
+        .select('id,email,role,restaurant_id,updated_at')
         .eq('email', email)
         .maybeSingle();
 
@@ -329,9 +329,9 @@ router.post("/google-login", async (req, res) => {
       };
     } else {
       console.log("Checking profiles for email:", email);
-      const { data: profile, error } = await supabaseAdmin
+      const { data: profile, error }: { data: any, error: any } = await supabaseAdmin
         .from('profiles')
-        .select('*')
+        .select('id,email,role,restaurant_id,updated_at')
         .eq('email', email)
         .maybeSingle();
 

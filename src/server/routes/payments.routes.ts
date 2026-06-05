@@ -63,7 +63,7 @@ async function processPaymentPaid(paymentId: string, referenceId: string, amount
       metadata: {
         ...(payment.metadata || {}),
         webhook_processed_at: new Date().toISOString(),
-        webhook_payload: rawPayload
+        webhook_event_id: rawPayload && typeof rawPayload === 'object' ? (rawPayload.id || rawPayload.event_id || rawPayload.event || null) : null
       }
     })
     .eq('id', payment.id)

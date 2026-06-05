@@ -1,6 +1,7 @@
 import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { Order, OrderItem, ThermalPrinter, PrinterRoute, PrintJob, KOTPayload, KOTItem, ProductSelection } from '../types';
+import { logger } from '../lib/logger';
 
 interface ExtendedOrderItem extends OrderItem {
   product?: { categoryId?: string };
@@ -315,7 +316,7 @@ class PrinterService {
    */
   async routeAndQueueOrder(restaurantId: string, order: Order, notes?: string, autoPrint = false): Promise<PrintJob[]> {
     try {
-      console.log(`[PrinterService] Routing order ${order.id} (Table: ${order.tableName || order.tableId})`);
+      logger.log(`[PrinterService] Routing order ${order.id} (Table: ${order.tableName || order.tableId})`);
       
       // 1. Fetch printers and routes
       const printers = await this.getPrinters(restaurantId);
@@ -852,7 +853,7 @@ class PrinterService {
     const targetPrinter = printers.find(p => p.id === job.printerId);
 
     if (!targetPrinter || targetPrinter.type === 'browser') {
-      console.log(`[PrinterService] Automatically invoking Print dialog for Job ${job.id}`);
+      logger.log(`[PrinterService] Automatically invoking Print dialog for Job ${job.id}`);
       const ticketHtml = this.renderKOTHtml(job.payload);
       
       // Prompt user or execute

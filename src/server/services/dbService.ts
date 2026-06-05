@@ -9,7 +9,7 @@ dotenv.config();
 export function getJwtSecret(env?: any): string {
   const secret = (env && env.JWT_SECRET) || process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.GITHUB_ACTIONS === "true" || process.env.CI || process.env.NODE_ENV === "production") {
+    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
       return "dummy_jwt_secret_for_ci_bypass";
     }
     throw new Error("JWT_SECRET is required");

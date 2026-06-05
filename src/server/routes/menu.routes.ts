@@ -2,7 +2,7 @@ import { Router } from "express";
 import { supabaseAdmin, getStaffSettings } from "../services/dbService";
 import { detectLanguageAndTranslate } from "../services/translationService";
 import { logToAudit } from "../services/auditService";
-import { authenticateJWT, requireTenantIsolation, requirePermissions, requireAnyPermission } from "../middleware/authMiddleware";
+import { authenticateJWT, requireTenantIsolation, requirePermissions, requireAnyPermission, AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const router = Router();
 
@@ -69,9 +69,12 @@ router.get("/restaurants/:restId/menu-items", authenticateJWT, requireTenantIsol
   res.json(data || []);
 });
 
-router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
-  const caller = (req as any).user;
-  if (caller && caller.is_platform_admin !== true) {
+router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req: AuthenticatedRequest, res) => {
+  const caller = req.user;
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  if (caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -138,6 +141,36 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePer
             }
           }
         }
+
+        // Queue translation jobs for target languages inside translation_jobs
+        const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+        for (const lang of targetLangs) {
+          if (body.name || originalNameInput) {
+            await supabaseAdmin.from('translation_jobs').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'name',
+              source_language: 'en',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+          }
+
+          if (body.description || originalDescInput) {
+            await supabaseAdmin.from('translation_jobs').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'description',
+              source_language: 'en',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+          }
+        }
       } catch (err) {
         console.error("[Background AI POST] Error running translation:", err);
       }
@@ -151,9 +184,12 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePer
   res.json(data);
 });
 
-router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
-  const caller = (req as any).user;
-  if (caller && caller.is_platform_admin !== true) {
+router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req: AuthenticatedRequest, res) => {
+  const caller = req.user;
+  if (!caller) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  if (caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
       return res.status(403).json({ error: "Forbidden: You do not have permission to manage the menu." });
@@ -221,6 +257,36 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requi
             }
           }
         }
+
+        // Queue translation jobs for target languages inside translation_jobs on update
+        const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+        for (const lang of targetLangs) {
+          if (body.name || originalNameInput) {
+            await supabaseAdmin.from('translation_jobs').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'name',
+              source_language: 'en',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+          }
+
+          if (body.description || originalDescInput) {
+            await supabaseAdmin.from('translation_jobs').upsert({
+              restaurant_id: restaurantId,
+              entity_type: 'menu_item',
+              entity_id: data.id,
+              field_name: 'description',
+              source_language: 'en',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+          }
+        }
       } catch (err) {
         console.error("[Background AI PATCH] Error updating translations:", err);
       }
@@ -234,8 +300,8 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requi
   res.json(data);
 });
 
-router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
-  const caller = (req as any).user;
+router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req: AuthenticatedRequest, res) => {
+  const caller = req.user;
   if (caller && caller.is_platform_admin !== true) {
     const settings = getStaffSettings(caller.id, caller.role);
     if (!settings.permissions.can_edit_menu) {
@@ -260,8 +326,8 @@ router.delete("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requ
 });
 
 // Sub-collections sync (Combo/Modifier groups)
-router.post("/batch-sync", authenticateJWT, requirePermissions('settings.manage'), async (req, res) => {
-  const caller = (req as any).user;
+router.post("/batch-sync", authenticateJWT, requirePermissions('settings.manage'), async (req: AuthenticatedRequest, res) => {
+  const caller = req.user;
   const userRestId = caller?.restaurantId || caller?.restaurant_id;
 
   // Derive tenant ownership check for batch-sync target item

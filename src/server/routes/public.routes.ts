@@ -27,7 +27,7 @@ router.get("/restaurants/:id", async (req, res) => {
 router.get("/restaurants/:restId/categories", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('categories')
-    .select('*')
+    .select('id,restaurant_id,name,sort_order,created_at')
     .eq('restaurant_id', req.params.restId)
     .order('sort_order', { ascending: true });
   
@@ -56,7 +56,7 @@ router.get("/tables/:tableId", async (req, res) => {
   const { restId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.tableId);
   
-  let query = supabaseAdmin.from('tables').select('*');
+  let query = supabaseAdmin.from('tables').select('id,restaurant_id,name,status,created_at');
   if (isUuid) {
     query = query.eq('id', req.params.tableId);
   } else {
@@ -137,7 +137,7 @@ router.get("/baskets", async (req, res) => {
 router.get("/baskets/:basketId/items", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('basket_items')
-    .select('*')
+    .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
     .eq('basket_id', req.params.basketId);
   
   if (error) return res.status(500).json({ error: error.message });
@@ -328,7 +328,7 @@ router.get("/orders/:id", async (req, res) => {
 
   let query = supabaseAdmin
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('id', req.params.id);
 
   if (isUuid) {
@@ -345,7 +345,7 @@ router.get("/orders/:id", async (req, res) => {
 router.get("/dining-sessions/:sessionId/orders", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('session_id', req.params.sessionId)
     .neq('status', 'cancelled');
   
@@ -366,7 +366,7 @@ router.post("/orders/:id/mark-paid", async (req, res) => {
 
   const { data: existingOrder } = await supabaseAdmin
     .from('orders')
-    .select('*')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
     .eq('id', req.params.id)
     .eq('session_id', session.id)
     .single();

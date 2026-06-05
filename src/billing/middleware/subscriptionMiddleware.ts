@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { BillingRepository } from "../repositories/billingRepository";
 import { supabaseAdmin } from "../../server/services/dbService";
+import { AuthenticatedRequest } from "../../server/middleware/authMiddleware";
 
 const repo = new BillingRepository();
 
@@ -12,8 +13,8 @@ const repo = new BillingRepository();
  * - canceled: Read-Only Access (permits only GET requests; blocks all mutations)
  * - unpaid / suspended / expired: Blocks absolute access (402 Payment Required)
  */
-export async function requireSubscriptionEnforcement(req: Request, res: Response, next: NextFunction) {
-  const user = (req as any).user;
+export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
   }
@@ -91,7 +92,7 @@ export async function requireSubscriptionEnforcement(req: Request, res: Response
 
     // 3. Past Due: Limited access decoration
     if (status === "past_due") {
-      (req as any).limitedAccess = true;
+      req.limitedAccess = true;
     }
 
     next();
@@ -125,8 +126,8 @@ export async function canAccessFeature(tenantId: string, featureKey: string): Pr
  * Feature Gating Request Guard Middleware
  */
 export function requireFeatureGating(featureKey: string) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const user = (req as any).user;
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const user = req.user;
     if (!user) return res.status(401).json({ error: "Unauthorized session." });
 
     if (user.platform_role === "superadmin") {
@@ -134,7 +135,7 @@ export function requireFeatureGating(featureKey: string) {
       return;
     }
 
-    const tenantId = req.params.restId || req.params.restaurantId || req.query.restaurantId || user.restaurantId;
+    const tenantId = (req.params.restId || req.params.restaurantId || req.query.restaurantId || user.restaurantId) as string;
     if (!tenantId) {
       next();
       return;
@@ -194,8 +195,8 @@ export async function canUseAITranslation(tenantId: string, charsCount: number =
 /**
  * Middleware preventing adding physical restaurants over subscription tier capacity
  */
-export async function checkOutletLimit(req: Request, res: Response, next: NextFunction) {
-  const user = (req as any).user;
+export async function checkOutletLimit(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const user = req.user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const tenantId = user.restaurantId || req.body.organization_id || req.body.organizationId;

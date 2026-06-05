@@ -30,7 +30,22 @@ export function CheckoutStatusRedirect() {
           }
         }
 
-        // Helper function to handle cancellation/fallback direction to menu
+        // Helper function to handle redirect to checkout
+        const redirectToCheckout = (rId: string | null, tId: string | null, sId: string | null, oId: string | null) => {
+          if (rId) {
+            const finalTable = tId || 'default';
+            const finalOrderId = oId || 'prepaid';
+            if (sId) {
+              navigate(`/restaurant/${rId}/table/${finalTable}/session/${sId}/order/${finalOrderId}/checkout`, { replace: true });
+            } else {
+              navigate(`/restaurant/${rId}/table/${finalTable}/order/${finalOrderId}/checkout`, { replace: true });
+            }
+            return true;
+          }
+          return false;
+        };
+
+        // Helper function to handle fallback direction to menu if checkout is not available
         const redirectToCustomerMenu = (rId: string | null, tId: string | null, sId: string | null) => {
           if (rId) {
             const finalTable = tId || 'default';
@@ -45,7 +60,7 @@ export function CheckoutStatusRedirect() {
         };
 
         if (isCancelled) {
-          setStatusText("Payment cancelled. Returning to menu...");
+          setStatusText("Payment cancelled. Returning to checkout...");
           if (targetOrderId) {
             const orderRes = await fetch(getApiUrl(`/api/public/orders/${targetOrderId}`));
             if (orderRes.ok) {
@@ -53,9 +68,10 @@ export function CheckoutStatusRedirect() {
               const restId = orderData.restaurant_id;
               const tableId = orderData.table_id || 'default';
               const sId = orderData.session_id || sessionId || '';
-              if (redirectToCustomerMenu(restId, tableId, sId)) return;
+              if (redirectToCheckout(restId, tableId, sId, targetOrderId)) return;
             }
           }
+          if (redirectToCheckout(restParamId, tableParamId, sessionId, targetOrderId)) return;
           if (redirectToCustomerMenu(restParamId, tableParamId, sessionId)) return;
         }
 

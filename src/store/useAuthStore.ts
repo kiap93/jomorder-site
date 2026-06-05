@@ -4,6 +4,7 @@ import { getApiUrl } from '../lib/api';
 import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { offlineService, clearTenantScopedIndexedDB } from '../lib/offlineService';
 import { useWorkspaceStore } from './useWorkspaceStore';
+import { logger } from '../lib/logger';
 
 interface AuthState {
   user: { id: string; email: string } | null;
@@ -46,12 +47,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         const now = Date.now();
         if (now - lastProcessedChangeTime < 1500) {
-          console.log("AuthStore (Worker): Throttling redundant sync broadcast");
+          logger.log("AuthStore (Worker): Throttling redundant sync broadcast");
           return;
         }
         lastProcessedChangeTime = now;
 
-        console.log("AuthStore (Worker): Syncing auth state from another tab...");
+        logger.log("AuthStore (Worker): Syncing auth state from another tab...");
         get().refreshSession();
       };
       authChannel.addEventListener('message', channelListener);
@@ -223,7 +224,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true });
     try {
       const apiUrl = getApiUrl('/api/google-login');
-      console.log("Authenticating with Google via API:", apiUrl);
+      logger.log("Authenticating with Google via API:", apiUrl);
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

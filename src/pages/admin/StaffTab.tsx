@@ -41,7 +41,7 @@ interface StaffTabProps {
   newStaffPassword: string;
   setNewStaffPassword: (val: string) => void;
   newStaffRole: 'owner' | 'manager' | 'cashier' | 'kitchen' | 'waiter' | 'runner';
-  handleRoleChangeForNewStaff: (role: string) => void;
+  handleRoleChangeForNewStaff: (role: 'owner' | 'manager' | 'cashier' | 'kitchen' | 'waiter' | 'runner') => void;
   newStaffPermissions: Record<string, boolean>;
   setNewStaffPermissions: (perms: Record<string, boolean>) => void;
   t: (key: string) => string;
@@ -308,7 +308,7 @@ export function StaffTab({
                 <label className="block text-[9px] font-black uppercase text-gray-400 mb-1 ml-1 text-xs">{t('admin.staffRole')}</label>
                 <select
                   value={newStaffRole}
-                  onChange={e => handleRoleChangeForNewStaff(e.target.value)}
+                  onChange={e => handleRoleChangeForNewStaff(e.target.value as 'owner' | 'manager' | 'cashier' | 'kitchen' | 'waiter' | 'runner')}
                   className="w-full px-3 py-2 rounded-lg bg-gray-55 border border-gray-150 font-bold capitalize text-xs focus:bg-white focus:border-brand"
                 >
                   {['owner', 'manager', 'cashier', 'kitchen', 'waiter', 'runner'].map(r => (

@@ -1,5 +1,5 @@
-import { Router, Request, Response } from "express";
-import { authenticateJWT, requireTenantIsolation } from "../../server/middleware/authMiddleware";
+import { Router, Response } from "express";
+import { authenticateJWT, requireTenantIsolation, AuthenticatedRequest } from "../../server/middleware/authMiddleware";
 import { BillingService } from "../services/billingService";
 import { PlanCode } from "../types";
 import { BillingRepository } from "../repositories/billingRepository";
@@ -12,9 +12,12 @@ const repo = new BillingRepository();
  * GET /api/billing/overview
  * Fetches tenant's active tier limitations, statistics count, stripe details
  */
-router.get("/billing/overview", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id || req.query.restId as string;
+router.get("/billing/overview", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id || req.query.restId as string;
 
   if (!tenantId) {
     return res.status(400).json({ error: "Missing active restaurant workspace coordinates in context." });
@@ -32,9 +35,12 @@ router.get("/billing/overview", authenticateJWT, async (req: Request, res: Respo
  * POST /api/billing/create-checkout-session
  * High-grade secure checkout controller
  */
-router.post("/billing/create-checkout-session", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+router.post("/billing/create-checkout-session", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id || req.body.restaurantId;
   const { plan } = req.body;
 
   if (!tenantId) {
@@ -63,9 +69,12 @@ router.post("/billing/create-checkout-session", authenticateJWT, async (req: Req
  * POST /api/billing/create-portal-session
  * Accesses Stripe Customer self-service dashboard
  */
-router.post("/billing/create-portal-session", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+router.post("/billing/create-portal-session", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id || req.body.restaurantId;
 
   if (!tenantId) {
     return res.status(400).json({ error: "No active restaurant workspace." });
@@ -87,9 +96,12 @@ router.post("/billing/create-portal-session", authenticateJWT, async (req: Reque
  * POST /api/billing/upgrade
  * Support instantaneous plan shifts and change records
  */
-router.post("/api/billing/upgrade", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+router.post("/api/billing/upgrade", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id || req.body.restaurantId;
   const { plan } = req.body;
 
   if (!tenantId) return res.status(400).json({ error: "Restaurant context missing." });
@@ -107,9 +119,12 @@ router.post("/api/billing/upgrade", authenticateJWT, async (req: Request, res: R
  * POST /api/billing/cancel
  * Halts period billing cycles
  */
-router.post("/api/billing/cancel", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id || req.body.restaurantId;
+router.post("/api/billing/cancel", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id || req.body.restaurantId;
 
   if (!tenantId) return res.status(400).json({ error: "Workspace context ID missing." });
 
@@ -125,9 +140,12 @@ router.post("/api/billing/cancel", authenticateJWT, async (req: Request, res: Re
  * POST /api/billing/sandbox-simulate
  * Simulation bridge enabling interactive testing of starter, growth, and pro packages in preview tabs
  */
-router.post("/billing/sandbox-simulate", authenticateJWT, async (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const tenantId = user.restaurantId || user.restaurant_id;
+router.post("/billing/sandbox-simulate", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Active session missing." });
+  }
+  const tenantId = user.restaurantId || (user as any).restaurant_id;
   const { plan } = req.body;
 
   if (!tenantId) {

@@ -350,8 +350,8 @@ export function CustomerMenu() {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
         const tableQuery = (tableId && tableId !== 'default')
           ? (isUuid 
-              ? supabase.from('tables').select('*').eq('id', tableId).maybeSingle()
-              : supabase.from('tables').select('*').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
+              ? supabase.from('tables').select('id,restaurant_id,name,status,created_at').eq('id', tableId).maybeSingle()
+              : supabase.from('tables').select('id,restaurant_id,name,status,created_at').eq('restaurant_id', restId).eq('name', tableId).maybeSingle())
           : Promise.resolve({ data: null, error: null });
 
         // Add a safety timeout for the parallel fetch
@@ -766,7 +766,7 @@ export function CustomerMenu() {
           try {
             const { data: items, error } = await supabase
               .from('basket_items')
-              .select('*')
+              .select('id, basketId:basket_id, productId:product_id, quantity, configuration, deviceInfo:device_info, createdAt:created_at, updatedAt:updated_at')
               .eq('basket_id', basketId);
             
             if (items) {

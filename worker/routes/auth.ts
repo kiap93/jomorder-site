@@ -27,9 +27,9 @@ authRoutes.post('/api/login', async (c) => {
                          (email && email.toLowerCase() === "kiap93.kmj@gmail.com" && password === "admin123");
 
   if (isAdminEnvMatch || isDevAdminMatch) {
-    let { data: profile } = await supabase
+    let { data: profile }: { data: any } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id,email,role,restaurant_id,updated_at')
       .eq('email', email)
       .maybeSingle();
 
@@ -104,9 +104,9 @@ authRoutes.post('/api/login', async (c) => {
     const { data: authData } = await supabase.auth.signInWithPassword({ email, password });
 
     if (authData?.user) {
-      const { data: profile } = await supabase
+      const { data: profile }: { data: any } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id,email,role,restaurant_id,updated_at')
         .eq('id', authData.user.id)
         .maybeSingle();
       
@@ -205,9 +205,9 @@ authRoutes.post('/api/google-login', async (c) => {
                        (email && email.toLowerCase() === "kiap93.kmj@gmail.com");
 
   if (isAdminEmail) {
-    let { data: profile } = await supabase
+    let { data: profile }: { data: any } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id,email,role,restaurant_id,updated_at')
       .eq('email', email)
       .maybeSingle();
 
@@ -275,9 +275,9 @@ authRoutes.post('/api/google-login', async (c) => {
       }
     };
   } else {
-    let { data: profile } = await supabase
+    let { data: profile }: { data: any } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id,email,role,restaurant_id,updated_at')
       .eq('email', email)
       .maybeSingle();
 
