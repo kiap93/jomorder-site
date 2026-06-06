@@ -2611,7 +2611,8 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
       currency: "MYR",
       service_charge: 6,
       sst: 10,
-      owner_id: dbUserId
+      owner_id: dbUserId,
+      payment_mode: "both"
     };
     if (orgId) {
       insertData.organization_id = orgId;
@@ -2647,7 +2648,8 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
         service_charge: 6,
         sst: 10,
         owner_id: user.id,
-        organization_id: orgId
+        organization_id: orgId,
+        payment_mode: "both"
       };
     }
     const db2 = loadFallbackDB();

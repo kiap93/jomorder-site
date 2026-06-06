@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X, Globe, CreditCard } from 'lucide-react';
+import { ChefHat, LayoutDashboard, ShoppingBag, Settings, LogOut, Banknote, Building2, User, X, Globe, CreditCard, Bell, Check } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { useState, useEffect } from 'react';
@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { offlineService } from '../lib/offlineService';
 import { hasPermission } from '../lib/rbac';
 import { Organization, WorkspaceRestaurant } from '../types';
+import { supabase } from '../lib/supabase';
 
 export function Navbar() {
   const location = useLocation();
@@ -17,6 +18,10 @@ export function Navbar() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   
+  // Real-time Assistance variables
+  const [assistanceRequests, setAssistanceRequests] = useState<any[]>([]);
+  const [isAssistanceOpen, setIsAssistanceOpen] = useState(false);
+
   const { 
     organizations, 
     restaurants, 
@@ -64,6 +69,91 @@ export function Navbar() {
       fetchWorkspaces(token);
     }
   }, [token, fetchWorkspaces]);
+
+  // Real-time Assistance WebSocket broadcast listener
+  useEffect(() => {
+    if (!user || !restId) return;
+
+    // Check if the current user is on a customer path (then don't listen to staff calls)
+    const isCustomerPath = location.pathname.includes('/table/') || location.pathname.includes('/order/');
+    if (isCustomerPath) return;
+
+    const channel = supabase.channel(`assistance-${restId}`);
+
+    channel
+      .on('broadcast', { event: 'assistance_requested' }, (payload: any) => {
+        console.log('[Navbar] Realtime assistance request received', payload);
+        const data = payload.payload;
+        if (data && data.restId === restId) {
+          setAssistanceRequests(prev => {
+            if (prev.some(r => r.id === data.id)) return prev;
+            
+            // Double-chime major third ring dynamically (Web Audio API)
+            try {
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const osc1 = audioCtx.createOscillator();
+              const osc2 = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              
+              osc1.type = 'sine';
+              osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+              osc2.type = 'sine';
+              osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
+              
+              gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+              
+              osc1.connect(gainNode);
+              osc2.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              
+              osc1.start();
+              osc2.start();
+              osc1.stop(audioCtx.currentTime + 0.6);
+              osc2.stop(audioCtx.currentTime + 0.6);
+            } catch (err) {
+              console.warn('[Navbar] Web Audio Chime ignored:', err);
+            }
+
+            return [data, ...prev];
+          });
+        }
+      })
+      .on('broadcast', { event: 'assistance_resolved' }, (payload: any) => {
+        console.log('[Navbar] Realtime assistance resolution received', payload);
+        const data = payload.payload;
+        if (data && data.id) {
+          setAssistanceRequests(prev => prev.filter(r => r.id !== data.id));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, restId, location.pathname]);
+
+  const handleResolveAssistance = async (id: string) => {
+    // Optimistically update local active calls state
+    setAssistanceRequests(prev => prev.filter(r => r.id !== id));
+
+    try {
+      // Broadcast to other staff devices that this assistance is resolved!
+      const channel = supabase.channel(`assistance-${restId}`);
+      await channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.send({
+            type: 'broadcast',
+            event: 'assistance_resolved',
+            payload: { id }
+          });
+          supabase.removeChannel(channel);
+        }
+      });
+    } catch (err) {
+      console.error('[Navbar] Failed to send resolution broadcast:', err);
+    }
+  };
 
   if (location.pathname === '/') return null;
 
@@ -182,6 +272,25 @@ export function Navbar() {
               >
                 <Building2 size={20} />
               </Link>
+            )}
+            
+            {!isCustomerPath && (
+              <button
+                onClick={() => setIsAssistanceOpen(!isAssistanceOpen)}
+                className={`p-2 rounded relative transition-all active:scale-90 ${
+                  isAssistanceOpen 
+                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30 font-extrabold' 
+                    : 'text-zinc-400 hover:text-amber-500'
+                }`}
+                title="Active Table Calls"
+              >
+                <Bell size={20} className={assistanceRequests.length > 0 ? 'animate-bounce text-amber-500' : ''} />
+                {assistanceRequests.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-zinc-950 animate-pulse">
+                    {assistanceRequests.length}
+                  </span>
+                )}
+              </button>
             )}
           </>
         )}
@@ -381,6 +490,78 @@ export function Navbar() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Real-time Waiter Assistance Overlay Panel */}
+      {isAssistanceOpen && user && !isCustomerPath && (
+        <>
+          <div 
+            className="fixed inset-0 z-[45] bg-zinc-950/20 backdrop-blur-xs" 
+            onClick={() => setIsAssistanceOpen(false)} 
+          />
+          <div className="fixed bottom-16 left-4 right-4 md:bottom-auto md:left-18 md:top-4 md:w-80 bg-zinc-950 border border-zinc-900 rounded-3xl shadow-2xl p-5 z-50 text-left animate-in fade-in slide-in-from-bottom-2 md:slide-in-from-left-2 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-3 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                <h4 className="text-sm font-black text-zinc-100 uppercase tracking-wider">
+                  Table Calls ({assistanceRequests.length})
+                </h4>
+              </div>
+              <button 
+                onClick={() => setIsAssistanceOpen(false)}
+                className="text-zinc-500 hover:text-zinc-350 p-1.5 hover:bg-zinc-900 rounded-lg transition"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {assistanceRequests.length === 0 ? (
+              <div className="py-8 text-center text-zinc-500 flex flex-col items-center gap-2">
+                <div className="w-10 h-10 bg-zinc-900 text-zinc-650 rounded-xl flex items-center justify-center">
+                  <Check size={18} />
+                </div>
+                <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">All Clear</p>
+                <p className="text-[10px] text-zinc-500 font-medium">No tables are currently requesting waiter assistance.</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                {assistanceRequests.map((req) => {
+                  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(req.timestamp).getTime()) / 1000));
+                  const timeStr = elapsedSeconds < 60 
+                    ? `${elapsedSeconds}s ago` 
+                    : `${Math.floor(elapsedSeconds / 60)}m ago`;
+
+                  return (
+                    <div 
+                      key={req.id}
+                      className="bg-zinc-900 border border-zinc-850 rounded-2xl p-3.5 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-zinc-200">
+                          Table {req.tableName || (req.tableId ? req.tableId.slice(-3).toUpperCase() : 'Guest')}
+                        </p>
+                        <p className="text-[10px] font-bold text-zinc-500 mt-0.5">
+                          Assistance requested • {timeStr}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleResolveAssistance(req.id)}
+                        className="h-8 px-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-zinc-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition shrink-0"
+                      >
+                        Help Settle
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            <div className="mt-3 pt-3 border-t border-zinc-900 text-center flex items-center justify-center gap-1.5 text-[9px] text-zinc-500 uppercase font-extrabold tracking-widest leading-none">
+              <span>🛎 Waiter Response Terminal</span>
+            </div>
+          </div>
+        </>
       )}
     </>
   );

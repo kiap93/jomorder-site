@@ -671,7 +671,8 @@ authRoutes.post('/api/onboarding/create-org-workspace', authenticate, async (c) 
       currency: 'MYR',
       service_charge: 6.0,
       sst: 10.0,
-      owner_id: dbUserId
+      owner_id: dbUserId,
+      payment_mode: 'both'
     };
 
     if (orgId) {

@@ -587,7 +587,8 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       currency: 'MYR',
       service_charge: 6.0,
       sst: 10.0,
-      owner_id: dbUserId
+      owner_id: dbUserId,
+      payment_mode: 'both'
     };
 
     if (orgId) {
@@ -637,7 +638,8 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
         service_charge: 6.0,
         sst: 10.0,
         owner_id: user.id,
-        organization_id: orgId
+        organization_id: orgId,
+        payment_mode: 'both'
       };
     }
 
