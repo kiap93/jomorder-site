@@ -38,6 +38,7 @@ import { Order, OrderItem, Restaurant, Payment, PaymentStatus } from '../types';
 import { OrderStatus } from '../enums';
 import { useAuthStore } from '../store/useAuthStore';
 import { CashCalculator } from './CashCalculator';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface PaymentWorkspaceProps {
   order: Order;
@@ -68,7 +69,31 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLocked, setIsLocked] = useState(true); // Terminal locking simulation
+  const [paymentSettings, setPaymentSettings] = useState<{ provider?: string; enabled_methods?: string[] } | null>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsRes = await fetch(getApiUrl(`/api/restaurants/${restaurant.id}/public-payment-settings`));
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          setPaymentSettings(settingsData);
+        }
+      } catch (err) {
+        console.error('[PaymentWorkspace] Failed to fetch public payment settings:', err);
+      }
+    };
+    if (restaurant?.id) {
+      fetchSettings();
+    }
+  }, [restaurant?.id]);
   
+  // Dynamic DuitNow QR States
+  const [activeQrData, setActiveQrData] = useState<string | null>(null);
+  const [activeQrPayment, setActiveQrPayment] = useState<any | null>(null);
+  const [isQrLoading, setIsQrLoading] = useState(false);
+  const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
   const sessionId = order.sessionId || order.session_id;
@@ -215,6 +240,111 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const isFullyPaid = remainingBalance <= 0.01;
 
   // --- End of financial calculations block ---
+
+  useEffect(() => {
+    let active = true;
+    let pollInterval: NodeJS.Timeout | null = null;
+
+    if (selectedMethod === 'qr' && order?.id && remainingBalance > 0) {
+      const initQrSetup = async () => {
+        setIsQrLoading(true);
+        setQrGenerationError(null);
+        try {
+          const token = useAuthStore.getState().token;
+          if (!token) {
+            throw new Error('Authentication token required');
+          }
+
+          // 1. Create a pending payment on the backend with method: 'duitnow'
+          const createRes = await fetch(getApiUrl(`/api/orders/${order.id}/payments`), {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              restaurant_id: restaurant.id,
+              amount: remainingBalance,
+              payment_method: 'duitnow', // must be 'duitnow' to hit the DuitNow switch in initialize!
+              provider: 'duitnow_pos',
+              status: 'pending',
+              currency: restaurant.currency || 'MYR'
+            })
+          });
+
+          if (!createRes.ok) {
+            throw new Error(`Failed to create ledger row (${createRes.status})`);
+          }
+
+          const paymentObj = await createRes.json();
+          if (!active) return;
+          setActiveQrPayment(paymentObj);
+
+          // 2. Initialize the dynamic payment to retrieve the EMVCo DuitNow QR payload!
+          const initRes = await fetch(getApiUrl(`/api/public/payments/${paymentObj.id}/initialize`), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!initRes.ok) {
+            throw new Error(`Failed to fetch QR payload from provider (${initRes.status})`);
+          }
+
+          const initData = await initRes.json();
+          if (!active) return;
+          
+          if (initData && initData.qrData) {
+            setActiveQrData(initData.qrData);
+          } else {
+            throw new Error('No QR payload returned from server');
+          }
+
+          // 3. Start Polling the status of this specific payment!
+          pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await fetch(getApiUrl(`/api/public/payments/${paymentObj.id}/status`));
+              if (statusRes.ok) {
+                const statusObj = await statusRes.json();
+                if (statusObj && (statusObj.status === 'completed' || statusObj.status === 'paid')) {
+                  if (pollInterval) clearInterval(pollInterval);
+                  // Dynamic transaction is complete, let's complete the UI flow!
+                  handlePaymentComplete(paymentObj);
+                }
+              }
+            } catch (pollErr) {
+              console.warn('[PaymentWorkspace] Status polling failure ignored:', pollErr);
+            }
+          }, 4000);
+
+        } catch (err: any) {
+          console.error('[PaymentWorkspace] QR Gen Error:', err);
+          if (active) {
+            setQrGenerationError(err.message || 'Error occurred generating payment code');
+          }
+        } finally {
+          if (active) {
+            setIsQrLoading(false);
+          }
+        }
+      };
+
+      initQrSetup();
+    } else {
+      // Clear QR states when deselecting qr method
+      setActiveQrData(null);
+      setActiveQrPayment(null);
+      setQrGenerationError(null);
+    }
+
+    return () => {
+      active = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [selectedMethod, order?.id, remainingBalance]);
 
   useEffect(() => {
     fetchPaymentHistory();
@@ -576,14 +706,12 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [splitMethod, setSplitMethod] = useState<'equal' | 'custom'>('equal');
   const [splitCount, setSplitCount] = useState(2);
 
+  const hasProvider = paymentSettings && paymentSettings.provider && paymentSettings.provider !== 'none';
+
   const paymentMethods = [
     { id: 'cash', label: 'Cash', icon: Banknote, color: 'emerald' },
-    { id: 'card', label: 'Terminal Card', icon: CreditCard, color: 'blue' },
-    { id: 'qr', label: 'DuitNow QR', icon: QrCode, color: 'rose' },
-    { id: 'ewallet', label: 'E-Wallet', icon: Wallet, color: 'indigo' },
+    ...(hasProvider ? [{ id: 'qr', label: 'DuitNow QR', icon: QrCode, color: 'rose' }] : []),
     { id: 'split', label: 'Split Payment', icon: Split, color: 'orange' },
-    { id: 'voucher', label: 'Voucher', icon: Ticket, color: 'amber' },
-    { id: 'house', label: 'House Account', icon: UserCircle, color: 'zinc' },
   ];
 
   return (
@@ -1349,13 +1477,53 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       </div>
                       
                       <div className="mb-4">
-                         <h3 className="text-base font-black text-white uppercase tracking-tighter italic">Dynamic Pay-QR</h3>
-                         <p className="text-zinc-500 text-[8px] font-black uppercase tracking-widest mt-1">Live Traffic Token</p>
+                         <h3 className="text-base font-black text-rose-500 uppercase tracking-tighter italic flex items-center justify-center gap-1.5">
+                           <QrCode size={18} className="animate-pulse" /> DuitNow QR
+                         </h3>
+                         <p className="text-zinc-500 text-[8px] font-black uppercase tracking-widest mt-1">Live Transaction Token</p>
                       </div>
 
-                      <div className="aspect-square bg-white rounded-xl p-4 shadow-2xl mb-4 relative group">
-                        <QrCode className="w-full h-full text-zinc-950" />
-                      </div>
+                      {isQrLoading ? (
+                        <div className="aspect-square flex flex-col items-center justify-center bg-zinc-950 rounded-xl mb-4 border border-zinc-800/60 p-4">
+                          <div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin mb-3" />
+                          <p className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Generating QR Code...</p>
+                        </div>
+                      ) : qrGenerationError ? (
+                        <div className="aspect-square flex flex-col items-center justify-center bg-zinc-950 rounded-xl mb-4 border border-zinc-800/60 p-4 text-center">
+                          <AlertCircle className="text-red-500 mb-2" size={24} />
+                          <p className="text-[10px] font-black uppercase tracking-wider text-red-400 mb-1">Failed to Load QR</p>
+                          <p className="text-[9px] text-zinc-500 leading-snug mb-3">{qrGenerationError}</p>
+                          <button
+                            onClick={() => {
+                              setSelectedMethod('cash');
+                              setTimeout(() => setSelectedMethod('qr'), 50);
+                            }}
+                            className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-[9px] font-bold uppercase tracking-wider transition-colors"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : activeQrData ? (
+                        <div className="aspect-square bg-white rounded-xl p-4 shadow-2xl mb-4 relative group flex items-center justify-center">
+                          <QRCodeSVG 
+                            value={activeQrData} 
+                            size={180}
+                            level="H"
+                            className="w-full h-full text-zinc-950"
+                          />
+                        </div>
+                      ) : (
+                        <div className="aspect-square flex flex-col items-center justify-center bg-zinc-950 rounded-xl mb-4 border border-zinc-800/60 p-4">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Initializing Adapter...</p>
+                        </div>
+                      )}
+
+                      {!isQrLoading && !qrGenerationError && activeQrData && (
+                        <div className="flex items-center justify-center gap-1.5 mb-4 text-[9px] font-black text-rose-500/80 uppercase tracking-widest leading-none animate-pulse">
+                          <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
+                          <span>Awaiting Customer Scan</span>
+                        </div>
+                      )}
 
                       <div className="bg-zinc-950 rounded p-2.5 mb-4 border border-zinc-800/50">
                         <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest block mb-0.5 text-left leading-none">Charge</span>
@@ -1376,7 +1544,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             body: JSON.stringify({
                               restaurant_id: restaurant.id,
                               amount: remainingBalance,
-                              payment_method: 'qr',
+                              payment_method: 'duitnow',
                               provider: 'duitnow_pos',
                               status: 'paid',
                               currency: restaurant.currency || 'MYR'
@@ -1388,9 +1556,9 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             handlePaymentComplete(pData);
                           }
                         }}
-                        className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded font-black text-[9px] uppercase tracking-widest transition-all"
+                        className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded font-black text-[9px] uppercase tracking-widest transition-all hover:text-white"
                       >
-                        Verify Call
+                        Confirm Pay (Manual Fallback)
                       </button>
                     </div>
                   </div>

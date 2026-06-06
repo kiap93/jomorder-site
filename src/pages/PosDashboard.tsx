@@ -566,7 +566,7 @@ export function PosDashboard() {
                       className="w-full h-8 bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200/50 rounded font-black text-[10px] uppercase tracking-tighter flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shadow-xs"
                     >
                       <Printer size={12} className={printingOrders[order.id] ? "animate-spin" : ""} />
-                      {printingOrders[order.id] ? "Printing..." : "Print KOT"}
+                      {printingOrders[order.id] ? t('common.printing') : t('common.printKot')}
                     </button>
                   )}
                 </div>

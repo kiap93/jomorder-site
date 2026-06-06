@@ -36,6 +36,10 @@ const common = {
   "status.completed": "Selesai & Dibayar",
   "status.completedUnpaid": "Selesai (Belum Bayar)",
   "status.cancelled": "Dibatalkan",
+  "status.active": "Aktif",
+  "status.paid": "Dibayar",
+  "common.printKot": "Cetak Tiket Dapur",
+  "common.printing": "Sedang Mencetak...",
 };
 
 export default common;

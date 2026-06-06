@@ -106,7 +106,7 @@ export interface AuditLogEntry {
 
 export function AdminPanel() {
   const { t } = useLanguageStore();
-  const { restId } = useParams();
+  const { restId, activeTab: tabFromUrl } = useParams();
   const navigate = useNavigate();
   const { user, profile, loading: loadingAuth } = useAuthStore();
   const loggedInRole = profile?.role?.toLowerCase();
@@ -114,12 +114,38 @@ export function AdminPanel() {
   const hasStaffManagementPermission = !!profile?.permissions?.can_manage_staff;
   const canManageStaff = isActualOwner || hasStaffManagementPermission;
 
+  // Map and translate URL parameters dynamically
+  const mapUrlToTab = (urlTab: string | undefined): 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' => {
+    if (!urlTab) return 'menu';
+    const tab = urlTab.toLowerCase();
+    if (tab === 'staff-audits') return 'staff';
+    
+    const validTabs: Array<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync'> = [
+      'menu', 'categories', 'tables', 'analytics', 'localization', 'settings', 'orders', 'staff', 'printers', 'offline-sync'
+    ];
+    if (validTabs.includes(tab as any)) {
+      return tab as any;
+    }
+    return 'menu';
+  };
+
+  const mapTabToUrl = (tabId: string): string => {
+    if (tabId === 'staff') return 'staff-audits';
+    return tabId;
+  };
+
+  const activeTab = mapUrlToTab(tabFromUrl);
+  
+  const setActiveTab = (tabId: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync') => {
+    const urlSegment = mapTabToUrl(tabId);
+    navigate(`/restaurant/${restId}/admin/${urlSegment}`, { replace: true });
+  };
+
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<(Table & { dining_sessions?: DiningSession })[]>([]);
   const [orders, setOrders] = useState<(Order & { total_price?: string, created_at?: string, tables?: { name: string } })[]>([]);
-  const [activeTab, setActiveTab] = useState<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync'>('menu');
   const [openTableActionsId, setOpenTableActionsId] = useState<string | null>(null);
 
   // Offline conflict states

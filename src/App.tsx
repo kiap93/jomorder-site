@@ -134,6 +134,11 @@ export default function App() {
                 <AdminPanel />
               </ProtectedRoute>
             } />
+            <Route path="/restaurant/:restId/admin/:activeTab" element={
+              <ProtectedRoute permissions={['settings.manage']}>
+                <AdminPanel />
+              </ProtectedRoute>
+            } />
             <Route path="/restaurant/:restId/billing" element={
               <ProtectedRoute permissions={['settings.manage']}>
                 <BillingPage />

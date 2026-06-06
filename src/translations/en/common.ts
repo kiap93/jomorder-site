@@ -36,6 +36,10 @@ const common = {
   "status.completed": "Paid & Done",
   "status.completedUnpaid": "Completed (Unpaid)",
   "status.cancelled": "Cancelled",
+  "status.active": "Active",
+  "status.paid": "Paid",
+  "common.printKot": "Print KOT",
+  "common.printing": "Printing...",
 };
 
 export default common;

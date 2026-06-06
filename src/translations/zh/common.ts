@@ -36,6 +36,10 @@ const common = {
   "status.completed": "已结账完成",
   "status.completedUnpaid": "已完成 (未支付)",
   "status.cancelled": "已取消",
+  "status.active": "进行中",
+  "status.paid": "已结账",
+  "common.printKot": "打印厨房单",
+  "common.printing": "正在打印...",
 };
 
 export default common;
