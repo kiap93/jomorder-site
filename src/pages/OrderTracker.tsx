@@ -36,6 +36,53 @@ export function OrderTracker() {
   const [callingStaff, setCallingStaff] = useState(false);
   const [staffCalledMessage, setStaffCalledMessage] = useState<string | null>(null);
 
+  // Cancellation State
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [cancellingItem, setCancellingItem] = useState<{ orderId: string; itemId: string; name: string; quantity: number; status: string; sessionToken: string } | null>(null);
+  const [cancelReason, setCancelReason] = useState('Change of Mind');
+  const [cancelQty, setCancelQty] = useState(1);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
+
+  const handleCancelItem = async () => {
+    if (!cancellingItem) return;
+    setActionLoading(true);
+    setCancelError(null);
+    setCancelSuccess(null);
+
+    try {
+      const response = await fetch(getApiUrl(`/api/public/orders/${cancellingItem.orderId}/items/${cancellingItem.itemId}/cancel`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          quantity: cancelQty,
+          reason: cancelReason,
+          sessionToken: cancellingItem.sessionToken
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Cancellation requested not allowed by restaurant settings.");
+      }
+
+      setCancelSuccess("Item successfully cancelled!");
+      setTimeout(() => {
+        setCancellingItem(null);
+        setCancelSuccess(null);
+        setRefreshTrigger(p => p + 1);
+      }, 1500);
+
+    } catch (err: any) {
+      setCancelError(err.message || "Failed to cancel item.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!orderId || !restId || !tableId) return;
     indexedDbStorage.setItem(`last_order_${restId}_${tableId}`, orderId);
@@ -146,7 +193,7 @@ export function OrderTracker() {
       }
       window.removeEventListener('focus', handleFocus);
     };
-  }, [orderId, restId, tableId, sessionId]);
+  }, [orderId, restId, tableId, sessionId, refreshTrigger]);
 
   if (loading) {
     return (
@@ -442,32 +489,81 @@ export function OrderTracker() {
                     </p>
                     
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-805">
-                      {o.items.map((item, idx) => (
-                        <div key={idx} className="py-2.5 flex items-start gap-3 first:pt-0 last:pb-0">
-                          <span className="text-sm font-black text-orange-500 w-6">
-                            {item.quantity}×
-                          </span>
-                          
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-zinc-850 dark:text-zinc-150 leading-tight">
-                              {item.name}
-                            </p>
-                            {item.smartRenderedLines?.customer && (
-                              <div className="mt-1 space-y-0.5 pl-1 border-l-2 border-zinc-200 dark:border-zinc-800">
-                                {item.smartRenderedLines.customer.map((line, i) => (
-                                  <p key={i} className="text-[10px] text-zinc-400 font-medium leading-tight">
-                                    {line}
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                      {o.items.map((item, idx) => {
+                        const itemStatus = item.status || o.status || 'pending';
+                        const isCancelled = itemStatus === 'cancelled' || item.voided;
+                        const canCustomerCancelItem = o.status !== 'cancelled' && !isCancelled && (itemStatus === 'pending' || itemStatus === 'accepted');
 
-                          <span className="text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 shrink-0">
-                            RM {((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
+                        return (
+                          <div key={idx} className="py-3 flex items-start gap-3 first:pt-0 last:pb-0">
+                            <span className={`text-sm font-black w-6 mt-0.5 ${isCancelled ? 'text-zinc-300' : 'text-orange-500'}`}>
+                              {item.quantity}×
+                            </span>
+                            
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-bold leading-tight ${isCancelled ? 'line-through text-zinc-400 font-normal' : 'text-zinc-850 dark:text-zinc-150'}`}>
+                                {item.name}
+                              </p>
+                              
+                              {/* Item Status Row */}
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                  isCancelled ? 'bg-red-50 text-red-650 dark:bg-red-950/20 dark:text-red-400' :
+                                  itemStatus === 'cooking' || itemStatus === 'preparing' ? 'bg-orange-50 text-orange-650 dark:bg-orange-950/20 dark:text-orange-400' :
+                                  itemStatus === 'ready' ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-400' :
+                                  itemStatus === 'accepted' ? 'bg-indigo-50 text-indigo-750' : 'bg-zinc-100 text-zinc-650'
+                                }`}>
+                                  {isCancelled ? 'Cancelled' : 
+                                   itemStatus === 'pending' ? 'Pending' :
+                                   itemStatus === 'accepted' ? 'Accepted' :
+                                   itemStatus === 'preparing' || itemStatus === 'cooking' ? 'Preparing' :
+                                   itemStatus === 'ready' ? 'Ready' :
+                                   itemStatus === 'served' ? 'Served' :
+                                   itemStatus === 'completed' ? 'Completed' : itemStatus}
+                                </span>
+                                
+                                {canCustomerCancelItem && (
+                                  <button
+                                    onClick={() => {
+                                      setCancellingItem({
+                                        orderId: o.id,
+                                        itemId: item.id || '',
+                                        name: item.name,
+                                        quantity: item.quantity,
+                                        status: itemStatus,
+                                        sessionToken: o.session_token || currentOrder.session_token || ''
+                                      });
+                                      setCancelQty(item.quantity);
+                                      setCancelReason('Change of mind');
+                                      setCancelError(null);
+                                      setCancelSuccess(null);
+                                    }}
+                                    className="text-[9px] font-black uppercase tracking-wider hover:underline text-red-600 hover:text-red-700 transition"
+                                  >
+                                    [Cancel Item]
+                                  </button>
+                                )}
+                              </div>
+
+                              {item.smartRenderedLines?.customer && (
+                                <div className="mt-1 space-y-0.5 pl-1 border-l-2 border-zinc-200 dark:border-zinc-800">
+                                  {item.smartRenderedLines.customer.map((line, i) => (
+                                    <p key={i} className="text-[10px] text-zinc-400 font-medium leading-tight">
+                                      {line}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className={`text-xs font-mono font-bold block ${isCancelled ? 'text-zinc-300 line-through font-normal' : 'text-zinc-550 dark:text-zinc-400'}`}>
+                                RM {((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -583,6 +679,108 @@ export function OrderTracker() {
               <Plus size={18} />
               <span>Add More Items</span>
             </button>
+          </div>
+        )}
+
+        {/* Cancelling Modal Dialog */}
+        {cancellingItem && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-3xl max-w-sm w-full p-6 text-left space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div>
+                <h3 className="text-sm font-black text-zinc-900 dark:text-white">
+                  Cancel Order Item
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  You are cancelling <span className="font-bold text-zinc-850 dark:text-zinc-150">{cancellingItem.name}</span>
+                </p>
+              </div>
+
+              {cancelError && (
+                <div className="text-xs font-semibold p-3 bg-red-50 text-red-650 rounded-xl leading-relaxed">
+                  ⚠️ {cancelError}
+                </div>
+              )}
+
+              {cancelSuccess ? (
+                <div className="text-xs font-bold p-3 bg-emerald-50 text-emerald-700 rounded-xl text-center">
+                  ✅ {cancelSuccess}
+                </div>
+              ) : (
+                <div className="space-y-3.5">
+                  {/* Quantity selector */}
+                  {cancellingItem.quantity > 1 && (
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-zinc-400 mb-1">
+                        Quantity to Cancel (Max {cancellingItem.quantity})
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={cancellingItem.quantity}
+                        value={cancelQty}
+                        onChange={(e) => setCancelQty(Math.min(cancellingItem.quantity, Math.max(1, parseInt(e.target.value) || 1)))}
+                        className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-850 rounded-xl text-xs font-bold bg-zinc-50 dark:bg-zinc-850 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {/* Reason field */}
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-1">
+                      Reason for Cancellation
+                    </label>
+                    <select
+                      value={cancelReason === 'Other' || !['Change of mind', 'Ordered wrong item', 'Wait time too long', 'Price issue'].includes(cancelReason) ? 'Other' : cancelReason}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'Other') {
+                          setCancelReason('');
+                        } else {
+                          setCancelReason(val);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-850 focus:outline-none focus:ring-1 focus:ring-orange-500 font-medium text-zinc-800 dark:text-zinc-200"
+                    >
+                      <option value="Change of mind">Change of mind</option>
+                      <option value="Ordered wrong item">Ordered wrong item</option>
+                      <option value="Wait time too long">Wait time too long</option>
+                      <option value="Price issue">Price issue</option>
+                      <option value="Other">Other (Write Custom Reason)</option>
+                    </select>
+
+                    {(cancelReason === '' || !['Change of mind', 'Ordered wrong item', 'Wait time too long', 'Price issue'].includes(cancelReason)) && (
+                      <input
+                        type="text"
+                        placeholder="Please write custom reason..."
+                        value={cancelReason}
+                        onChange={(e) => setCancelReason(e.target.value)}
+                        className="w-full mt-2 px-3 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-850 focus:outline-none text-zinc-800 dark:text-zinc-200"
+                      />
+                    )}
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="flex gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCancellingItem(null)}
+                      disabled={actionLoading}
+                      className="flex-1 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 bg-zinc-100 hover:bg-zinc-150 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-xl transition"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelItem}
+                      disabled={actionLoading}
+                      className="flex-1 py-3 text-xs font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-500 rounded-xl shadow-md transition disabled:opacity-50"
+                    >
+                      {actionLoading ? 'Processing...' : 'Confirm'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

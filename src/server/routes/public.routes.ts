@@ -817,4 +817,114 @@ router.get("/kitchen-canonical/:id", async (req, res) => {
   res.json(data);
 });
 
+// GET customer order items (Guest Session authentication)
+router.get("/orders/:orderId/items", async (req, res) => {
+  const { orderId } = req.params;
+  const { sessionToken } = req.query;
+
+  try {
+    if (!sessionToken) {
+      return res.status(401).json({ error: "Missing session authentication token" });
+    }
+
+    const { data: session, error: sErr } = await supabaseAdmin
+      .from('dining_sessions')
+      .select('id')
+      .eq('token', sessionToken)
+      .maybeSingle();
+
+    if (sErr || !session) {
+      return res.status(401).json({ error: "Invalid guest session token" });
+    }
+
+    const { data: order, error: oErr } = await supabaseAdmin
+      .from('orders')
+      .select('id')
+      .eq('id', orderId)
+      .eq('session_id', session.id)
+      .maybeSingle();
+
+    if (oErr || !order) {
+      return res.status(404).json({ error: "Associated order not found within session" });
+    }
+
+    const { ensureOrderItemsSynced } = await import("../services/cancellationService");
+    await ensureOrderItemsSynced(orderId);
+
+    const { data, error } = await supabaseAdmin
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+
+    if (error) {
+      // Fallback
+      const { data: fullOrder } = await supabaseAdmin.from('orders').select('items').eq('id', orderId).single();
+      if (fullOrder && Array.isArray(fullOrder.items)) {
+        return res.json(fullOrder.items);
+      }
+      throw error;
+    }
+    return res.json(data || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST customer order item cancellation
+router.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { quantity, reason, sessionToken } = req.body;
+
+  try {
+    if (!sessionToken) {
+      return res.status(401).json({ error: "Missing session authentication token" });
+    }
+
+    const { data: session, error: sErr } = await supabaseAdmin
+      .from('dining_sessions')
+      .select('id')
+      .eq('token', sessionToken)
+      .maybeSingle();
+
+    if (sErr || !session) {
+      return res.status(401).json({ error: "Invalid guest session token" });
+    }
+
+    const { data: order, error: oErr } = await supabaseAdmin
+      .from('orders')
+      .select('id')
+      .eq('id', orderId)
+      .eq('session_id', session.id)
+      .maybeSingle();
+
+    if (oErr || !order) {
+      return res.status(404).json({ error: "Associated order not found within session" });
+    }
+
+    const cancelQty = parseInt(quantity);
+    if (!cancelQty || cancelQty <= 0) {
+      return res.status(400).json({ error: "Cancel quantity must be at least 1" });
+    }
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ error: "A cancel reason is required" });
+    }
+
+    const { ensureOrderItemsSynced, cancelOrderItemQuantity } = await import("../services/cancellationService");
+    await ensureOrderItemsSynced(orderId);
+
+    const result = await cancelOrderItemQuantity(
+      itemId,
+      cancelQty,
+      reason,
+      null, // Customers don't have UUID profile id
+      'customer'
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("Error in customer cancellation endpoint:", err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 export default router;

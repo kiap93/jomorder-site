@@ -39,6 +39,7 @@ const common = {
   "status.active": "Aktif",
   "status.paid": "Dibayar",
   "common.printKot": "Cetak Tiket Dapur",
+  "print kot": "Cetak Tiket Dapur",
   "common.printing": "Sedang Mencetak...",
 };
 

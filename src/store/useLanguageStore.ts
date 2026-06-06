@@ -29,7 +29,24 @@ export const useLanguageStore = create<LanguageState>((set, get) => ({
   t: (key: string, variables?: Record<string, string | number>) => {
     const currentLang = get().language;
     const dictionary = translations[currentLang] || translations.en;
-    let text = (dictionary as any)[key] || (translations.en as any)[key] || key;
+    
+    // Normalize and robustly map common translation keys to ensure clean resolution
+    let lookupKey = key;
+    const normalized = key.toLowerCase().trim();
+    if (normalized === 'print kot' || normalized === 'printkot' || normalized === 'common.printkot') {
+      lookupKey = 'common.printKot';
+    } else if (normalized === 'status.active' || normalized === 'active') {
+      lookupKey = 'status.active';
+    } else if (normalized === 'status.paid' || normalized === 'paid') {
+      lookupKey = 'status.paid';
+    }
+
+    let text = (dictionary as any)[lookupKey] || (translations.en as any)[lookupKey] || key;
+    
+    if (text === key && lookupKey !== key) {
+      // Fallback if the key mapping did not find a translated value
+      text = (dictionary as any)[key] || (translations.en as any)[key] || key;
+    }
     
     if (variables) {
       Object.entries(variables).forEach(([vKey, vVal]) => {

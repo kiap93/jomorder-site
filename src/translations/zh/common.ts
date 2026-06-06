@@ -39,6 +39,7 @@ const common = {
   "status.active": "进行中",
   "status.paid": "已结账",
   "common.printKot": "打印厨房单",
+  "print kot": "打印厨房单",
   "common.printing": "正在打印...",
 };
 

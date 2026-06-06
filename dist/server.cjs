@@ -5,6 +5,13 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -22,21 +29,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// server.ts
-var import_express14 = __toESM(require("express"), 1);
-var import_path3 = __toESM(require("path"), 1);
-var import_vite = require("vite");
-var import_cookie_parser = __toESM(require("cookie-parser"), 1);
-var import_cors = __toESM(require("cors"), 1);
-var import_dotenv3 = __toESM(require("dotenv"), 1);
-
 // src/server/services/dbService.ts
-var import_supabase_js = require("@supabase/supabase-js");
-var import_google_auth_library = require("google-auth-library");
-var import_dotenv = __toESM(require("dotenv"), 1);
-var import_path = __toESM(require("path"), 1);
-var import_fs = __toESM(require("fs"), 1);
-import_dotenv.default.config();
 function getJwtSecret(env) {
   const secret = env && env.JWT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
@@ -47,15 +40,6 @@ function getJwtSecret(env) {
   }
   return secret;
 }
-var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
-var googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
-var supabaseUrl = process.env.VITE_SUPABASE_URL || "https://dummy_url_for_compile_time.supabase.co";
-var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "dummy_service_role_key_for_compile_time";
-var supabaseAdmin = (0, import_supabase_js.createClient)(
-  supabaseUrl,
-  supabaseKey
-);
-var FALLBACK_DB_FILE = "./db_fallbacks.json";
 function loadFallbackDB() {
   try {
     if (import_fs.default.existsSync(FALLBACK_DB_FILE)) {
@@ -79,7 +63,6 @@ function saveFallbackDB(db) {
     console.warn("Fallback DB write error:", e);
   }
 }
-var REGISTRY_FILE = import_path.default.join(process.cwd(), "tenant_registry.json");
 function readRegistry() {
   try {
     if (!import_fs.default.existsSync(REGISTRY_FILE)) {
@@ -206,7 +189,6 @@ function getTenantRegistry(tenantId) {
   }
   return registry[tenantId];
 }
-var STAFF_REGISTRY_FILE = import_path.default.join(process.cwd(), "staff_registry.json");
 function readStaffRegistry() {
   try {
     if (!import_fs.default.existsSync(STAFF_REGISTRY_FILE)) {
@@ -246,10 +228,358 @@ function getStaffSettings(userId, role) {
   }
   return registry[userId];
 }
+var import_supabase_js, import_google_auth_library, import_dotenv, import_path, import_fs, GOOGLE_CLIENT_ID, googleClient, supabaseUrl, supabaseKey, supabaseAdmin, FALLBACK_DB_FILE, REGISTRY_FILE, STAFF_REGISTRY_FILE;
+var init_dbService = __esm({
+  "src/server/services/dbService.ts"() {
+    "use strict";
+    import_supabase_js = require("@supabase/supabase-js");
+    import_google_auth_library = require("google-auth-library");
+    import_dotenv = __toESM(require("dotenv"), 1);
+    import_path = __toESM(require("path"), 1);
+    import_fs = __toESM(require("fs"), 1);
+    import_dotenv.default.config();
+    GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+    googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
+    supabaseUrl = process.env.VITE_SUPABASE_URL || "https://dummy_url_for_compile_time.supabase.co";
+    supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "dummy_service_role_key_for_compile_time";
+    supabaseAdmin = (0, import_supabase_js.createClient)(
+      supabaseUrl,
+      supabaseKey
+    );
+    FALLBACK_DB_FILE = "./db_fallbacks.json";
+    REGISTRY_FILE = import_path.default.join(process.cwd(), "tenant_registry.json");
+    STAFF_REGISTRY_FILE = import_path.default.join(process.cwd(), "staff_registry.json");
+  }
+});
+
+// src/server/services/cancellationService.ts
+var cancellationService_exports = {};
+__export(cancellationService_exports, {
+  canCancelOrderItem: () => canCancelOrderItem,
+  cancelOrderItemQuantity: () => cancelOrderItemQuantity,
+  ensureOrderItemsSynced: () => ensureOrderItemsSynced
+});
+function canCancelOrderItem(userRole, itemStatus, businessSettings, orderCreatedAt) {
+  const role = (userRole || "customer").toLowerCase();
+  const status = (itemStatus || "pending").toLowerCase();
+  if (status === "cancelled") {
+    return { allowed: false, reason: "Item is already cancelled." };
+  }
+  if (status === "completed") {
+    return { allowed: false, reason: "Completed items cannot be cancelled." };
+  }
+  if (role === "kitchen") {
+    return { allowed: false, reason: "Kitchen staff lack cancellation privileges." };
+  }
+  if (role === "owner" || role === "admin" || role === "manager") {
+    return { allowed: true };
+  }
+  if (role === "cashier" || role === "waiter" || role === "runner") {
+    if (status === "pending" || status === "accepted") {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      reason: `Role '${role}' cannot cancel items once kitchen preparation starts (status is '${status}').`
+    };
+  }
+  if (role === "customer" || !role) {
+    if (!businessSettings.allow_customer_cancel) {
+      return { allowed: false, reason: "Customer cancellations are disabled by the restaurant." };
+    }
+    if (orderCreatedAt) {
+      const orderTime = new Date(orderCreatedAt).getTime();
+      const now = Date.now();
+      const limitMinutes = businessSettings.cancellation_time_limit_minutes || 5;
+      const elapsedMinutes = (now - orderTime) / (1e3 * 60);
+      if (elapsedMinutes > limitMinutes) {
+        return {
+          allowed: false,
+          reason: `Cancellation request exceeded the restaurant's ${limitMinutes}-minute time limit.`
+        };
+      }
+    }
+    if (status === "pending") {
+      return { allowed: true };
+    }
+    if (status === "accepted") {
+      if (businessSettings.allow_cancel_after_accept) {
+        return { allowed: true };
+      }
+      return { allowed: false, reason: "Cancellations after acceptance are disabled for customers." };
+    }
+    return { allowed: false, reason: `Customers cannot cancel items once active cooking begins (status is '${status}').` };
+  }
+  return { allowed: false, reason: "Unauthorized role for item cancellation." };
+}
+async function ensureOrderItemsSynced(orderId, orderData) {
+  try {
+    let order = orderData;
+    if (!order) {
+      const { data, error } = await supabaseAdmin.from("orders").select("*").eq("id", orderId).maybeSingle();
+      if (error || !data) return;
+      order = data;
+    }
+    const { data: existingItems, error: itemsError } = await supabaseAdmin.from("order_items").select("id").eq("order_id", orderId);
+    if (itemsError) {
+      console.warn("[CancellationService] Error loading existing order_items. Table might be missing:", itemsError.message);
+      return;
+    }
+    if (Array.isArray(order.items) && (!existingItems || existingItems.length === 0)) {
+      const rowsToInsert = order.items.map((item) => {
+        let itemId = item.id;
+        if (!itemId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
+          itemId = import_crypto3.default.randomUUID();
+          item.id = itemId;
+        }
+        return {
+          id: itemId,
+          order_id: orderId,
+          menu_item_id: item.menuItemId || null,
+          name: item.name || "Unknown Item",
+          price: item.price || 0,
+          quantity: item.quantity || 1,
+          options: item.options || [],
+          special_instructions: item.specialInstructions || null,
+          status: item.status || order.status || "pending",
+          original_quantity: item.quantity || 1,
+          cancelled_quantity: 0,
+          refund_status: "none",
+          refund_amount: 0
+        };
+      });
+      if (rowsToInsert.length > 0) {
+        const { error: insertError } = await supabaseAdmin.from("order_items").insert(rowsToInsert);
+        if (insertError) {
+          console.error("[CancellationService] order_items bulk insert error:", insertError.message);
+        } else {
+          await supabaseAdmin.from("orders").update({ items: order.items }).eq("id", orderId);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[CancellationService] ensureOrderItemsSynced exception:", err);
+  }
+}
+async function cancelOrderItemQuantity(orderItemId, cancelQty, reason, cancelledBy, cancelledByRole) {
+  const { data: orderItem, error: oiError } = await supabaseAdmin.from("order_items").select("*").eq("id", orderItemId).maybeSingle();
+  if (oiError || !orderItem) {
+    throw new Error(`Order item matches no records. Details: ${oiError?.message || "Item not found"}`);
+  }
+  const orderId = orderItem.order_id;
+  const { data: order, error: oError } = await supabaseAdmin.from("orders").select("*, restaurants(*)").eq("id", orderId).maybeSingle();
+  if (oError || !order) {
+    throw new Error(`Order loading error: ${oError?.message || "Order not found"}`);
+  }
+  const { data: bizSettings } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", order.restaurant_id).maybeSingle();
+  const activeSettings = {
+    allow_customer_cancel: bizSettings?.allow_customer_cancel !== void 0 ? bizSettings.allow_customer_cancel : true,
+    allow_cancel_after_accept: bizSettings?.allow_cancel_after_accept !== void 0 ? bizSettings.allow_cancel_after_accept : false,
+    allow_partial_cancel: bizSettings?.allow_partial_cancel !== void 0 ? bizSettings.allow_partial_cancel : true,
+    require_cancel_reason: bizSettings?.require_cancel_reason !== void 0 ? bizSettings.require_cancel_reason : true,
+    auto_refund_enabled: bizSettings?.auto_refund_enabled !== void 0 ? bizSettings.auto_refund_enabled : false,
+    cancellation_time_limit_minutes: bizSettings?.cancellation_time_limit_minutes !== void 0 ? bizSettings.cancellation_time_limit_minutes : 5,
+    notify_staff_on_cancel: bizSettings?.notify_staff_on_cancel !== void 0 ? bizSettings.notify_staff_on_cancel : true,
+    notify_customer_on_cancel: bizSettings?.notify_customer_on_cancel !== void 0 ? bizSettings.notify_customer_on_cancel : true
+  };
+  if (cancelQty <= 0) {
+    throw new Error("Quantity to cancel must be at least 1.");
+  }
+  if (cancelQty > orderItem.quantity) {
+    throw new Error(`Cannot cancel quantity ${cancelQty} - only ${orderItem.quantity} active units remain.`);
+  }
+  const permCheck = canCancelOrderItem(cancelledByRole, orderItem.status, activeSettings, order.created_at);
+  if (!permCheck.allowed) {
+    throw new Error(permCheck.reason || "Unauthorized cancellation request.");
+  }
+  const isPaid = !!order.paid_at;
+  const itemPrice = parseFloat(orderItem.price);
+  let unitDiscount = 0;
+  if (orderItem.options) {
+  }
+  const orderItemsJson = order.items || [];
+  const foundJsonItem = orderItemsJson.find((it) => it.id === orderItemId);
+  if (foundJsonItem && foundJsonItem.discount) {
+    const totalItemVal = itemPrice * orderItem.quantity;
+    let itemDiscAmt = 0;
+    if (foundJsonItem.discount.type === "percentage") {
+      itemDiscAmt = totalItemVal * (foundJsonItem.discount.value / 100);
+    } else {
+      itemDiscAmt = Math.min(totalItemVal, foundJsonItem.discount.value * orderItem.quantity);
+    }
+    unitDiscount = itemDiscAmt / orderItem.quantity;
+  }
+  const pricePerUnitAfterDiscount = Math.max(0, itemPrice - unitDiscount);
+  const refundAmtForCancellation = pricePerUnitAfterDiscount * cancelQty;
+  const isPartial = cancelQty < orderItem.quantity;
+  let targetCancelId = orderItemId;
+  if (isPartial) {
+    if (!activeSettings.allow_partial_cancel && cancelledByRole === "customer") {
+      throw new Error("Partial cancellations are disabled for customers.");
+    }
+    const cancelledId = import_crypto3.default.randomUUID();
+    const cancelledRow = {
+      id: cancelledId,
+      order_id: orderId,
+      menu_item_id: orderItem.menu_item_id,
+      name: orderItem.name,
+      price: orderItem.price,
+      quantity: cancelQty,
+      options: orderItem.options || [],
+      special_instructions: orderItem.special_instructions,
+      status: "cancelled",
+      cancelled_at: (/* @__PURE__ */ new Date()).toISOString(),
+      cancelled_by: cancelledBy,
+      cancelled_by_type: cancelledByRole === "customer" ? "customer" : "staff",
+      cancellation_reason: reason,
+      original_quantity: orderItem.original_quantity,
+      cancelled_quantity: cancelQty,
+      refund_status: isPaid ? "pending" : "none",
+      refund_amount: isPaid ? refundAmtForCancellation : 0,
+      created_at: orderItem.created_at,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const { error: insertErr } = await supabaseAdmin.from("order_items").insert(cancelledRow);
+    if (insertErr) throw new Error(`Failed to create split cancelled item row: ${insertErr.message}`);
+    const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+      quantity: orderItem.quantity - cancelQty,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }).eq("id", orderItemId);
+    if (updateErr) throw new Error(`Failed to shrink active quantity row: ${updateErr.message}`);
+    targetCancelId = cancelledId;
+    await logOrderItemEvent(orderId, orderItemId, "ITEM_PARTIALLY_CANCELLED", cancelledBy, cancelledByRole, orderItem.status, orderItem.status, `${reason} (Split qty ${cancelQty} of ${orderItem.quantity})`);
+    await logOrderItemEvent(orderId, cancelledId, "ITEM_CANCELLED", cancelledBy, cancelledByRole, orderItem.status, "cancelled", reason);
+  } else {
+    const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+      status: "cancelled",
+      cancelled_at: (/* @__PURE__ */ new Date()).toISOString(),
+      cancelled_by: cancelledBy,
+      cancelled_by_type: cancelledByRole === "customer" ? "customer" : "staff",
+      cancellation_reason: reason,
+      cancelled_quantity: cancelQty,
+      refund_status: isPaid ? "pending" : "none",
+      refund_amount: isPaid ? refundAmtForCancellation : 0,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }).eq("id", orderItemId);
+    if (updateErr) throw new Error(`Failed to cancel item row: ${updateErr.message}`);
+    await logOrderItemEvent(orderId, orderItemId, "ITEM_CANCELLED", cancelledBy, cancelledByRole, orderItem.status, "cancelled", reason);
+  }
+  if (isPaid && refundAmtForCancellation > 0) {
+    const { error: refundErr } = await supabaseAdmin.from("order_item_refunds").insert({
+      order_id: orderId,
+      order_item_id: targetCancelId,
+      amount: refundAmtForCancellation,
+      status: "pending",
+      payment_provider: order.payment_method || "none",
+      provider_refund_id: null
+    });
+    if (refundErr) {
+      console.error("[CancellationService] order_item_refunds insert failed:", refundErr.message);
+    }
+    await logOrderItemEvent(orderId, targetCancelId, "ITEM_REFUNDED", cancelledBy, cancelledByRole, "cancelled", "cancelled", `Refund created for RM ${refundAmtForCancellation.toFixed(2)}`);
+  }
+  const { data: refreshedOrderItems } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
+  if (refreshedOrderItems && refreshedOrderItems.length > 0) {
+    const newItemsJson = refreshedOrderItems.map((oi) => {
+      const orig = orderItemsJson.find((oItem) => oItem.id === oi.id) || orderItemsJson.find((oItem) => oItem.name === oi.name && oItem.price === parseFloat(oi.price));
+      return {
+        id: oi.id,
+        menuItemId: oi.menu_item_id,
+        name: oi.name,
+        price: parseFloat(oi.price),
+        quantity: oi.quantity,
+        status: oi.status,
+        options: oi.options || [],
+        specialInstructions: oi.special_instructions || orig?.specialInstructions || null,
+        selection: orig?.selection || null,
+        voided: oi.status === "cancelled",
+        voidedAt: oi.cancelled_at,
+        voidedBy: oi.cancelled_by,
+        voidReason: oi.cancellation_reason
+      };
+    });
+    const restaurant = order.restaurants;
+    const scRate = (restaurant?.service_charge || 0) / 100;
+    const sstRate = (restaurant?.sst || 0) / 100;
+    let subtotal = 0;
+    newItemsJson.forEach((it) => {
+      if (it.status !== "cancelled" && !it.voided) {
+        const itemTotal = it.price * it.quantity;
+        let itemDiscAmt = 0;
+        if (it.discount) {
+          if (it.discount.type === "percentage") {
+            itemDiscAmt = itemTotal * (it.discount.value / 100);
+          } else {
+            itemDiscAmt = Math.min(itemTotal, it.discount.value * it.quantity);
+          }
+        }
+        subtotal += itemTotal - itemDiscAmt;
+      }
+    });
+    let orderDiscAmt = 0;
+    if (order.discount) {
+      if (order.discount.type === "percentage") {
+        orderDiscAmt = subtotal * (order.discount.value / 100);
+      } else {
+        orderDiscAmt = Math.min(subtotal, order.discount.value);
+      }
+    }
+    const netSubtotal = Math.max(0, subtotal - orderDiscAmt);
+    const scAmount = netSubtotal * scRate;
+    const sstAmount = (netSubtotal + scAmount) * sstRate;
+    const grandTotal = netSubtotal + scAmount + sstAmount;
+    const activeItemCount = refreshedOrderItems.filter((oi) => oi.status !== "cancelled").reduce((sum, oi) => sum + oi.quantity, 0);
+    const orderStatus = activeItemCount === 0 ? "cancelled" : order.status;
+    const { error: orderUpdErr } = await supabaseAdmin.from("orders").update({
+      items: newItemsJson,
+      total_price: grandTotal,
+      status: orderStatus,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }).eq("id", orderId);
+    if (orderUpdErr) {
+      console.error("[CancellationService] Failed to update parent order prices:", orderUpdErr.message);
+    }
+  }
+  return { success: true, message: "Order item cancelled successfully." };
+}
+async function logOrderItemEvent(orderId, orderItemId, eventType, createdBy, createdByRole, oldStatus, newStatus, reason) {
+  try {
+    await supabaseAdmin.from("order_item_events").insert({
+      order_id: orderId,
+      order_item_id: orderItemId,
+      event_type: eventType,
+      created_by: createdBy,
+      created_by_role: createdByRole,
+      old_status: oldStatus,
+      new_status: newStatus,
+      reason
+    });
+  } catch (err) {
+    console.error("[CancellationService] Failed to write order_item_events trail:", err.message);
+  }
+}
+var import_crypto3;
+var init_cancellationService = __esm({
+  "src/server/services/cancellationService.ts"() {
+    "use strict";
+    init_dbService();
+    import_crypto3 = __toESM(require("crypto"), 1);
+  }
+});
+
+// server.ts
+var import_express14 = __toESM(require("express"), 1);
+var import_path3 = __toESM(require("path"), 1);
+var import_vite = require("vite");
+var import_cookie_parser = __toESM(require("cookie-parser"), 1);
+var import_cors = __toESM(require("cors"), 1);
+var import_dotenv3 = __toESM(require("dotenv"), 1);
+init_dbService();
 
 // src/server/services/translationService.ts
 var import_genai = require("@google/genai");
 var import_crypto = __toESM(require("crypto"), 1);
+init_dbService();
 var detectionCache = /* @__PURE__ */ new Map();
 var translationCache = /* @__PURE__ */ new Map();
 function setInCache(cache, key, value, limit = 5e3) {
@@ -530,6 +860,7 @@ var import_express13 = require("express");
 var import_express = require("express");
 var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
 var import_crypto2 = __toESM(require("crypto"), 1);
+init_dbService();
 
 // src/lib/validation.ts
 var import_zod = require("zod");
@@ -598,6 +929,7 @@ var PaymentsSchema = import_zod.z.object({
 
 // src/server/middleware/authMiddleware.ts
 var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
+init_dbService();
 
 // worker/services/db_service.ts
 var import_supabase_js2 = require("@supabase/supabase-js");
@@ -1336,6 +1668,7 @@ var auth_routes_default = router;
 
 // src/server/routes/translation.routes.ts
 var import_express2 = require("express");
+init_dbService();
 var router2 = (0, import_express2.Router)();
 router2.post("/translate", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { text, targetLang, restaurantContext } = req.body;
@@ -1390,6 +1723,7 @@ var translation_routes_default = router2;
 
 // src/server/routes/menu.routes.ts
 var import_express3 = require("express");
+init_dbService();
 
 // src/server/services/auditService.ts
 var import_fs2 = __toESM(require("fs"), 1);
@@ -1747,6 +2081,7 @@ var menu_routes_default = router3;
 
 // src/server/routes/staff.routes.ts
 var import_express4 = require("express");
+init_dbService();
 var router4 = (0, import_express4.Router)();
 router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
@@ -2185,6 +2520,7 @@ var staff_routes_default = router4;
 // src/server/routes/workspace.routes.ts
 var import_express5 = require("express");
 var import_jsonwebtoken3 = __toESM(require("jsonwebtoken"), 1);
+init_dbService();
 var router5 = (0, import_express5.Router)();
 router5.get("/debug-restaurants", async (req, res) => {
   try {
@@ -2750,6 +3086,7 @@ var workspace_routes_default = router5;
 
 // src/server/routes/superadmin.routes.ts
 var import_express6 = require("express");
+init_dbService();
 var router6 = (0, import_express6.Router)();
 var INVESTIGATING_ORDERS = /* @__PURE__ */ new Set();
 router6.get("/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) => {
@@ -3303,6 +3640,7 @@ var superadmin_routes_default = router6;
 
 // src/server/routes/tables.routes.ts
 var import_express7 = require("express");
+init_dbService();
 var router7 = (0, import_express7.Router)();
 router7.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
@@ -3328,6 +3666,7 @@ var tables_routes_default = router7;
 
 // src/server/routes/orders.routes.ts
 var import_express8 = require("express");
+init_dbService();
 var router8 = (0, import_express8.Router)();
 router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { restId } = req.params;
@@ -3441,10 +3780,65 @@ router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireA
     res.status(500).json({ error: err.message });
   }
 });
+router8.get("/orders/:orderId/items", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const { ensureOrderItemsSynced: ensureOrderItemsSynced2 } = await Promise.resolve().then(() => (init_cancellationService(), cancellationService_exports));
+    await ensureOrderItemsSynced2(orderId);
+    const { data, error } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
+    if (error) {
+      const { data: order } = await supabaseAdmin.from("orders").select("items").eq("id", orderId).single();
+      if (order && Array.isArray(order.items)) {
+        return res.json(order.items);
+      }
+      throw error;
+    }
+    return res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { quantity, reason } = req.body;
+  const caller = req.user;
+  try {
+    const cancelQty = parseInt(quantity);
+    if (!cancelQty || cancelQty <= 0) {
+      return res.status(400).json({ error: "Cancel quantity must be at least 1." });
+    }
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ error: "Reason for cancellation is required." });
+    }
+    const { ensureOrderItemsSynced: ensureOrderItemsSynced2, cancelOrderItemQuantity: cancelOrderItemQuantity2 } = await Promise.resolve().then(() => (init_cancellationService(), cancellationService_exports));
+    await ensureOrderItemsSynced2(orderId);
+    const result = await cancelOrderItemQuantity2(
+      itemId,
+      cancelQty,
+      reason,
+      caller?.id || null,
+      caller?.role || "cashier"
+    );
+    if (caller && caller.email) {
+      logToAudit(
+        caller.id,
+        caller.email,
+        caller.role,
+        `Cancelled ${cancelQty} units of item ${itemId} from order ${orderId}. Reason: ${reason}`,
+        caller.restaurantId || "default"
+      );
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("Error in staff cancel item:", err);
+    res.status(400).json({ error: err.message });
+  }
+});
 var orders_routes_default = router8;
 
 // src/server/routes/sessions.routes.ts
 var import_express9 = require("express");
+init_dbService();
 var router9 = (0, import_express9.Router)();
 router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view"), async (req, res) => {
   const status = req.query.status;
@@ -3488,7 +3882,8 @@ var sessions_routes_default = router9;
 
 // src/server/routes/payments.routes.ts
 var import_express10 = require("express");
-var import_crypto5 = __toESM(require("crypto"), 1);
+var import_crypto6 = __toESM(require("crypto"), 1);
+init_dbService();
 
 // src/server/services/idempotencyService.ts
 var IdempotencyService = class {
@@ -3556,6 +3951,9 @@ var IdempotencyService = class {
   }
 };
 var idempotencyService = new IdempotencyService();
+
+// src/server/services/payments/index.ts
+init_dbService();
 
 // src/server/services/payments/billplz.provider.ts
 var BillplzProvider = class {
@@ -3669,14 +4067,14 @@ var BillplzProvider = class {
 };
 
 // src/server/services/payments/senangpay.provider.ts
-var import_crypto3 = __toESM(require("crypto"), 1);
+var import_crypto4 = __toESM(require("crypto"), 1);
 var SenangPayProvider = class {
   constructor(config) {
     this.merchantId = config.merchantId || "";
     this.secretKey = config.secretKey || "";
   }
   generateSignature(data) {
-    return import_crypto3.default.createHmac("sha256", this.secretKey).update(data).digest("hex");
+    return import_crypto4.default.createHmac("sha256", this.secretKey).update(data).digest("hex");
   }
   async createPayment(data) {
     console.log(`[SenangPayProvider] Creating charge. Merchant ID: ${this.merchantId}, Amount: RM${data.amount}`);
@@ -3690,7 +4088,7 @@ var SenangPayProvider = class {
     const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
     const description = `Order ${data.order_id} at JomOrder`;
     const hashString = `${this.secretKey}${description}${data.amount}${referenceId}`;
-    const hash = import_crypto3.default.createHash("md5").update(hashString).digest("hex");
+    const hash = import_crypto4.default.createHash("md5").update(hashString).digest("hex");
     const queryParams = new URLSearchParams({
       detail: description,
       amount: data.amount.toFixed(2),
@@ -3786,6 +4184,7 @@ var CurlecProvider = class {
 
 // src/server/services/payments/stripe.provider.ts
 var import_stripe = __toESM(require("stripe"), 1);
+init_dbService();
 var StripeProvider = class {
   constructor(config) {
     this.stripeClient = null;
@@ -3970,15 +4369,15 @@ var StripeProvider = class {
 };
 
 // src/server/services/payments/cryptoUtils.ts
-var import_crypto4 = __toESM(require("crypto"), 1);
+var import_crypto5 = __toESM(require("crypto"), 1);
 var ENCRYPTION_ALGORITHM = "aes-256-cbc";
 var ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
 function encrypt(text, customKey) {
   if (!text) return "";
   try {
     const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
-    const iv = import_crypto4.default.randomBytes(16);
-    const cipher = import_crypto4.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
+    const iv = import_crypto5.default.randomBytes(16);
+    const cipher = import_crypto5.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
     let encrypted = cipher.update(text, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString("hex") + ":" + encrypted.toString("hex");
@@ -4005,7 +4404,7 @@ function decrypt(text, customKey) {
     ));
     for (const keyStr of candidateKeys) {
       try {
-        const decipher = import_crypto4.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyStr), iv);
+        const decipher = import_crypto5.default.createDecipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyStr), iv);
         let decrypted = decipher.update(encryptedText);
         decrypted = Buffer.concat([decrypted, decipher.final()]);
         return decrypted.toString("utf8");
@@ -4405,7 +4804,7 @@ router10.post("/payments/create", async (req, res) => {
     if (!isMethodAllowed) {
       return res.status(400).json({ error: `Selected payment method "${payment_method}" is not enabled by this restaurant.` });
     }
-    const paymentId = import_crypto5.default.randomUUID();
+    const paymentId = import_crypto6.default.randomUUID();
     const origin = req.headers.origin || process.env.VITE_API_BASE_URL || `http://${req.headers.host}`;
     const tableId = order.table_id || "default";
     const sessionId = order.session_id || "";
@@ -4615,6 +5014,7 @@ var payments_routes_default = router10;
 
 // src/server/routes/public.routes.ts
 var import_express11 = require("express");
+init_dbService();
 var router11 = (0, import_express11.Router)();
 router11.get("/restaurants/:id", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
@@ -5108,12 +5508,81 @@ router11.get("/kitchen-canonical/:id", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
+router11.get("/orders/:orderId/items", async (req, res) => {
+  const { orderId } = req.params;
+  const { sessionToken } = req.query;
+  try {
+    if (!sessionToken) {
+      return res.status(401).json({ error: "Missing session authentication token" });
+    }
+    const { data: session, error: sErr } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).maybeSingle();
+    if (sErr || !session) {
+      return res.status(401).json({ error: "Invalid guest session token" });
+    }
+    const { data: order, error: oErr } = await supabaseAdmin.from("orders").select("id").eq("id", orderId).eq("session_id", session.id).maybeSingle();
+    if (oErr || !order) {
+      return res.status(404).json({ error: "Associated order not found within session" });
+    }
+    const { ensureOrderItemsSynced: ensureOrderItemsSynced2 } = await Promise.resolve().then(() => (init_cancellationService(), cancellationService_exports));
+    await ensureOrderItemsSynced2(orderId);
+    const { data, error } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
+    if (error) {
+      const { data: fullOrder } = await supabaseAdmin.from("orders").select("items").eq("id", orderId).single();
+      if (fullOrder && Array.isArray(fullOrder.items)) {
+        return res.json(fullOrder.items);
+      }
+      throw error;
+    }
+    return res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router11.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { quantity, reason, sessionToken } = req.body;
+  try {
+    if (!sessionToken) {
+      return res.status(401).json({ error: "Missing session authentication token" });
+    }
+    const { data: session, error: sErr } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).maybeSingle();
+    if (sErr || !session) {
+      return res.status(401).json({ error: "Invalid guest session token" });
+    }
+    const { data: order, error: oErr } = await supabaseAdmin.from("orders").select("id").eq("id", orderId).eq("session_id", session.id).maybeSingle();
+    if (oErr || !order) {
+      return res.status(404).json({ error: "Associated order not found within session" });
+    }
+    const cancelQty = parseInt(quantity);
+    if (!cancelQty || cancelQty <= 0) {
+      return res.status(400).json({ error: "Cancel quantity must be at least 1" });
+    }
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ error: "A cancel reason is required" });
+    }
+    const { ensureOrderItemsSynced: ensureOrderItemsSynced2, cancelOrderItemQuantity: cancelOrderItemQuantity2 } = await Promise.resolve().then(() => (init_cancellationService(), cancellationService_exports));
+    await ensureOrderItemsSynced2(orderId);
+    const result = await cancelOrderItemQuantity2(
+      itemId,
+      cancelQty,
+      reason,
+      null,
+      // Customers don't have UUID profile id
+      "customer"
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("Error in customer cancellation endpoint:", err);
+    res.status(400).json({ error: err.message });
+  }
+});
 var public_routes_default = router11;
 
 // src/billing/routes/billing.routes.ts
 var import_express12 = require("express");
 
 // src/billing/repositories/billingRepository.ts
+init_dbService();
 var BillingRepository = class _BillingRepository {
   constructor() {
     this.supabase = supabaseAdmin;
@@ -5458,6 +5927,7 @@ function getPlanCodeFromPriceId(priceId) {
 }
 
 // src/billing/services/billingService.ts
+init_dbService();
 var BillingService = class {
   constructor() {
     this.repo = new BillingRepository();

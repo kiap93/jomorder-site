@@ -357,17 +357,20 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       
       const key = e.key.toLowerCase();
       if (key === 'c') setSelectedMethod('cash');
-      if (key === 't') setSelectedMethod('card');
-      if (key === 'q') setSelectedMethod('qr');
+      if (key === 'q') {
+        const hasDuitNow = paymentSettings && 
+                           paymentSettings.provider && 
+                           paymentSettings.provider !== 'none' && 
+                           Array.isArray(paymentSettings.enabled_methods) && 
+                           paymentSettings.enabled_methods.includes('duitnow');
+        if (hasDuitNow) setSelectedMethod('qr');
+      }
       if (key === 's') setSelectedMethod('split');
-      if (key === 'w') setSelectedMethod('ewallet');
-      if (key === 'v') setSelectedMethod('voucher');
-      if (key === 'h') setSelectedMethod('house');
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, paymentSettings]);
 
   // --- Operational Mutation Handlers & Override Helpers ---
   const fetchAuditLogs = async () => {
@@ -706,11 +709,15 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [splitMethod, setSplitMethod] = useState<'equal' | 'custom'>('equal');
   const [splitCount, setSplitCount] = useState(2);
 
-  const hasProvider = paymentSettings && paymentSettings.provider && paymentSettings.provider !== 'none';
+  const hasDuitNow = paymentSettings && 
+                     paymentSettings.provider && 
+                     paymentSettings.provider !== 'none' && 
+                     Array.isArray(paymentSettings.enabled_methods) && 
+                     paymentSettings.enabled_methods.includes('duitnow');
 
   const paymentMethods = [
     { id: 'cash', label: 'Cash', icon: Banknote, color: 'emerald' },
-    ...(hasProvider ? [{ id: 'qr', label: 'DuitNow QR', icon: QrCode, color: 'rose' }] : []),
+    ...(hasDuitNow ? [{ id: 'qr', label: 'DuitNow QR', icon: QrCode, color: 'rose' }] : []),
     { id: 'split', label: 'Split Payment', icon: Split, color: 'orange' },
   ];
 
@@ -1267,7 +1274,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       sst: sstAmount,
                       currency: restaurant.currency
                     }}
-                    onCancel={() => setSelectedMethod('card')}
+                    onCancel={() => setSelectedMethod('cash')}
                     onComplete={async (data) => {
                       const token = useAuthStore.getState().token;
                       if (!token) return;

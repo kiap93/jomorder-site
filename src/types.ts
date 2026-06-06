@@ -231,6 +231,7 @@ export interface OrderItem {
   voidedBy?: string;
   voidedAt?: string;
   voidApprovedBy?: string;
+  status?: string;
   discount?: {
     type: 'percentage' | 'fixed';
     value: number;
@@ -288,6 +289,7 @@ export interface Order {
   confirmed_at?: string;
   restaurant_id?: string;
   table_id?: string;
+  session_token?: string;
   voided?: boolean;
   voidReason?: string;
   voidedBy?: string;

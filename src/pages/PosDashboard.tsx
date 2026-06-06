@@ -42,11 +42,58 @@ export function PosDashboard() {
     setSearchParams({ filter: newFilter });
   };
   
-  const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [settlingOrder, setSettlingOrder] = useState<Order | null>(null);
+  const [choosingItemOrder, setChoosingItemOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Staff order item cancellation state
+  const [cancellingItem, setCancellingItem] = useState<{ orderId: string; itemId: string; name: string; quantity: number } | null>(null);
+  const [cancelReason, setCancelReason] = useState('Customer Request');
+  const [cancelQty, setCancelQty] = useState(1);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const handleStaffCancelItem = async () => {
+    if (!cancellingItem) return;
+    setActionLoading(true);
+    setCancelError(null);
+    setCancelSuccess(null);
+
+    try {
+      const token = useAuthStore.getState().token;
+      const response = await fetch(getApiUrl(`/api/orders/${cancellingItem.orderId}/items/${cancellingItem.itemId}/cancel`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          quantity: cancelQty,
+          reason: cancelReason
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Failed to cancel order item.");
+      }
+
+      setCancelSuccess("Item successfully cancelled!");
+      setTimeout(() => {
+        setCancellingItem(null);
+        setCancelSuccess(null);
+        setRefreshTrigger(p => p + 1);
+      }, 1500);
+
+    } catch (err: any) {
+      setCancelError(err.message || "Unable to cancel item.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!restId || loadingAuth) return;
@@ -430,35 +477,61 @@ export function PosDashboard() {
               </div>
 
               <div className="p-3 flex-1 space-y-2">
-                {order.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start border-b border-gray-50 pb-1.5 last:border-0 last:pb-0">
-                    <div className="flex gap-2">
-                      <span className="font-black text-[11px] text-gray-900 bg-gray-100 px-1 rounded h-fit leading-tight mt-0.5">
-                        {item.quantity}
-                      </span>
-                      <div>
-                        <h4 className="text-[11px] font-bold text-gray-800 leading-tight">{item.name}</h4>
-                        {item.smartRenderedLines?.customer ? (
-                          <div className="mt-0.5 space-y-0">
-                            {item.smartRenderedLines.customer.map((line, i) => (
-                              <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
-                            ))}
+                {order.items.map((item, idx) => {
+                  const itemStatus = item.status || order.status || 'pending';
+                  const isCancelled = itemStatus === 'cancelled' || item.voided;
+
+                  return (
+                    <div key={idx} className="flex justify-between items-start border-b border-gray-105 pb-1.5 last:border-0 last:pb-0">
+                      <div className="flex gap-2">
+                        <span className={`font-black text-[11px] px-1 rounded h-fit leading-tight mt-0.5 ${isCancelled ? 'bg-red-50 text-red-550 line-through font-normal' : 'bg-gray-105 text-gray-900'}`}>
+                          {item.quantity}
+                        </span>
+                        <div>
+                          <h4 className={`text-[11px] font-bold leading-tight ${isCancelled ? 'line-through text-gray-400 font-normal shadow-none' : 'text-gray-800'}`}>
+                            {item.name}
+                          </h4>
+                          
+                          {/* Item Status */}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[8px] font-black uppercase tracking-wider px-1 py-0.2 rounded-sm ${
+                              isCancelled ? 'bg-red-50 text-red-650' : 
+                              itemStatus === 'preparing' || itemStatus === 'cooking' ? 'bg-orange-50 text-orange-600' :
+                              itemStatus === 'ready' ? 'bg-emerald-50 text-emerald-700' :
+                              itemStatus === 'accepted' ? 'bg-indigo-50 text-indigo-755' : 'bg-gray-50 text-gray-500'
+                            }`}>
+                              {isCancelled ? t('status.cancelled') || 'Cancelled' : 
+                               itemStatus === 'pending' ? t('status.pending') || 'Pending' :
+                               itemStatus === 'accepted' ? t('status.paid') || 'Accepted' :
+                               itemStatus === 'preparing' || itemStatus === 'cooking' ? 'Preparing' :
+                               itemStatus === 'ready' ? 'Ready' :
+                               itemStatus === 'served' ? 'Served' :
+                               itemStatus === 'completed' ? 'Completed' : itemStatus}
+                            </span>
                           </div>
-                        ) : item.selection ? (
-                          <div className="mt-0.5 space-y-0">
-                            {flattenSelections(item.selection).map((line, i) => (
-                              <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
-                            ))}
-                          </div>
-                        ) : item.options.length > 0 ? (
-                          <p className="text-[9px] text-gray-400 mt-0.5 italic leading-[1.3]">
-                            {item.options.map(o => o.valueName).join(', ')}
-                          </p>
-                        ) : null}
+
+                          {item.smartRenderedLines?.customer ? (
+                            <div className="mt-0.5 space-y-0">
+                              {item.smartRenderedLines.customer.map((line, i) => (
+                                <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
+                              ))}
+                            </div>
+                          ) : item.selection ? (
+                            <div className="mt-0.5 space-y-0">
+                              {flattenSelections(item.selection).map((line, i) => (
+                                <p key={i} className="text-[9px] text-gray-400 font-bold leading-[1.3]">{line}</p>
+                              ))}
+                            </div>
+                          ) : item.options && item.options.length > 0 ? (
+                            <p className="text-[9px] text-gray-400 mt-0.5 italic leading-[1.3]">
+                              {item.options.map(o => o.valueName).join(', ')}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="p-3 pt-0 mt-auto bg-gray-50/10">
@@ -522,39 +595,38 @@ export function PosDashboard() {
                         {t('pos.close')}
                       </button>
                     )}
-                    {!order.paid_at && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
+                    {order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
                       <button
-                        onClick={() => setSettlingOrder(order)}
-                        className="flex-1 h-8 bg-emerald-100 text-emerald-800 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1 border border-emerald-200/50"
+                        onClick={() => {
+                          const cancellable = order.items.filter(item => {
+                            const itemStatus = item.status || order.status || 'pending';
+                            const isCancelled = itemStatus === 'cancelled' || item.voided;
+                            return order.status !== 'cancelled' && !isCancelled && itemStatus !== 'completed';
+                          });
+                          if (cancellable.length === 0) return;
+                          if (cancellable.length === 1) {
+                            setCancellingItem({
+                              orderId: order.id,
+                              itemId: cancellable[0].id || '',
+                              name: cancellable[0].name,
+                              quantity: cancellable[0].quantity
+                            });
+                            setCancelQty(cancellable[0].quantity);
+                            setCancelReason('Customer Request');
+                            setCancelError(null);
+                            setCancelSuccess(null);
+                          } else {
+                            setChoosingItemOrder(order);
+                          }
+                        }}
+                        className="flex-1 h-8 bg-red-50 hover:bg-red-100 dark:bg-red-955/20 text-red-600 dark:text-red-400 rounded font-black text-[10px] uppercase tracking-tighter flex items-center justify-center gap-1 border border-red-200/50 transition-all disabled:opacity-40"
+                        disabled={order.items.every(item => {
+                          const itemStatus = item.status || order.status || 'pending';
+                          return itemStatus === 'cancelled' || item.voided || itemStatus === 'completed';
+                        })}
                       >
-                        <Banknote size={12} />
-                        {t('pos.pay')}
-                      </button>
-                    )}
-                    {confirmingCancel === order.id ? (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => {
-                            updateStatus(order.id, OrderStatus.CANCELLED);
-                            setConfirmingCancel(null);
-                          }}
-                          className="px-2 h-8 bg-red-600 text-white rounded font-black text-[9px] uppercase tracking-widest"
-                        >
-                          {t('pos.cancel')}
-                        </button>
-                        <button
-                          onClick={() => setConfirmingCancel(null)}
-                          className="w-8 h-8 bg-gray-100 text-gray-400 rounded flex items-center justify-center"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmingCancel(order.id)}
-                        className="w-8 h-8 bg-gray-50 text-gray-400 rounded border border-gray-100 flex items-center justify-center hover:text-red-500 transition-colors"
-                      >
-                        <X size={14} />
+                        <X size={12} />
+                        Cancel Item
                       </button>
                     )}
                   </div>
@@ -586,6 +658,174 @@ export function PosDashboard() {
             // Refresh logic is already handled by realtime subscription
           }}
         />
+      )}
+
+      {/* Staff Item Cancellation Modal */}
+      {cancellingItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-left space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                Kitchen Item Cancellation
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-1 font-bold">
+                Item: <span className="text-gray-900 font-black">{cancellingItem.name}</span>
+              </p>
+            </div>
+
+            {cancelError && (
+              <div className="text-xs font-bold p-3 bg-red-50 text-red-650 rounded-lg leading-relaxed">
+                ⚠️ {cancelError}
+              </div>
+            )}
+
+            {cancelSuccess ? (
+              <div className="text-xs font-bold p-3 bg-emerald-50 text-emerald-700 rounded-lg text-center">
+                ✅ {cancelSuccess}
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                {/* Quantity selector */}
+                {cancellingItem.quantity > 1 && (
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">
+                      Quantity to Cancel (Max {cancellingItem.quantity})
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max={cancellingItem.quantity}
+                      value={cancelQty}
+                      onChange={(e) => setCancelQty(Math.min(cancellingItem.quantity, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold bg-gray-50 focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {/* Reason field */}
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">
+                    Select Official Reason Code
+                  </label>
+                  <select
+                    value={['Customer Request', 'Out Of Stock', 'Wrong Order', 'Kitchen Issue'].includes(cancelReason) ? cancelReason : 'Other'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Other') {
+                        setCancelReason('');
+                      } else {
+                        setCancelReason(val);
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:outline-none focus:ring-1 focus:ring-yellow-400 font-bold"
+                  >
+                    <option value="Customer Request">Customer Request</option>
+                    <option value="Out Of Stock">Out Of Stock (Ingredients Shortage)</option>
+                    <option value="Wrong Order">Wrong Order / Selection Entry Error</option>
+                    <option value="Kitchen Issue">Kitchen Issue (Burnt / Preparation Delay)</option>
+                    <option value="Other">Other (Write Custom Reason)</option>
+                  </select>
+
+                  {(!['Customer Request', 'Out Of Stock', 'Wrong Order', 'Kitchen Issue'].includes(cancelReason)) && (
+                    <input
+                      type="text"
+                      placeholder="Please state cancellation reason..."
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      className="w-full mt-2 px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:outline-none font-bold"
+                    />
+                  )}
+                </div>
+
+                {/* Buttons */}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCancellingItem(null)}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-gray-500 bg-gray-105 hover:bg-gray-150 rounded-lg transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStaffCancelItem}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-500 rounded-lg shadow-sm transition disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Splitting...' : 'Cancel Item'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Staff Item Selection to Cancel Modal */}
+      {choosingItemOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-left space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                Select Item to Cancel
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-1 font-bold">
+                Order #{getOrderDisplayNo(choosingItemOrder.id, choosingItemOrder.createdAt)}
+              </p>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 pr-1">
+              {choosingItemOrder.items
+                .filter(item => {
+                  const itemStatus = item.status || choosingItemOrder.status || 'pending';
+                  const isCancelled = itemStatus === 'cancelled' || item.voided;
+                  return choosingItemOrder.status !== 'cancelled' && !isCancelled && itemStatus !== 'completed';
+                })
+                .map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setCancellingItem({
+                        orderId: choosingItemOrder.id,
+                        itemId: item.id || '',
+                        name: item.name,
+                        quantity: item.quantity
+                      });
+                      setCancelQty(item.quantity);
+                      setCancelReason('Customer Request');
+                      setCancelError(null);
+                      setCancelSuccess(null);
+                      setChoosingItemOrder(null);
+                    }}
+                    className="w-full text-left py-2.5 px-2 hover:bg-gray-50 rounded-lg flex justify-between items-center transition group bg-transparent border-0 outline-none cursor-pointer"
+                  >
+                    <div className="flex items-center">
+                      <span className="text-[11px] font-black text-gray-905 bg-gray-100 px-1.5 py-0.5 rounded mr-2 leading-none">
+                        {item.quantity}×
+                      </span>
+                      <span className="text-[11px] font-bold text-gray-800 group-hover:text-red-650 transition-colors">
+                        {item.name}
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-black uppercase text-red-650 bg-red-50 group-hover:bg-red-100 px-2 py-1 rounded transition">
+                      Cancel
+                    </span>
+                  </button>
+                ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setChoosingItemOrder(null)}
+                className="w-full py-2 text-[10px] font-black uppercase tracking-wider text-gray-500 bg-gray-105 hover:bg-gray-150 rounded-lg transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

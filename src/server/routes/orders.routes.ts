@@ -154,4 +154,73 @@ router.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAn
   }
 });
 
+// GET order items with lazy-sync
+router.get("/orders/:orderId/items", authenticateJWT, requireTenantIsolation(), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const { ensureOrderItemsSynced } = await import("../services/cancellationService");
+    await ensureOrderItemsSynced(orderId);
+
+    const { data, error } = await supabaseAdmin
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+
+    if (error) {
+      // Fallback to order json items
+      const { data: order } = await supabaseAdmin.from('orders').select('items').eq('id', orderId).single();
+      if (order && Array.isArray(order.items)) {
+        return res.json(order.items);
+      }
+      throw error;
+    }
+    return res.json(data || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST staff order item cancel
+router.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTenantIsolation(), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { quantity, reason } = req.body;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    const cancelQty = parseInt(quantity);
+    if (!cancelQty || cancelQty <= 0) {
+      return res.status(400).json({ error: "Cancel quantity must be at least 1." });
+    }
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ error: "Reason for cancellation is required." });
+    }
+
+    const { ensureOrderItemsSynced, cancelOrderItemQuantity } = await import("../services/cancellationService");
+    await ensureOrderItemsSynced(orderId);
+
+    const result = await cancelOrderItemQuantity(
+      itemId,
+      cancelQty,
+      reason,
+      caller?.id || null,
+      caller?.role || 'cashier'
+    );
+
+    if (caller && caller.email) {
+      logToAudit(
+        caller.id, 
+        caller.email, 
+        caller.role, 
+        `Cancelled ${cancelQty} units of item ${itemId} from order ${orderId}. Reason: ${reason}`, 
+        caller.restaurantId || 'default'
+      );
+    }
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("Error in staff cancel item:", err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 export default router;
