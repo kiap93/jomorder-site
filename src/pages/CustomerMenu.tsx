@@ -328,6 +328,10 @@ export function CustomerMenu() {
   }, [restaurant, menuItems.length]);
 
   const fetchData = useCallback(async (isInitial = false) => {
+    if (!restId || restId === 'undefined' || restId === 'null') {
+      setLoading(false);
+      return;
+    }
     // Only prevent concurrent MANUAL or FOCUS refreshes.
     // Initial effect-triggered ones must ALWAYS proceed to set loading state correctly.
     if (fetchDataInProgress.current && !isInitial) return;
@@ -574,7 +578,7 @@ export function CustomerMenu() {
   }, [restId, tableId, orderType, isPreviewMode, urlSessionId, navigate]); // Stabilized dependencies
 
   useEffect(() => {
-    if (!restId) return;
+    if (!restId || restId === 'undefined' || restId === 'null') return;
     const controller = new AbortController();
     
     fetchData(true);

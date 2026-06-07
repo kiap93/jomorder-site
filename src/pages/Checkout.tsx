@@ -114,6 +114,10 @@ export function Checkout() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!restId || restId === 'undefined' || restId === 'null') {
+        setLoading(false);
+        return;
+      }
       try {
         // Resolve table UUID if tableId is a slug
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');

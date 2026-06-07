@@ -1198,7 +1198,7 @@ var init_voidService = __esm({
 });
 
 // server.ts
-var import_express14 = __toESM(require("express"), 1);
+var import_express15 = __toESM(require("express"), 1);
 var import_path2 = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
@@ -1484,7 +1484,7 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
 }
 
 // src/server/routes/index.ts
-var import_express13 = require("express");
+var import_express14 = require("express");
 
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
@@ -2703,12 +2703,1114 @@ router3.post("/batch-sync", authenticateJWT, requirePermissions("settings.manage
 });
 var menu_routes_default = router3;
 
-// src/server/routes/staff.routes.ts
+// src/server/routes/menuImport.routes.ts
 var import_express4 = require("express");
 init_dbService();
-init_auditService();
+
+// src/server/services/menuImportService.ts
+init_dbService();
+var import_jszip = __toESM(require("jszip"), 1);
+var activeJobs = /* @__PURE__ */ new Map();
+var importHistory = [];
+function parseCSV(csvContent) {
+  if (!csvContent || csvContent.trim() === "") return [];
+  const lines = [];
+  let inQuotes = false;
+  let currentLine = "";
+  for (let i = 0; i < csvContent.length; i++) {
+    const char = csvContent[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      currentLine += char;
+    } else if (char === "\n" && !inQuotes) {
+      lines.push(currentLine);
+      currentLine = "";
+    } else if (char === "\r" && !inQuotes) {
+    } else {
+      currentLine += char;
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  if (lines.length === 0) return [];
+  const parseRow = (row) => {
+    const cols = [];
+    let col = "";
+    let insideStr = false;
+    for (let i = 0; i < row.length; i++) {
+      const c = row[i];
+      if (c === '"') {
+        insideStr = !insideStr;
+      } else if (c === "," && !insideStr) {
+        cols.push(col.trim());
+        col = "";
+      } else {
+        col += c;
+      }
+    }
+    cols.push(col.trim());
+    return cols.map((s) => {
+      if (s.startsWith('"') && s.endsWith('"')) {
+        return s.slice(1, -1);
+      }
+      return s;
+    });
+  };
+  const headers = parseRow(lines[0]).map((h) => h.trim().toLowerCase());
+  const results = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const values = parseRow(lines[i]);
+    const obj = {};
+    headers.forEach((header, index) => {
+      if (header) {
+        obj[header] = values[index] !== void 0 ? values[index] : "";
+      }
+    });
+    results.push(obj);
+  }
+  return results;
+}
+function generateCSV(headers, rows) {
+  const headerLine = headers.join(",");
+  const bodyLines = rows.map((row) => {
+    return headers.map((header) => {
+      let val = row[header];
+      if (val === void 0 || val === null) {
+        val = "";
+      }
+      const valStr = String(val);
+      if (valStr.includes(",") || valStr.includes("\n") || valStr.includes('"')) {
+        return `"${valStr.replace(/"/g, '""')}"`;
+      }
+      return valStr;
+    }).join(",");
+  });
+  return [headerLine, ...bodyLines].join("\n");
+}
+function validateImportData(data, existingItems) {
+  const errors = [];
+  const warnings = [];
+  const existingItemCodes = /* @__PURE__ */ new Set();
+  const dbItemByCode = /* @__PURE__ */ new Map();
+  existingItems.forEach((item) => {
+    const code = item.options?.item_code || item.item_code;
+    if (code) {
+      existingItemCodes.add(code);
+      dbItemByCode.set(code, item);
+    }
+  });
+  const itemCodes = /* @__PURE__ */ new Set();
+  const itemTypeMap = /* @__PURE__ */ new Map();
+  const newRecords = [];
+  const updatedRecords = [];
+  const unchangedRecords = [];
+  data.items.forEach((item, index) => {
+    const rowNo = index + 2;
+    const code = item.item_code?.trim();
+    if (!code) {
+      errors.push(`Row ${rowNo} in items.csv: Missing central 'item_code'.`);
+      return;
+    }
+    if (itemCodes.has(code)) {
+      errors.push(`Row ${rowNo} in items.csv: Duplicate 'item_code' found: "${code}".`);
+    } else {
+      itemCodes.add(code);
+      itemTypeMap.set(code, item.product_type || "single");
+    }
+    if (!item.name?.trim()) {
+      errors.push(`Item "${code}": Name is blank.`);
+    }
+    if (existingItemCodes.has(code)) {
+      const dbItem = dbItemByCode.get(code);
+      const hasChanged = dbItem.name !== item.name || Number(dbItem.price || dbItem.base_price) !== Number(item.price || item.base_price || 0) || (dbItem.description || "") !== (item.description || "") || String(dbItem.is_active) !== String(item.is_active || "true") || dbItem.product_type !== (item.product_type || "single");
+      if (hasChanged) {
+        updatedRecords.push({ ...item, matchedId: dbItem.id });
+      } else {
+        unchangedRecords.push({ ...item, matchedId: dbItem.id });
+      }
+    } else {
+      newRecords.push(item);
+    }
+  });
+  const groupCodes = /* @__PURE__ */ new Set();
+  data.configGroups.forEach((g, index) => {
+    const code = g.group_code?.trim();
+    if (!code) {
+      errors.push(`Row ${index + 2} in config-groups.csv: Missing 'group_code'.`);
+      return;
+    }
+    if (groupCodes.has(code)) {
+      errors.push(`Duplicate modifier group code: "${code}" in config-groups.csv.`);
+    }
+    groupCodes.add(code);
+    const min = parseInt(g.min_select || "0");
+    const max = parseInt(g.max_select || "1");
+    if (min > max) {
+      errors.push(`Modifier group "${g.name || code}": min_select (${min}) is greater than max_select (${max}).`);
+    }
+  });
+  const optCodes = /* @__PURE__ */ new Set();
+  data.configOptions.forEach((opt, index) => {
+    const code = opt.option_code?.trim();
+    const gCode = opt.group_code?.trim();
+    if (!code) {
+      errors.push(`Row ${index + 2} in config-options.csv: Missing 'option_code'.`);
+      return;
+    }
+    if (optCodes.has(code)) {
+      errors.push(`Duplicate modifier option code "${code}" in config-options.csv.`);
+    }
+    optCodes.add(code);
+    if (!gCode || !groupCodes.has(gCode)) {
+      errors.push(`Modifier option "${opt.name || code}" references undefined modifier group code "${gCode}".`);
+    }
+  });
+  data.itemConfigMapping.forEach((map, index) => {
+    const rowNo = index + 2;
+    const itemCode = map.item_code?.trim();
+    const gCode = map.group_code?.trim();
+    if (!itemCode || !itemCodes.has(itemCode)) {
+      errors.push(`Row ${rowNo} in item-config-mapping.csv: Item code "${itemCode}" not found in items.csv.`);
+    } else {
+      const pType = itemTypeMap.get(itemCode);
+      if (pType !== "configurable") {
+        warnings.push(`Row ${rowNo} in mapping: Item "${itemCode}" has modifier mapping but product_type is "${pType}" instead of "configurable".`);
+      }
+    }
+    if (!gCode || !groupCodes.has(gCode)) {
+      errors.push(`Row ${rowNo} in item-config-mapping.csv: Modifier group code "${gCode}" not found in config-groups.csv.`);
+    }
+  });
+  const comboGroupCodes = /* @__PURE__ */ new Set();
+  data.comboChoiceGroups.forEach((g, index) => {
+    const code = g.group_code?.trim();
+    const comboProductCode = g.combo_product_code?.trim();
+    if (!code) {
+      errors.push(`Row ${index + 2} in combo-choice-groups.csv: Missing 'group_code'.`);
+      return;
+    }
+    if (comboGroupCodes.has(code)) {
+      errors.push(`Duplicate combo choice group code "${code}".`);
+    }
+    comboGroupCodes.add(code);
+    if (!comboProductCode || !itemCodes.has(comboProductCode)) {
+      errors.push(`Combo group "${g.name || code}" references undefined main combo item_code "${comboProductCode}".`);
+    } else {
+      const pType = itemTypeMap.get(comboProductCode);
+      if (pType !== "combo") {
+        errors.push(`Combo group "${g.name || code}" references item "${comboProductCode}" which is not of product_type "combo".`);
+      }
+    }
+  });
+  data.comboItems.forEach((map, index) => {
+    const rowNo = index + 2;
+    const comboProdCode = map.combo_product_code?.trim();
+    const gCode = map.group_code?.trim();
+    if (!comboProdCode || !itemCodes.has(comboProdCode)) {
+      errors.push(`Row ${rowNo} in combo-items.csv: Main combo code "${comboProdCode}" not found in items.csv.`);
+    }
+    if (!gCode || !comboGroupCodes.has(gCode)) {
+      errors.push(`Row ${rowNo} in combo-items.csv: Combo group code "${gCode}" not found in combo-choice-groups.csv.`);
+    }
+  });
+  const comboOptCodes = /* @__PURE__ */ new Set();
+  data.comboChoiceOptions.forEach((opt, index) => {
+    const code = opt.option_code?.trim();
+    const gCode = opt.group_code?.trim();
+    const childCode = opt.child_item_code?.trim();
+    if (!code) {
+      errors.push(`Row ${index + 2} in combo-choice-options.csv: Missing 'option_code'.`);
+      return;
+    }
+    if (comboOptCodes.has(code)) {
+      errors.push(`Duplicate combo choice option code: "${code}".`);
+    }
+    comboOptCodes.add(code);
+    if (!gCode || !comboGroupCodes.has(gCode)) {
+      errors.push(`Combo option "${opt.custom_name || code}" references undefined combo choice group "${gCode}".`);
+    }
+    if (!childCode || !itemCodes.has(childCode)) {
+      errors.push(`Combo option "${opt.custom_name || code}" references undefined child item_code "${childCode}".`);
+    }
+  });
+  const comboChildMap = /* @__PURE__ */ new Map();
+  data.comboChoiceGroups.forEach((cg) => {
+    const parentCode = cg.combo_product_code?.trim();
+    const cgCode = cg.group_code?.trim();
+    if (parentCode && cgCode) {
+      if (!comboChildMap.has(parentCode)) {
+        comboChildMap.set(parentCode, []);
+      }
+      const relatedOptions = data.comboChoiceOptions.filter((o) => o.group_code?.trim() === cgCode);
+      relatedOptions.forEach((o) => {
+        const childCode = o.child_item_code?.trim();
+        if (childCode) {
+          comboChildMap.get(parentCode).push(childCode);
+        }
+      });
+    }
+  });
+  const checkCircle = (current, visited2, visiting) => {
+    if (visiting.has(current)) {
+      return true;
+    }
+    if (visited2.has(current)) {
+      return false;
+    }
+    visiting.add(current);
+    const children = comboChildMap.get(current) || [];
+    for (const child of children) {
+      if (checkCircle(child, visited2, visiting)) {
+        return true;
+      }
+    }
+    visiting.delete(current);
+    visited2.add(current);
+    return false;
+  };
+  const visited = /* @__PURE__ */ new Set();
+  for (const comboCode of Array.from(comboChildMap.keys())) {
+    const visiting = /* @__PURE__ */ new Set();
+    if (checkCircle(comboCode, visited, visiting)) {
+      errors.push(`Circular Dependency detected for combo item "${comboCode}". A combo item cannot directly or indirectly include itself as a component choice.`);
+      break;
+    }
+  }
+  return {
+    errors,
+    warnings,
+    preview: {
+      newRecords,
+      updatedRecords,
+      unchangedRecords,
+      errors
+    }
+  };
+}
+async function parseMenuZip(zipBuffer) {
+  const zip = await import_jszip.default.loadAsync(zipBuffer);
+  const getFileContent = async (name) => {
+    const file = zip.file(name) || zip.file(new RegExp(`.*${name}$`))[0];
+    if (!file) return "";
+    return await file.async("string");
+  };
+  const [
+    itemsCsv,
+    groupsCsv,
+    optionsCsv,
+    mappingCsv,
+    comboItemsCsv,
+    comboGroupsCsv,
+    comboOptionsCsv
+  ] = await Promise.all([
+    getFileContent("items.csv"),
+    getFileContent("config-groups.csv"),
+    getFileContent("config-options.csv"),
+    getFileContent("item-config-mapping.csv"),
+    getFileContent("combo-items.csv"),
+    getFileContent("combo-choice-groups.csv"),
+    getFileContent("combo-choice-options.csv")
+  ]);
+  return {
+    items: parseCSV(itemsCsv),
+    configGroups: parseCSV(groupsCsv),
+    configOptions: parseCSV(optionsCsv),
+    itemConfigMapping: parseCSV(mappingCsv),
+    comboItems: parseCSV(comboItemsCsv),
+    comboChoiceGroups: parseCSV(comboGroupsCsv),
+    comboChoiceOptions: parseCSV(comboOptionsCsv)
+  };
+}
+function createImportJob(restaurantId) {
+  const jobId = Math.random().toString(36).substr(2, 9).toUpperCase();
+  const job = {
+    id: jobId,
+    restaurantId,
+    status: "queued",
+    progress: 0,
+    totalSteps: 10,
+    completedSteps: 0,
+    message: "Job initialized and queued helper context.",
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  activeJobs.set(jobId, job);
+  return job;
+}
+function getImportJob(jobId) {
+  return activeJobs.get(jobId);
+}
+function getAllImportJobs() {
+  return [...importHistory, ...Array.from(activeJobs.values())].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
+async function executeTransactionalImport(jobId) {
+  const job = activeJobs.get(jobId);
+  if (!job || !job.parsedData) return;
+  const restId = job.restaurantId;
+  job.status = "importing";
+  job.progress = 5;
+  job.message = "Backing up existing menu structure for transaction security...";
+  activeJobs.set(jobId, { ...job });
+  let backupCategories = [];
+  let backupItems = [];
+  let backupModifierGroups = [];
+  let backupModifiers = [];
+  let backupComboGroups = [];
+  let backupComboGroupItems = [];
+  try {
+    const catQuery = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", restId);
+    backupCategories = catQuery.data || [];
+    const itemQuery = await supabaseAdmin.from("menu_items").select("*").eq("restaurant_id", restId);
+    backupItems = itemQuery.data || [];
+    if (backupItems.length > 0) {
+      const itemIds = backupItems.map((i) => i.id);
+      const modGrQuery = await supabaseAdmin.from("modifier_groups").select("*").in("product_id", itemIds);
+      backupModifierGroups = modGrQuery.data || [];
+      if (backupModifierGroups.length > 0) {
+        const modGrIds = backupModifierGroups.map((g) => g.id);
+        const modQuery = await supabaseAdmin.from("modifiers").select("*").in("group_id", modGrIds);
+        backupModifiers = modQuery.data || [];
+      }
+      const comboGrQuery = await supabaseAdmin.from("combo_groups").select("*").in("combo_product_id", itemIds);
+      backupComboGroups = comboGrQuery.data || [];
+      if (backupComboGroups.length > 0) {
+        const comboGrIds = backupComboGroups.map((g) => g.id);
+        const comboItemQuery = await supabaseAdmin.from("combo_group_items").select("*").in("group_id", comboGrIds);
+        backupComboGroupItems = comboItemQuery.data || [];
+      }
+    }
+  } catch (err) {
+    job.status = "failed";
+    job.message = `Backup process failed: ${err.message}. Aborting import.`;
+    activeJobs.set(jobId, { ...job });
+    return;
+  }
+  job.progress = 15;
+  job.message = "Backup success. Starting transactional execution...";
+  activeJobs.set(jobId, { ...job });
+  const restoreBackupOnCrash = async (errorMsg) => {
+    console.error(`[ROLLBACK] Restoring original menu database layout due to failure: ${errorMsg}`);
+    job.status = "failed";
+    job.message = `Critical error during import: ${errorMsg}. Rolling back database to pristine state...`;
+    activeJobs.set(jobId, { ...job });
+    try {
+      await supabaseAdmin.from("categories").delete().eq("restaurant_id", restId);
+      if (backupCategories.length > 0) {
+        await supabaseAdmin.from("categories").insert(backupCategories.map((c) => ({
+          id: c.id,
+          restaurant_id: c.restaurant_id,
+          name: c.name,
+          sort_order: c.sort_order,
+          created_at: c.created_at
+        })));
+      }
+      if (backupItems.length > 0) {
+        for (let i = 0; i < backupItems.length; i += 50) {
+          const chunk = backupItems.slice(i, i + 50).map((item) => ({
+            id: item.id,
+            restaurant_id: item.restaurant_id,
+            category_id: item.category_id,
+            name: item.name,
+            description: item.description,
+            price: item.price,
+            base_price: item.base_price,
+            image_url: item.image_url,
+            is_active: item.is_active,
+            status: item.status,
+            product_type: item.product_type,
+            options: item.options,
+            display_behavior: item.display_behavior,
+            created_at: item.created_at
+          }));
+          await supabaseAdmin.from("menu_items").insert(chunk);
+        }
+      }
+      if (backupModifierGroups.length > 0) {
+        await supabaseAdmin.from("modifier_groups").insert(backupModifierGroups.map((g) => ({
+          id: g.id,
+          product_id: g.product_id,
+          parent_modifier_id: g.parent_modifier_id,
+          name: g.name,
+          required: g.required,
+          min_select: g.min_select,
+          max_select: g.max_select,
+          display_behavior: g.display_behavior,
+          sort_order: g.sort_order,
+          created_at: g.created_at
+        })));
+      }
+      if (backupModifiers.length > 0) {
+        await supabaseAdmin.from("modifiers").insert(backupModifiers.map((m) => ({
+          id: m.id,
+          group_id: m.group_id,
+          name: m.name,
+          price_delta: m.price_delta,
+          is_default: m.is_default,
+          render_importance: m.render_importance,
+          display_behavior: m.display_behavior,
+          sort_order: m.sort_order,
+          created_at: m.created_at
+        })));
+      }
+      if (backupComboGroups.length > 0) {
+        await supabaseAdmin.from("combo_groups").insert(backupComboGroups.map((g) => ({
+          id: g.id,
+          combo_product_id: g.combo_product_id,
+          name: g.name,
+          description: g.description,
+          required: g.required,
+          min_select: g.min_select,
+          max_select: g.max_select,
+          display_behavior: g.display_behavior,
+          importance: g.importance,
+          sort_order: g.sort_order,
+          created_at: g.created_at
+        })));
+      }
+      if (backupComboGroupItems.length > 0) {
+        await supabaseAdmin.from("combo_group_items").insert(backupComboGroupItems.map((item) => ({
+          id: item.id,
+          group_id: item.group_id,
+          child_product_id: item.child_product_id,
+          custom_name: item.custom_name,
+          price_delta: item.price_delta,
+          default_selected: item.default_selected,
+          display_behavior: item.display_behavior,
+          importance: item.importance,
+          sort_order: item.sort_order,
+          created_at: item.created_at
+        })));
+      }
+      job.message += " Rollback SUCCESSFUL. Current state reverted completely.";
+    } catch (restoreErr) {
+      job.message += ` CRITICAL DOUBLE-FAILURE! Rollback crashed with error: ${restoreErr.message}. DB is now in partial state. Contact admin.`;
+    }
+    activeJobs.set(jobId, { ...job });
+    importHistory.push({ ...job });
+    activeJobs.delete(jobId);
+  };
+  try {
+    const data = job.parsedData;
+    let createdCount = 0;
+    let updatedCount = 0;
+    let failedCount = 0;
+    let categoriesCreated = 0;
+    let configsImported = 0;
+    const warnings = [];
+    job.progress = 25;
+    job.message = "Processing and indexing Menu Categories...";
+    activeJobs.set(jobId, { ...job });
+    const categoriesInCsv = Array.from(new Set(
+      data.items.map((i) => i.category_name?.trim()).filter(Boolean)
+    ));
+    const existingCatsByName = /* @__PURE__ */ new Map();
+    backupCategories.forEach((cat) => {
+      existingCatsByName.set(cat.name.toLowerCase().trim(), cat.id);
+    });
+    const categoryIdByName = /* @__PURE__ */ new Map();
+    const newCatsToInsert = [];
+    categoriesInCsv.forEach((catName) => {
+      const key = catName.toLowerCase().trim();
+      const existingId = existingCatsByName.get(key);
+      if (existingId) {
+        categoryIdByName.set(key, existingId);
+      } else {
+        const newId = Math.random().toString(36).substr(2, 9).toUpperCase() + "-CAT";
+        newCatsToInsert.push({
+          restaurant_id: restId,
+          name: catName,
+          sort_order: 10
+        });
+      }
+    });
+    if (newCatsToInsert.length > 0) {
+      const { data: insertedCats, error: catInsErr } = await supabaseAdmin.from("categories").insert(newCatsToInsert).select();
+      if (catInsErr) {
+        await restoreBackupOnCrash(`Could not create category elements: ${catInsErr.message}`);
+        return;
+      }
+      insertedCats?.forEach((cat) => {
+        categoryIdByName.set(cat.name.toLowerCase().trim(), cat.id);
+        categoriesCreated++;
+      });
+    }
+    job.progress = 40;
+    job.message = "Importing items into public.menu_items in batch chunks...";
+    activeJobs.set(jobId, { ...job });
+    const itemIdByItemCode = /* @__PURE__ */ new Map();
+    const itemCodeToOriginalId = /* @__PURE__ */ new Map();
+    const { error: cleanItemsErr } = await supabaseAdmin.from("menu_items").delete().eq("restaurant_id", restId);
+    if (cleanItemsErr) {
+      await restoreBackupOnCrash(`Fail cleaning up existing menu items: ${cleanItemsErr.message}`);
+      return;
+    }
+    const itemsToInsert = data.items.map((item) => {
+      const catKey = item.category_name?.trim()?.toLowerCase();
+      const categoryId = catKey ? categoryIdByName.get(catKey) || null : null;
+      const activeOptions = {
+        item_code: item.item_code?.trim()
+      };
+      return {
+        restaurant_id: restId,
+        category_id: categoryId,
+        name: item.name,
+        price: parseFloat(item.price || item.base_price || "0"),
+        base_price: parseFloat(item.base_price || item.price || "0"),
+        description: item.description || null,
+        image_url: item.image_url || null,
+        is_active: item.is_active === "false" ? false : true,
+        product_type: item.product_type || "single",
+        options: activeOptions,
+        status: item.is_active === "false" ? "Paused" : "Available"
+      };
+    });
+    const chunkSize = 100;
+    for (let i = 0; i < itemsToInsert.length; i += chunkSize) {
+      const chunk = itemsToInsert.slice(i, i + chunkSize);
+      const { data: insertedChunk, error: insErr } = await supabaseAdmin.from("menu_items").insert(chunk).select();
+      if (insErr) {
+        await restoreBackupOnCrash(`Batch item insert failed: ${insErr.message}`);
+        return;
+      }
+      insertedChunk?.forEach((item) => {
+        const itemCode = item.options?.item_code;
+        if (itemCode) {
+          itemIdByItemCode.set(itemCode, item.id);
+        }
+        createdCount++;
+      });
+      job.progress = 40 + Math.round(i / itemsToInsert.length * 30);
+      job.message = `Imported items chunk (${createdCount}/${itemsToInsert.length})...`;
+      activeJobs.set(jobId, { ...job });
+    }
+    job.progress = 75;
+    job.message = "Structuring Modifier Configurator Engines...";
+    activeJobs.set(jobId, { ...job });
+    const modGroupIdMap = /* @__PURE__ */ new Map();
+    const groupsInserted = [];
+    const modGroupsToInsertPayload = [];
+    data.itemConfigMapping.forEach((map) => {
+      const itemCode = map.item_code?.trim();
+      const gCode = map.group_code?.trim();
+      const productId = itemIdByItemCode.get(itemCode);
+      const gConfig = data.configGroups.find((cg) => cg.group_code?.trim() === gCode);
+      if (productId && gConfig) {
+        modGroupsToInsertPayload.push({
+          product_id: productId,
+          name: gConfig.name || "Config Group",
+          required: gConfig.required === "true" || gConfig.required === "1" ? true : false,
+          min_select: parseInt(gConfig.min_select || "0"),
+          max_select: parseInt(gConfig.max_select || "1"),
+          sort_order: parseInt(gConfig.sort_order || "0"),
+          display_behavior: { group_code: gCode }
+        });
+      }
+    });
+    if (modGroupsToInsertPayload.length > 0) {
+      const { data: insertedGroups, error: grInsertErr } = await supabaseAdmin.from("modifier_groups").insert(modGroupsToInsertPayload).select();
+      if (grInsertErr) {
+        await restoreBackupOnCrash(`Could not create modifier groups: ${grInsertErr.message}`);
+        return;
+      }
+      const modifiersToInsertPayload = [];
+      insertedGroups?.forEach((insertedGroup) => {
+        const groupCode = insertedGroup.display_behavior?.group_code;
+        const matchingOptions = data.configOptions.filter((opt) => opt.group_code?.trim() === groupCode);
+        matchingOptions.forEach((opt) => {
+          modifiersToInsertPayload.push({
+            group_id: insertedGroup.id,
+            name: opt.name,
+            price_delta: parseFloat(opt.price_delta || "0"),
+            is_default: opt.is_default === "true" || opt.is_default === "1" ? true : false,
+            sort_order: parseInt(opt.sort_order || "0"),
+            display_behavior: { option_code: opt.option_code?.trim() }
+          });
+        });
+        configsImported++;
+      });
+      if (modifiersToInsertPayload.length > 0) {
+        const { error: optInsertErr } = await supabaseAdmin.from("modifiers").insert(modifiersToInsertPayload);
+        if (optInsertErr) {
+          await restoreBackupOnCrash(`Could not create modifier options: ${optInsertErr.message}`);
+          return;
+        }
+      }
+    }
+    job.progress = 88;
+    job.message = "Assembling Combo Product Composition Matrices...";
+    activeJobs.set(jobId, { ...job });
+    const comboChoiceGroupsPayload = data.comboChoiceGroups.map((g) => {
+      const comboProductId = itemIdByItemCode.get(g.combo_product_code?.trim());
+      return {
+        combo_product_id: comboProductId,
+        name: g.name,
+        description: g.description || null,
+        required: g.required === "true" || g.required === "1" ? true : false,
+        min_select: parseInt(g.min_select || "0"),
+        max_select: parseInt(g.max_select || "1"),
+        sort_order: parseInt(g.sort_order || "0"),
+        display_behavior: { group_code: g.group_code?.trim() }
+      };
+    }).filter((g) => g.combo_product_id !== void 0);
+    if (comboChoiceGroupsPayload.length > 0) {
+      const { data: insertedComboGroups, error: comboGrErr } = await supabaseAdmin.from("combo_groups").insert(comboChoiceGroupsPayload).select();
+      if (comboGrErr) {
+        await restoreBackupOnCrash(`Could not insert combo choice groups: ${comboGrErr.message}`);
+        return;
+      }
+      const comboGroupItemsPayload = [];
+      insertedComboGroups?.forEach((cg) => {
+        const groupCode = cg.display_behavior?.group_code;
+        const matchingOptions = data.comboChoiceOptions.filter((o) => o.group_code?.trim() === groupCode);
+        matchingOptions.forEach((opt) => {
+          const childProductId = itemIdByItemCode.get(opt.child_item_code?.trim());
+          if (childProductId) {
+            comboGroupItemsPayload.push({
+              group_id: cg.id,
+              child_product_id: childProductId,
+              custom_name: opt.custom_name || null,
+              price_delta: parseFloat(opt.price_delta || "0"),
+              default_selected: opt.default_selected === "true" || opt.default_selected === "1" ? true : false,
+              sort_order: parseInt(opt.sort_order || "0"),
+              display_behavior: { option_code: opt.option_code?.trim() }
+            });
+          }
+        });
+        configsImported++;
+      });
+      if (comboGroupItemsPayload.length > 0) {
+        const { error: comboItemErr } = await supabaseAdmin.from("combo_group_items").insert(comboGroupItemsPayload);
+        if (comboItemErr) {
+          await restoreBackupOnCrash(`Could not populate combo item compositions: ${comboItemErr.message}`);
+          return;
+        }
+      }
+    }
+    job.status = "completed";
+    job.progress = 100;
+    job.message = "Menu import transaction completed successfully!";
+    job.report = {
+      createdCount,
+      updatedCount,
+      failedCount: 0,
+      warnings,
+      errors: [],
+      summary: {
+        categoriesCreated,
+        itemsCreated: createdCount,
+        itemsUpdated: updatedCount,
+        itemsUnchanged: 0,
+        configsImported
+      }
+    };
+    activeJobs.set(jobId, { ...job });
+    importHistory.push({ ...job });
+    activeJobs.delete(jobId);
+    console.log(`[Import SUCCESS] Job ${jobId} finished cleanly for restaurant ${restId}`);
+  } catch (fatalErr) {
+    await restoreBackupOnCrash(fatalErr.message || "Fatal unexpected implementation error");
+  }
+}
+
+// src/server/routes/menuImport.routes.ts
+var import_jszip2 = __toESM(require("jszip"), 1);
 var router4 = (0, import_express4.Router)();
-router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
+router4.get("/menu-import/templates", async (req, res) => {
+  try {
+    const zip = new import_jszip2.default();
+    const itemsCsv = generateCSV(
+      ["item_code", "name", "category_name", "price", "base_price", "description", "is_active", "product_type", "image_url"],
+      [
+        {
+          item_code: "ITM-001",
+          name: "Nasi Lemak Ayam",
+          category_name: "Main Course",
+          price: "12.90",
+          base_price: "12.90",
+          description: "Traditional Malay fragrant rice with crispy fried chicken",
+          is_active: "true",
+          product_type: "configurable",
+          image_url: "https://example.com/nasilemak.jpg"
+        },
+        {
+          item_code: "ITM-002",
+          name: "Teh Tarik",
+          category_name: "Beverage",
+          price: "3.50",
+          base_price: "3.50",
+          description: "Local pulled frothy milk tea",
+          is_active: "true",
+          product_type: "single",
+          image_url: "https://example.com/tehtarik.jpg"
+        },
+        {
+          item_code: "ITM-003",
+          name: "Signature Combo",
+          category_name: "Main Course",
+          price: "15.90",
+          base_price: "15.90",
+          description: "Nasi Lemak Ayam paired with cold Teh Tarik",
+          is_active: "true",
+          product_type: "combo",
+          image_url: ""
+        },
+        {
+          item_code: "ITM-004",
+          name: "Ice Cream Scoop",
+          category_name: "Dessert",
+          price: "4.50",
+          base_price: "4.50",
+          description: "Vanilla ice cream",
+          is_active: "true",
+          product_type: "single",
+          image_url: ""
+        }
+      ]
+    );
+    const configGroupsCsv = generateCSV(
+      ["group_code", "name", "required", "min_select", "max_select", "sort_order"],
+      [
+        {
+          group_code: "GRP-ICE-ST",
+          name: "Ice Preference",
+          required: "false",
+          min_select: "0",
+          max_select: "1",
+          sort_order: "1"
+        }
+      ]
+    );
+    const configOptionsCsv = generateCSV(
+      ["option_code", "group_code", "name", "price_delta", "is_default", "sort_order"],
+      [
+        {
+          option_code: "OPT-ICE-N",
+          group_code: "GRP-ICE-ST",
+          name: "No Ice",
+          price_delta: "0.00",
+          is_default: "false",
+          sort_order: "1"
+        },
+        {
+          option_code: "OPT-ICE-L",
+          group_code: "GRP-ICE-ST",
+          name: "Less Ice",
+          price_delta: "0.00",
+          is_default: "true",
+          sort_order: "2"
+        }
+      ]
+    );
+    const itemConfigMappingCsv = generateCSV(
+      ["item_code", "group_code"],
+      [
+        { item_code: "ITM-001", group_code: "GRP-ICE-ST" }
+      ]
+    );
+    const comboItemsCsv = generateCSV(
+      ["combo_product_code", "group_code"],
+      [
+        { combo_product_code: "ITM-003", group_code: "CMB-GRP-FOD" },
+        { combo_product_code: "ITM-003", group_code: "CMB-GRP-DRK" }
+      ]
+    );
+    const comboChoiceGroupsCsv = generateCSV(
+      ["group_code", "combo_product_code", "name", "description", "required", "min_select", "max_select", "sort_order"],
+      [
+        {
+          group_code: "CMB-GRP-FOD",
+          combo_product_code: "ITM-003",
+          name: "Select Main Dish",
+          description: "Choose your main morning meal",
+          required: "true",
+          min_select: "1",
+          max_select: "1",
+          sort_order: "1"
+        },
+        {
+          group_code: "CMB-GRP-DRK",
+          combo_product_code: "ITM-003",
+          name: "Select Beverage",
+          description: "Choose your iced drink option",
+          required: "true",
+          min_select: "1",
+          max_select: "1",
+          sort_order: "2"
+        }
+      ]
+    );
+    const comboChoiceOptionsCsv = generateCSV(
+      ["option_code", "group_code", "child_item_code", "custom_name", "price_delta", "default_selected", "sort_order"],
+      [
+        {
+          option_code: "CMB-OPT-NL",
+          group_code: "CMB-GRP-FOD",
+          child_item_code: "ITM-001",
+          custom_name: "Hot Nasi Lemak Original",
+          price_delta: "0.00",
+          default_selected: "true",
+          sort_order: "1"
+        },
+        {
+          option_code: "CMB-OPT-TT",
+          group_code: "CMB-GRP-DRK",
+          child_item_code: "ITM-002",
+          custom_name: "Pulled Teh Tarik (Teh C)",
+          price_delta: "0.00",
+          default_selected: "true",
+          sort_order: "1"
+        },
+        {
+          option_code: "CMB-OPT-IC",
+          group_code: "CMB-GRP-DRK",
+          child_item_code: "ITM-004",
+          custom_name: "Scoop of Premium Vanilla Ice Cream",
+          price_delta: "1.50",
+          default_selected: "false",
+          sort_order: "2"
+        }
+      ]
+    );
+    zip.file("items.csv", itemsCsv);
+    zip.file("config-groups.csv", configGroupsCsv);
+    zip.file("config-options.csv", configOptionsCsv);
+    zip.file("item-config-mapping.csv", itemConfigMappingCsv);
+    zip.file("combo-items.csv", comboItemsCsv);
+    zip.file("combo-choice-groups.csv", comboChoiceGroupsCsv);
+    zip.file("combo-choice-options.csv", comboChoiceOptionsCsv);
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=jomorder_menu_template.zip");
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: "Could not assemble templates: " + err.message });
+  }
+});
+router4.post("/menu-import/upload", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+  const caller = req.user;
+  if (!caller) return res.status(401).json({ error: "Missing credential session" });
+  const { zipBase64 } = req.body;
+  if (!zipBase64) {
+    return res.status(400).json({ error: "Missing uploaded zipBase64 data in payload" });
+  }
+  const job = createImportJob(caller.restaurantId);
+  job.status = "validating";
+  job.message = "Decompressing ZIP files and parsing CSVs...";
+  try {
+    const buffer = Buffer.from(zipBase64, "base64");
+    const parsed = await parseMenuZip(buffer);
+    job.parsedData = parsed;
+    const { data: existingItems, error: itemsErr } = await supabaseAdmin.from("menu_items").select("*").eq("restaurant_id", caller.restaurantId);
+    if (itemsErr) throw itemsErr;
+    const validation = validateImportData(parsed, existingItems || []);
+    job.status = "validation_complete";
+    job.progress = 100;
+    job.message = validation.errors.length > 0 ? `Validation failed with ${validation.errors.length} fatal errors.` : `Ready for import. Found ${validation.preview.newRecords.length} new records and ${validation.preview.updatedRecords.length} updates.`;
+    job.preview = validation.preview;
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: job.message,
+      preview: validation.preview,
+      errors: validation.errors,
+      warnings: validation.warnings
+    });
+  } catch (err) {
+    job.status = "failed";
+    job.message = "Failed to parse ZIP structure: " + err.message;
+    res.status(400).json({
+      error: job.message,
+      jobId: job.id
+    });
+  }
+});
+router4.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+  const caller = req.user;
+  if (!caller) return res.status(401).json({ error: "Unauthorized access" });
+  const { jobId } = req.params;
+  const job = getImportJob(jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Import job context not found." });
+  }
+  if (job.status !== "validation_complete") {
+    return res.status(400).json({ error: "Job must be validated successfully before execution confirmation." });
+  }
+  if (job.preview?.errors && job.preview.errors.length > 0) {
+    return res.status(400).json({ error: "Cannot commit an import with unresolved fatal validation diagnostics." });
+  }
+  Promise.resolve().then(async () => {
+    try {
+      await executeTransactionalImport(jobId);
+    } catch (err) {
+      console.error("[BG job error]", err);
+    }
+  });
+  res.json({
+    jobId: job.id,
+    status: "queued",
+    message: "Import committed successfully. Background runner engaged."
+  });
+});
+router4.get("/menu-import/jobs/:jobId/status", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { jobId } = req.params;
+  const job = getImportJob(jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Job context has expired or search query is invalid." });
+  }
+  res.json(job);
+});
+router4.get("/menu-import/history", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  res.json(getAllImportJobs());
+});
+router4.get("/menu-import/export", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+  const caller = req.user;
+  if (!caller) return res.status(401).json({ error: "Credential verification failed" });
+  const restId = caller.restaurantId;
+  try {
+    const { data: cats } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", restId);
+    const categoryMap = /* @__PURE__ */ new Map();
+    cats?.forEach((c) => categoryMap.set(c.id, c.name));
+    const { data: items } = await supabaseAdmin.from("menu_items").select("*").eq("restaurant_id", restId);
+    const itemCodeMap = /* @__PURE__ */ new Map();
+    const itemsRows = (items || []).map((item, index) => {
+      const code = item.options?.item_code || `ITM-${item.id.slice(0, 8).toUpperCase()}`;
+      itemCodeMap.set(item.id, code);
+      return {
+        item_code: code,
+        name: item.name,
+        category_name: categoryMap.get(item.category_id || "") || "",
+        price: item.price || item.base_price || "0.00",
+        base_price: item.base_price || item.price || "0.00",
+        description: item.description || "",
+        is_active: String(item.is_active),
+        product_type: item.product_type || "single",
+        image_url: item.image_url || ""
+      };
+    });
+    const itemIds = (items || []).map((i) => i.id);
+    let modGroups = [];
+    let modifiers = [];
+    if (itemIds.length > 0) {
+      const { data: mG } = await supabaseAdmin.from("modifier_groups").select("*").in("product_id", itemIds);
+      modGroups = mG || [];
+      if (modGroups.length > 0) {
+        const mgIds = modGroups.map((g) => g.id);
+        const { data: mod } = await supabaseAdmin.from("modifiers").select("*").in("group_id", mgIds);
+        modifiers = mod || [];
+      }
+    }
+    const groupCodeMap = /* @__PURE__ */ new Map();
+    const configGroupsRows = modGroups.map((g, index) => {
+      const code = g.display_behavior?.group_code || `GRP-MOD-${g.id.slice(0, 8).toUpperCase()}`;
+      groupCodeMap.set(g.id, code);
+      return {
+        group_code: code,
+        name: g.name,
+        required: String(g.required),
+        min_select: String(g.min_select || "0"),
+        max_select: String(g.max_select || "1"),
+        sort_order: String(g.sort_order || "0")
+      };
+    });
+    const configOptionsRows = modifiers.map((m) => {
+      const code = m.display_behavior?.option_code || `OPT-${m.id.slice(0, 8).toUpperCase()}`;
+      const parentGCode = groupCodeMap.get(m.group_id) || "UNKNOWN";
+      return {
+        option_code: code,
+        group_code: parentGCode,
+        name: m.name,
+        price_delta: m.price_delta || "0.00",
+        is_default: String(m.is_default),
+        sort_order: String(m.sort_order || "0")
+      };
+    });
+    const itemConfigMappingRows = [];
+    modGroups.forEach((g) => {
+      const parentItemCode = itemCodeMap.get(g.product_id);
+      const groupCode = groupCodeMap.get(g.id);
+      if (parentItemCode && groupCode) {
+        itemConfigMappingRows.push({
+          item_code: parentItemCode,
+          group_code: groupCode
+        });
+      }
+    });
+    let comboGroups = [];
+    let comboGroupItems = [];
+    if (itemIds.length > 0) {
+      const { data: cG } = await supabaseAdmin.from("combo_groups").select("*").in("combo_product_id", itemIds);
+      comboGroups = cG || [];
+      if (comboGroups.length > 0) {
+        const cgIds = comboGroups.map((g) => g.id);
+        const { data: cI } = await supabaseAdmin.from("combo_group_items").select("*").in("group_id", cgIds);
+        comboGroupItems = cI || [];
+      }
+    }
+    const comboGroupCodeMap = /* @__PURE__ */ new Map();
+    const comboChoiceGroupsRows = comboGroups.map((cg) => {
+      const code = cg.display_behavior?.group_code || `GRP-CMB-${cg.id.slice(0, 8).toUpperCase()}`;
+      comboGroupCodeMap.set(cg.id, code);
+      return {
+        group_code: code,
+        combo_product_code: itemCodeMap.get(cg.combo_product_id) || "UNKNOWN",
+        name: cg.name,
+        description: cg.description || "",
+        required: String(cg.required),
+        min_select: String(cg.min_select || "0"),
+        max_select: String(cg.max_select || "1"),
+        sort_order: String(cg.sort_order || "0")
+      };
+    });
+    const comboItemsRows = [];
+    comboGroups.forEach((cg) => {
+      const mainCode = itemCodeMap.get(cg.combo_product_id);
+      const groupCode = comboGroupCodeMap.get(cg.id);
+      if (mainCode && groupCode) {
+        comboItemsRows.push({
+          combo_product_code: mainCode,
+          group_code: groupCode
+        });
+      }
+    });
+    const comboChoiceOptionsRows = comboGroupItems.map((ci) => {
+      const mainCode = comboGroupCodeMap.get(ci.group_id) || "UNKNOWN";
+      return {
+        option_code: ci.display_behavior?.option_code || `COPT-${ci.id.slice(0, 8).toUpperCase()}`,
+        group_code: mainCode,
+        child_item_code: itemCodeMap.get(ci.child_product_id) || "UNKNOWN",
+        custom_name: ci.custom_name || "",
+        price_delta: ci.price_delta || "0.00",
+        default_selected: String(ci.default_selected),
+        sort_order: String(ci.sort_order || "0")
+      };
+    });
+    const zip = new import_jszip2.default();
+    zip.file("items.csv", generateCSV(["item_code", "name", "category_name", "price", "base_price", "description", "is_active", "product_type", "image_url"], itemsRows));
+    zip.file("config-groups.csv", generateCSV(["group_code", "name", "required", "min_select", "max_select", "sort_order"], configGroupsRows));
+    zip.file("config-options.csv", generateCSV(["option_code", "group_code", "name", "price_delta", "is_default", "sort_order"], configOptionsRows));
+    zip.file("item-config-mapping.csv", generateCSV(["item_code", "group_code"], itemConfigMappingRows));
+    zip.file("combo-items.csv", generateCSV(["combo_product_code", "group_code"], comboItemsRows));
+    zip.file("combo-choice-groups.csv", generateCSV(["group_code", "combo_product_code", "name", "description", "required", "min_select", "max_select", "sort_order"], comboChoiceGroupsRows));
+    zip.file("combo-choice-options.csv", generateCSV(["option_code", "group_code", "child_item_code", "custom_name", "price_delta", "default_selected", "sort_order"], comboChoiceOptionsRows));
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=jomorder_exported_menu.zip");
+    res.send(zipBuffer);
+  } catch (err) {
+    res.status(500).json({ error: "Could not export menu database files: " + err.message });
+  }
+});
+var menuImport_routes_default = router4;
+
+// src/server/routes/staff.routes.ts
+var import_express5 = require("express");
+init_dbService();
+init_auditService();
+var router5 = (0, import_express5.Router)();
+router5.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (!caller) {
@@ -2799,7 +3901,7 @@ router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
     res.status(500).json({ error: err.message });
   }
 });
-router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
+router5.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const { email, password, role, permissions } = req.body;
   const caller = req.user;
@@ -2975,7 +4077,7 @@ router4.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
     res.status(500).json({ error: err.message });
   }
 });
-router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
+router5.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId, staffId } = req.params;
   const { role, status, permissions } = req.body;
   const caller = req.user;
@@ -3073,7 +4175,7 @@ router4.put("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenan
     res.status(500).json({ error: err.message });
   }
 });
-router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
+router5.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId, staffId } = req.params;
   const caller = req.user;
   if (!caller) {
@@ -3127,7 +4229,7 @@ router4.delete("/restaurants/:restId/staff/:staffId", authenticateJWT, requireTe
     res.status(500).json({ error: err.message });
   }
 });
-router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
+router5.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
   const caller = req.user;
   if (!caller) {
@@ -3140,10 +4242,10 @@ router4.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIso
   const restLogs = logs.filter((l) => l.restaurant_id === restId);
   res.json(restLogs);
 });
-var staff_routes_default = router4;
+var staff_routes_default = router5;
 
 // src/server/routes/workspace.routes.ts
-var import_express5 = require("express");
+var import_express6 = require("express");
 var import_jsonwebtoken3 = __toESM(require("jsonwebtoken"), 1);
 
 // src/server/services/extraSettingsService.ts
@@ -3190,8 +4292,8 @@ var extraSettingsService = {
 
 // src/server/routes/workspace.routes.ts
 init_dbService();
-var router5 = (0, import_express5.Router)();
-router5.get("/debug-restaurants", async (req, res) => {
+var router6 = (0, import_express6.Router)();
+router6.get("/debug-restaurants", async (req, res) => {
   try {
     const supabaseUrl2 = process.env.VITE_SUPABASE_URL || "";
     const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -3215,7 +4317,7 @@ router5.get("/debug-restaurants", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
+router6.get("/my-workspaces", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -3360,7 +4462,7 @@ router5.get("/my-workspaces", authenticateJWT, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res) => {
+router6.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -3525,7 +4627,7 @@ router5.post("/switch-workspace/:restaurantId", authenticateJWT, async (req, res
     return res.status(500).json({ error: err.message });
   }
 });
-router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
+router6.patch("/organizations/:id", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -3562,7 +4664,7 @@ router5.patch("/organizations/:id", authenticateJWT, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
+router6.post("/onboarding/create-org-workspace", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -3741,7 +4843,7 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     return res.status(500).json({ error: err.message });
   }
 });
-router5.get("/restaurants/:id", authenticateJWT, async (req, res) => {
+router6.get("/restaurants/:id", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (data) {
@@ -3750,7 +4852,7 @@ router5.get("/restaurants/:id", authenticateJWT, async (req, res) => {
   }
   res.json(data);
 });
-router5.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
+router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
   const { show_voided_on_receipt, ...dbBody } = req.body;
   if (show_voided_on_receipt !== void 0) {
     extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
@@ -3763,14 +4865,14 @@ router5.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
   }
   res.json(data);
 });
-var workspace_routes_default = router5;
+var workspace_routes_default = router6;
 
 // src/server/routes/superadmin.routes.ts
-var import_express6 = require("express");
+var import_express7 = require("express");
 init_dbService();
-var router6 = (0, import_express6.Router)();
+var router7 = (0, import_express7.Router)();
 var INVESTIGATING_ORDERS = /* @__PURE__ */ new Set();
-router6.get("/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.get("/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: restaurants, error: restError } = await supabaseAdmin.from("restaurants").select("id");
     if (restError) {
@@ -3817,7 +4919,7 @@ router6.get("/dashboard", authenticateJWT, requireSuperAdmin, async (req, res) =
     res.status(500).json({ error: err.message });
   }
 });
-router6.get("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.get("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: restaurants, error } = await supabaseAdmin.from("restaurants").select("*");
     if (error) throw error;
@@ -3939,7 +5041,7 @@ router6.get("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => 
     res.status(500).json({ error: err.message });
   }
 });
-router6.post("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.post("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { name, currency, serviceCharge, sst, subscriptionPlan } = req.body;
   if (!name) return res.status(400).json({ error: "Restaurant name is required" });
   try {
@@ -3972,7 +5074,7 @@ router6.post("/tenants", authenticateJWT, requireSuperAdmin, async (req, res) =>
     res.status(500).json({ error: err.message });
   }
 });
-router6.put("/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.put("/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   const { name, currency, serviceCharge, sst, subscriptionPlan, status, features, max_outlets, multi_outlet_enabled, franchise_mode } = req.body;
   try {
@@ -4049,7 +5151,7 @@ router6.put("/tenants/:id", authenticateJWT, requireSuperAdmin, async (req, res)
     res.status(500).json({ error: err.message });
   }
 });
-router6.get("/orders", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.get("/orders", authenticateJWT, requireSuperAdmin, async (req, res) => {
   try {
     const { data: orders, error } = await supabaseAdmin.from("orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
@@ -4123,7 +5225,7 @@ router6.get("/orders", authenticateJWT, requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router6.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     if (id.startsWith("ord-sim-")) {
@@ -4268,7 +5370,7 @@ router6.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req,
     res.status(500).json({ error: err.message });
   }
 });
-router6.post("/orders/:id/retry-webhook", authenticateJWT, requireSuperAdmin, async (req, res) => {
+router7.post("/orders/:id/retry-webhook", authenticateJWT, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     if (id.startsWith("ord-sim-")) {
@@ -4288,7 +5390,7 @@ router6.post("/orders/:id/retry-webhook", authenticateJWT, requireSuperAdmin, as
     res.status(500).json({ error: err.message });
   }
 });
-router6.post("/orders/:id/investigate", authenticateJWT, requireSuperAdmin, (req, res) => {
+router7.post("/orders/:id/investigate", authenticateJWT, requireSuperAdmin, (req, res) => {
   const { id } = req.params;
   if (INVESTIGATING_ORDERS.has(id)) {
     INVESTIGATING_ORDERS.delete(id);
@@ -4297,7 +5399,7 @@ router6.post("/orders/:id/investigate", authenticateJWT, requireSuperAdmin, (req
   }
   res.json({ success: true, isInvestigating: INVESTIGATING_ORDERS.has(id) });
 });
-router6.get("/system/metrics", authenticateJWT, requireSuperAdmin, (req, res) => {
+router7.get("/system/metrics", authenticateJWT, requireSuperAdmin, (req, res) => {
   const serverLatency = `${18 + Math.floor(Math.random() * 8)}ms`;
   const socketCounts = 40 + Math.floor(Math.random() * 10);
   const systemLogs = [
@@ -4317,40 +5419,40 @@ router6.get("/system/metrics", authenticateJWT, requireSuperAdmin, (req, res) =>
     }
   });
 });
-var superadmin_routes_default = router6;
+var superadmin_routes_default = router7;
 
 // src/server/routes/tables.routes.ts
-var import_express7 = require("express");
+var import_express8 = require("express");
 init_dbService();
-var router7 = (0, import_express7.Router)();
-router7.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+var router8 = (0, import_express8.Router)();
+router8.get("/restaurants/:restId/tables", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").select("*, current_session:dining_sessions!tables_current_session_id_fkey(*)").eq("restaurant_id", req.params.restId).order("name", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router7.post("/tables", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+router8.post("/tables", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+router8.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router7.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+router8.delete("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const { error } = await supabaseAdmin.from("tables").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
-var tables_routes_default = router7;
+var tables_routes_default = router8;
 
 // src/server/routes/orders.routes.ts
-var import_express8 = require("express");
+var import_express9 = require("express");
 init_dbService();
 init_auditService();
-var router8 = (0, import_express8.Router)();
-router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+var router9 = (0, import_express9.Router)();
+router9.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { restId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
   console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
@@ -4361,7 +5463,7 @@ router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolati
   }
   return res.json(data || []);
 });
-router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+router9.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const caller = req.user;
   const orderId = req.params.id;
   try {
@@ -4462,7 +5564,7 @@ router8.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireA
     res.status(500).json({ error: err.message });
   }
 });
-router8.get("/orders/:orderId/items", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+router9.get("/orders/:orderId/items", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { orderId } = req.params;
   try {
     const { ensureOrderItemsSynced: ensureOrderItemsSynced2 } = await Promise.resolve().then(() => (init_cancellationService(), cancellationService_exports));
@@ -4480,7 +5582,7 @@ router8.get("/orders/:orderId/items", authenticateJWT, requireTenantIsolation(),
     res.status(500).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { orderId, itemId } = req.params;
   const { quantity, reason } = req.body;
   const caller = req.user;
@@ -4516,7 +5618,7 @@ router8.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTe
     res.status(400).json({ error: err.message });
   }
 });
-router8.get("/orders/:orderId/item-adjustments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.get("/orders/:orderId/item-adjustments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { orderId } = req.params;
   try {
     const { data, error } = await supabaseAdmin.from("order_item_adjustments").select("*, order_items(name)").eq("order_id", orderId);
@@ -4527,7 +5629,7 @@ router8.get("/orders/:orderId/item-adjustments", authenticateJWT, requireTenantI
     return res.status(500).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/discount", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/discount", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { orderId, itemId } = req.params;
   const { discountType, discountValue, overridePrice, reason } = req.body;
   const caller = req.user;
@@ -4566,7 +5668,7 @@ router8.post("/orders/:orderId/items/:itemId/discount", authenticateJWT, require
     return res.status(400).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/void", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/void", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { orderId, itemId } = req.params;
   const { reason } = req.body;
   const caller = req.user;
@@ -4592,7 +5694,7 @@ router8.post("/orders/:orderId/items/:itemId/void", authenticateJWT, requireTena
     return res.status(400).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/restore", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/restore", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { orderId, itemId } = req.params;
   const caller = req.user;
   try {
@@ -4611,7 +5713,7 @@ router8.post("/orders/:orderId/items/:itemId/restore", authenticateJWT, requireT
     return res.status(400).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { adjustmentId } = req.params;
   const caller = req.user;
   try {
@@ -4632,7 +5734,7 @@ router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve",
     return res.status(400).json({ error: err.message });
   }
 });
-router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+router9.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { adjustmentId } = req.params;
   const { rejectionReason } = req.body;
   const caller = req.user;
@@ -4655,13 +5757,13 @@ router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject", 
     return res.status(400).json({ error: err.message });
   }
 });
-var orders_routes_default = router8;
+var orders_routes_default = router9;
 
 // src/server/routes/sessions.routes.ts
-var import_express9 = require("express");
+var import_express10 = require("express");
 init_dbService();
-var router9 = (0, import_express9.Router)();
-router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view"), async (req, res) => {
+var router10 = (0, import_express10.Router)();
+router10.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view"), async (req, res) => {
   const status = req.query.status;
   let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
   if (status === "active") {
@@ -4671,12 +5773,12 @@ router9.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTena
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
+router10.get("/dining-sessions/:id/orders", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").select("*, payments(amount)").eq("session_id", req.params.id).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
+router10.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { orderIds, paidAmount } = req.body;
   try {
     const { error: orderError } = await supabaseAdmin.from("orders").update({
@@ -4694,15 +5796,15 @@ router9.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolat
     res.status(500).json({ error: err.message });
   }
 });
-router9.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
+router10.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-var sessions_routes_default = router9;
+var sessions_routes_default = router10;
 
 // src/server/routes/payments.routes.ts
-var import_express10 = require("express");
+var import_express11 = require("express");
 var import_crypto6 = __toESM(require("crypto"), 1);
 init_dbService();
 
@@ -5355,7 +6457,7 @@ async function getPaymentProviderForRestaurant(restaurantId, encryptionKey, cust
 }
 
 // src/server/routes/payments.routes.ts
-var router10 = (0, import_express10.Router)();
+var router11 = (0, import_express11.Router)();
 var requireOwnerOrManager = (req, res, next) => {
   const user = req.user;
   if (!user) {
@@ -5403,7 +6505,7 @@ async function processPaymentPaid(paymentId, referenceId, amount, providerName, 
   }
   return { success: true, payment: updatedPayment };
 }
-router10.get("/restaurants/:restaurantId/public-payment-settings", async (req, res) => {
+router11.get("/restaurants/:restaurantId/public-payment-settings", async (req, res) => {
   const { restaurantId } = req.params;
   try {
     const { data: settings, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restaurantId).eq("is_active", true).maybeSingle();
@@ -5433,7 +6535,7 @@ router10.get("/restaurants/:restaurantId/public-payment-settings", async (req, r
     res.status(500).json({ error: err.message });
   }
 });
-router10.get("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+router11.get("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
   const { restId } = req.params;
   try {
     const { data: settingsList, error } = await supabaseAdmin.from("payment_settings").select("*").eq("restaurant_id", restId);
@@ -5449,7 +6551,7 @@ router10.get("/restaurants/:restId/payment-settings", authenticateJWT, requireTe
     res.status(500).json({ error: err.message });
   }
 });
-router10.post("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+router11.post("/restaurants/:restId/payment-settings", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
   const { restId } = req.params;
   const { provider, account_type, enabled_methods, merchant_config, is_active } = req.body;
   if (!provider) {
@@ -5523,7 +6625,7 @@ router10.post("/restaurants/:restId/payment-settings", authenticateJWT, requireT
     res.status(500).json({ error: err.message });
   }
 });
-router10.post("/restaurants/:restId/payment-settings/test-connection", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
+router11.post("/restaurants/:restId/payment-settings/test-connection", authenticateJWT, requireTenantIsolation("restId"), requireOwnerOrManager, async (req, res) => {
   const { restId } = req.params;
   const { provider, merchant_config } = req.body;
   if (!provider) {
@@ -5564,7 +6666,7 @@ router10.post("/restaurants/:restId/payment-settings/test-connection", authentic
     res.status(500).json({ error: err.message });
   }
 });
-router10.get("/payments/status/:id", async (req, res) => {
+router11.get("/payments/status/:id", async (req, res) => {
   const { id } = req.params;
   try {
     const { data: payment, error } = await supabaseAdmin.from("payments").select("*, orders(status, paid_at)").eq("id", id).maybeSingle();
@@ -5584,7 +6686,7 @@ router10.get("/payments/status/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router10.post("/payments/create", async (req, res) => {
+router11.post("/payments/create", async (req, res) => {
   const { order_id, payment_method, customer_email, customer_name } = req.body;
   if (!order_id || !payment_method) {
     return res.status(400).json({ error: "Missing parameters 'order_id' or 'payment_method'" });
@@ -5683,7 +6785,7 @@ router10.post("/payments/create", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router10.post("/payment/webhook", async (req, res) => {
+router11.post("/payment/webhook", async (req, res) => {
   const payload = req.body || {};
   console.log("[PaymentWebhook] General multiplexer webhook endpoint triggered:", JSON.stringify(payload));
   const transactionId = payload.transaction_id || payload.id || payload.payment_id || payload.bill_id || payload.order_id;
@@ -5713,7 +6815,7 @@ router10.post("/payment/webhook", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router10.post("/webhooks/billplz", async (req, res) => {
+router11.post("/webhooks/billplz", async (req, res) => {
   console.log("[Webhook][Billplz] Triggered with body:", JSON.stringify(req.body));
   try {
     const payload = req.body || {};
@@ -5728,7 +6830,7 @@ router10.post("/webhooks/billplz", async (req, res) => {
     res.status(500).send("Callback Execution Fail");
   }
 });
-router10.post("/webhooks/stripe", async (req, res) => {
+router11.post("/webhooks/stripe", async (req, res) => {
   console.log("[Webhook][Stripe] Triggered with headers keys:", Object.keys(req.headers));
   try {
     const payload = req.body || {};
@@ -5773,7 +6875,7 @@ router10.post("/webhooks/stripe", async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
-router10.post("/webhooks/senangpay", async (req, res) => {
+router11.post("/webhooks/senangpay", async (req, res) => {
   console.log("[Webhook][SenangPay] Triggered with query:", req.query, "body:", req.body);
   try {
     const payload = { ...req.body, ...req.query };
@@ -5789,7 +6891,7 @@ router10.post("/webhooks/senangpay", async (req, res) => {
     res.status(500).send("OK");
   }
 });
-router10.post("/webhooks/curlec", async (req, res) => {
+router11.post("/webhooks/curlec", async (req, res) => {
   console.log("[Webhook][Curlec] Triggered:", JSON.stringify(req.body));
   try {
     const payload = req.body || {};
@@ -5804,7 +6906,7 @@ router10.post("/webhooks/curlec", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
+router11.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { sessionId } = req.query;
   let query;
   if (sessionId) {
@@ -5821,7 +6923,7 @@ router10.get("/orders/:orderId/payments", authenticateJWT, requireTenantIsolatio
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
-router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
+router11.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").insert({
     ...req.body,
     order_id: req.params.orderId
@@ -5829,18 +6931,18 @@ router10.post("/orders/:orderId/payments", authenticateJWT, requireTenantIsolati
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router10.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
+router11.post("/cash-transactions", authenticateJWT, requireTenantIsolation(), requirePermissions("payments.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("cash_transactions").insert(req.body).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-var payments_routes_default = router10;
+var payments_routes_default = router11;
 
 // src/server/routes/public.routes.ts
-var import_express11 = require("express");
+var import_express12 = require("express");
 init_dbService();
-var router11 = (0, import_express11.Router)();
-router11.get("/restaurants/:id", async (req, res) => {
+var router12 = (0, import_express12.Router)();
+router12.get("/restaurants/:id", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Restaurant not found" });
@@ -5848,12 +6950,12 @@ router11.get("/restaurants/:id", async (req, res) => {
   data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
   return res.json(data || {});
 });
-router11.get("/restaurants/:restId/categories", async (req, res) => {
+router12.get("/restaurants/:restId/categories", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("id,restaurant_id,name,sort_order,created_at").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/restaurants/:restId/menu-items", async (req, res) => {
+router12.get("/restaurants/:restId/menu-items", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("menu_items").select(`
       *,
       combo_groups (*, items:combo_group_items (*, child_product:menu_items (*, combo_groups (*, items:combo_group_items (*)), modifier_groups (*, modifiers!modifiers_group_id_fkey (*))))),
@@ -5862,7 +6964,7 @@ router11.get("/restaurants/:restId/menu-items", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/tables/:tableId", async (req, res) => {
+router12.get("/tables/:tableId", async (req, res) => {
   const { restId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.tableId);
   let query = supabaseAdmin.from("tables").select("id,restaurant_id,name,status,created_at");
@@ -5875,7 +6977,7 @@ router11.get("/tables/:tableId", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json(data || {});
 });
-router11.post("/resolve-session", async (req, res) => {
+router12.post("/resolve-session", async (req, res) => {
   const parsed = ResolveSessionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -5901,7 +7003,7 @@ router11.post("/resolve-session", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/orders/check", async (req, res) => {
+router12.get("/orders/check", async (req, res) => {
   const { sessionId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
   const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
@@ -5909,7 +7011,7 @@ router11.get("/orders/check", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json({ orders: data, count });
 });
-router11.get("/baskets", async (req, res) => {
+router12.get("/baskets", async (req, res) => {
   const { sessionId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
   const cleanSessionId = isUuid ? String(sessionId) : "00000000-0000-0000-0000-000000000000";
@@ -5917,12 +7019,12 @@ router11.get("/baskets", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/baskets/:basketId/items", async (req, res) => {
+router12.get("/baskets/:basketId/items", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("basket_items").select("id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at").eq("basket_id", req.params.basketId);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.post("/sync-basket-item", async (req, res) => {
+router12.post("/sync-basket-item", async (req, res) => {
   try {
     const parsed = SyncBasketItemSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -6020,7 +7122,7 @@ router11.post("/sync-basket-item", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router11.post("/place-order", async (req, res) => {
+router12.post("/place-order", async (req, res) => {
   const parsed = PlaceOrderSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -6029,7 +7131,7 @@ router11.post("/place-order", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/orders/:id", async (req, res) => {
+router12.get("/orders/:id", async (req, res) => {
   const { sessionId } = req.query;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId));
   let query = supabaseAdmin.from("orders").select("id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at").eq("id", req.params.id);
@@ -6040,12 +7142,12 @@ router11.get("/orders/:id", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/dining-sessions/:sessionId/orders", async (req, res) => {
+router12.get("/dining-sessions/:sessionId/orders", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").select("id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at").eq("session_id", req.params.sessionId).neq("status", "cancelled");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.post("/orders/:id/mark-paid", async (req, res) => {
+router12.post("/orders/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id").eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
@@ -6065,12 +7167,12 @@ router11.post("/orders/:id/mark-paid", async (req, res) => {
   }
   return res.status(400).json({ error: "Online orders can only be marked PAID via verified Stripe signature webhook." });
 });
-router11.post("/orders/:id/payment-failed", async (req, res) => {
+router12.post("/orders/:id/payment-failed", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("orders").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: "Order deleted due to failed payment." });
 });
-router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
+router12.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   const { sessionToken } = req.body;
   const { data: session } = await supabaseAdmin.from("dining_sessions").select("id, status").eq("id", req.params.id).eq("token", sessionToken).single();
   if (!session) return res.status(401).json({ error: "Invalid session token" });
@@ -6096,7 +7198,7 @@ router11.post("/dining-sessions/:id/mark-paid", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.post("/payments", async (req, res) => {
+router12.post("/payments", async (req, res) => {
   try {
     const parsed = PaymentsSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -6213,7 +7315,7 @@ router11.post("/payments", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router11.post("/payments/:id/initialize", async (req, res) => {
+router12.post("/payments/:id/initialize", async (req, res) => {
   const { id } = req.params;
   const { data: payment, error: pError } = await supabaseAdmin.from("payments").select("*").eq("id", id).single();
   if (pError) return res.status(500).json({ error: pError.message });
@@ -6244,12 +7346,12 @@ router11.post("/payments/:id/initialize", async (req, res) => {
       res.status(400).json({ error: "Unsupported method" });
   }
 });
-router11.get("/payments/:id/status", async (req, res) => {
+router12.get("/payments/:id/status", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("payments").select("status").eq("id", req.params.id).single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.post("/batch-translate", async (req, res) => {
+router12.post("/batch-translate", async (req, res) => {
   const { items, categories, context } = req.body;
   const { restaurantId, franchiseId, targetLanguage } = context;
   if (targetLanguage === "en") {
@@ -6329,12 +7431,12 @@ router11.post("/batch-translate", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router11.get("/kitchen-canonical/:id", async (req, res) => {
+router12.get("/kitchen-canonical/:id", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("kitchen_canonical_names").select("canonical_name").eq("menu_item_id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router11.get("/orders/:orderId/items", async (req, res) => {
+router12.get("/orders/:orderId/items", async (req, res) => {
   const { orderId } = req.params;
   const { sessionToken } = req.query;
   try {
@@ -6364,7 +7466,7 @@ router11.get("/orders/:orderId/items", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router11.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
+router12.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
   const { orderId, itemId } = req.params;
   const { quantity, reason, sessionToken } = req.body;
   try {
@@ -6402,10 +7504,10 @@ router11.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
-var public_routes_default = router11;
+var public_routes_default = router12;
 
 // src/billing/routes/billing.routes.ts
-var import_express12 = require("express");
+var import_express13 = require("express");
 
 // src/billing/repositories/billingRepository.ts
 init_dbService();
@@ -6979,10 +8081,10 @@ var BillingService = class {
 };
 
 // src/billing/routes/billing.routes.ts
-var router12 = (0, import_express12.Router)();
+var router13 = (0, import_express13.Router)();
 var service = new BillingService();
 var repo = new BillingRepository();
-router12.get("/billing/overview", authenticateJWT, async (req, res) => {
+router13.get("/billing/overview", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -6998,7 +8100,7 @@ router12.get("/billing/overview", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Failed to load billing metrics dashboard.", details: err.message });
   }
 });
-router12.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
+router13.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -7022,7 +8124,7 @@ router12.post("/billing/create-checkout-session", authenticateJWT, async (req, r
     res.status(500).json({ error: "Stripe connection failed.", details: err.message });
   }
 });
-router12.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
+router13.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -7041,7 +8143,7 @@ router12.post("/billing/create-portal-session", authenticateJWT, async (req, res
     res.status(500).json({ error: "Failed creating Stripe Billing Portal redirect session.", details: err.message });
   }
 });
-router12.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
+router13.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -7057,7 +8159,7 @@ router12.post("/api/billing/upgrade", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Modification of subscription failed.", details: err.message });
   }
 });
-router12.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
+router13.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -7071,7 +8173,7 @@ router12.post("/api/billing/cancel", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Cancellation transaction aborted.", details: err.message });
   }
 });
-router12.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
+router13.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -7101,23 +8203,24 @@ router12.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => 
     res.status(500).json({ error: "Sandbox synchronization exception", details: err.message });
   }
 });
-var billing_routes_default = router12;
+var billing_routes_default = router13;
 
 // src/server/routes/index.ts
-var router13 = (0, import_express13.Router)();
-router13.use("/api", auth_routes_default);
-router13.use("/api", translation_routes_default);
-router13.use("/api", menu_routes_default);
-router13.use("/api", staff_routes_default);
-router13.use("/api", workspace_routes_default);
-router13.use("/api", billing_routes_default);
-router13.use("/api/superadmin", superadmin_routes_default);
-router13.use("/api", tables_routes_default);
-router13.use("/api", orders_routes_default);
-router13.use("/api", sessions_routes_default);
-router13.use("/api", payments_routes_default);
-router13.use("/api/public", public_routes_default);
-var routes_default = router13;
+var router14 = (0, import_express14.Router)();
+router14.use("/api", auth_routes_default);
+router14.use("/api", translation_routes_default);
+router14.use("/api", menu_routes_default);
+router14.use("/api", menuImport_routes_default);
+router14.use("/api", staff_routes_default);
+router14.use("/api", workspace_routes_default);
+router14.use("/api", billing_routes_default);
+router14.use("/api/superadmin", superadmin_routes_default);
+router14.use("/api", tables_routes_default);
+router14.use("/api", orders_routes_default);
+router14.use("/api", sessions_routes_default);
+router14.use("/api", payments_routes_default);
+router14.use("/api/public", public_routes_default);
+var routes_default = router14;
 
 // src/billing/webhooks/stripeWebhook.ts
 var repo2 = new BillingRepository();
@@ -7339,11 +8442,11 @@ async function handleStripeWebhook(req, res) {
 
 // server.ts
 import_dotenv3.default.config();
-var app = (0, import_express14.default)();
+var app = (0, import_express15.default)();
 var PORT = 3e3;
 app.use((0, import_cors.default)());
-app.post("/api/billing/webhook", import_express14.default.raw({ type: "application/json" }), handleStripeWebhook);
-app.use(import_express14.default.json({
+app.post("/api/billing/webhook", import_express15.default.raw({ type: "application/json" }), handleStripeWebhook);
+app.use(import_express15.default.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
@@ -7456,7 +8559,7 @@ async function start() {
     app.use(vite.middlewares);
   } else {
     const distPath = import_path2.default.join(process.cwd(), "dist");
-    app.use(import_express14.default.static(distPath));
+    app.use(import_express15.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
     console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);

@@ -24,6 +24,10 @@ export function PaymentSuccess() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!restId || restId === 'undefined' || restId === 'null') {
+        setLoading(false);
+        return;
+      }
       try {
         const orderRes = await fetch(getApiUrl(`/api/public/orders/${orderId}?sessionId=${sessionId}`));
         if (!orderRes.ok) throw new Error("Order not found");

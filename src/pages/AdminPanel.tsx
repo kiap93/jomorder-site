@@ -21,6 +21,8 @@ import { AnalyticsTab } from './admin/AnalyticsTab';
 import { SettingsTab } from './admin/SettingsTab';
 import { StaffTab } from './admin/StaffTab';
 import { OfflineSyncTab } from './admin/OfflineSyncTab';
+import { MenuImportTab } from './admin/MenuImportTab';
+import { FileSpreadsheet } from 'lucide-react';
 
 const VisibilityManager = ({ 
   value, 
@@ -115,13 +117,13 @@ export function AdminPanel() {
   const canManageStaff = isActualOwner || hasStaffManagementPermission;
 
   // Map and translate URL parameters dynamically
-  const mapUrlToTab = (urlTab: string | undefined): 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' => {
+  const mapUrlToTab = (urlTab: string | undefined): 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' => {
     if (!urlTab) return 'menu';
     const tab = urlTab.toLowerCase();
     if (tab === 'staff-audits') return 'staff';
     
-    const validTabs: Array<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync'> = [
-      'menu', 'categories', 'tables', 'analytics', 'localization', 'settings', 'orders', 'staff', 'printers', 'offline-sync'
+    const validTabs: Array<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export'> = [
+      'menu', 'categories', 'tables', 'analytics', 'localization', 'settings', 'orders', 'staff', 'printers', 'offline-sync', 'import-export'
     ];
     if (validTabs.includes(tab as any)) {
       return tab as any;
@@ -136,7 +138,7 @@ export function AdminPanel() {
 
   const activeTab = mapUrlToTab(tabFromUrl);
   
-  const setActiveTab = (tabId: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync') => {
+  const setActiveTab = (tabId: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export') => {
     const urlSegment = mapTabToUrl(tabId);
     navigate(`/restaurant/${restId}/admin/${urlSegment}`, { replace: true });
   };
@@ -350,7 +352,7 @@ export function AdminPanel() {
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
 
   useEffect(() => {
-    if (!restId || loadingAuth) return;
+    if (!restId || restId === 'undefined' || restId === 'null' || loadingAuth) return;
     
     // Safety check: Don't fetch if no user
     if (!user) {
@@ -502,6 +504,10 @@ export function AdminPanel() {
   };
 
   const fetchData = async () => {
+    if (!restId || restId === 'undefined' || restId === 'null') {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     
@@ -1508,9 +1514,10 @@ export function AdminPanel() {
             { id: 'localization', icon: Globe, key: 'admin.translations' },
             ...(canManageStaff ? [{ id: 'staff', icon: Users, key: 'admin.staffAudits' }] : []),
             { id: 'offline-sync', icon: RefreshCw, name: 'Sync & Conflicts', key: 'admin.offlineSync' },
+            { id: 'import-export', icon: FileSpreadsheet, name: 'Import/Export', key: 'admin.importExport' },
             { id: 'settings', icon: Save, key: 'admin.settings' }
           ] as Array<{
-            id: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync';
+            id: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export';
             icon: React.ComponentType<{ size?: number }>;
             key: string;
             name?: string;
@@ -1664,6 +1671,12 @@ export function AdminPanel() {
           setConflictLogs={setConflictLogs}
           t={t}
         />
+      )}
+
+      {activeTab === 'import-export' && (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <MenuImportTab t={t} />
+        </div>
       )}
 
       {/* offline sync dead block removed */}
