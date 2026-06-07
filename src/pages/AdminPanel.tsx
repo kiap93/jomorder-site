@@ -678,7 +678,8 @@ export function AdminPanel() {
           service_charge: restaurant.serviceCharge * 100,
           sst: restaurant.sst * 100,
           currency: restaurant.currency,
-          payment_mode: restaurant.payment_mode || 'pay_first'
+          payment_mode: restaurant.payment_mode || 'pay_first',
+          show_voided_on_receipt: restaurant.show_voided_on_receipt !== false
         })
       });
 

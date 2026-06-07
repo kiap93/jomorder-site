@@ -385,6 +385,27 @@ export function SettingsTab({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">Receipt Printing Settings</label>
+                <div className="p-3 bg-gray-50 border border-gray-150 rounded-lg flex items-center justify-between">
+                  <div>
+                    <span className="block text-xs font-black text-gray-950">Show voided items on receipt</span>
+                    <span className="block text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                      If enabled, voided items will be printed on the invoice stamped with a VOID marker.
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={restaurant.show_voided_on_receipt !== false}
+                      onChange={e => setRestaurant({ ...restaurant, show_voided_on_receipt: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-250 opacity-100 rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#FF6B35]"></div>
+                  </label>
+                </div>
+              </div>
+
               <button
                 onClick={updateRestaurantSettings}
                 disabled={savingSettings}

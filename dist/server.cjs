@@ -1199,7 +1199,7 @@ var init_voidService = __esm({
 
 // server.ts
 var import_express14 = __toESM(require("express"), 1);
-var import_path = __toESM(require("path"), 1);
+var import_path2 = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
 var import_cors = __toESM(require("cors"), 1);
@@ -3145,6 +3145,50 @@ var staff_routes_default = router4;
 // src/server/routes/workspace.routes.ts
 var import_express5 = require("express");
 var import_jsonwebtoken3 = __toESM(require("jsonwebtoken"), 1);
+
+// src/server/services/extraSettingsService.ts
+var import_fs = __toESM(require("fs"), 1);
+var import_path = __toESM(require("path"), 1);
+var SETTINGS_FILE_PATH = import_path.default.join(process.cwd(), "src", "server", "restaurant_extra_settings.json");
+var settingsCache = {};
+try {
+  if (import_fs.default.existsSync(SETTINGS_FILE_PATH)) {
+    const rawData = import_fs.default.readFileSync(SETTINGS_FILE_PATH, "utf8");
+    settingsCache = JSON.parse(rawData);
+  }
+} catch (err) {
+  console.error("[ExtraSettingsService] Error loading extra settings from file:", err);
+}
+function saveToDisk() {
+  try {
+    const dir = import_path.default.dirname(SETTINGS_FILE_PATH);
+    if (!import_fs.default.existsSync(dir)) {
+      import_fs.default.mkdirSync(dir, { recursive: true });
+    }
+    import_fs.default.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(settingsCache, null, 2), "utf8");
+  } catch (err) {
+    console.error("[ExtraSettingsService] Error saving extra settings to disk:", err);
+  }
+}
+var extraSettingsService = {
+  getSettings(restaurantId) {
+    const defaults = { show_voided_on_receipt: true };
+    return {
+      ...defaults,
+      ...settingsCache[restaurantId] || {}
+    };
+  },
+  updateSettings(restaurantId, updates) {
+    settingsCache[restaurantId] = {
+      ...settingsCache[restaurantId] || {},
+      ...updates
+    };
+    saveToDisk();
+    return this.getSettings(restaurantId);
+  }
+};
+
+// src/server/routes/workspace.routes.ts
 init_dbService();
 var router5 = (0, import_express5.Router)();
 router5.get("/debug-restaurants", async (req, res) => {
@@ -3700,11 +3744,23 @@ router5.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
 router5.get("/restaurants/:id", authenticateJWT, async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  if (data) {
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+  }
   res.json(data);
 });
 router5.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").update(req.body).eq("id", req.params.id).select().maybeSingle();
+  const { show_voided_on_receipt, ...dbBody } = req.body;
+  if (show_voided_on_receipt !== void 0) {
+    extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
+  }
+  const { data, error } = await supabaseAdmin.from("restaurants").update(dbBody).eq("id", req.params.id).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  if (data) {
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+  }
   res.json(data);
 });
 var workspace_routes_default = router5;
@@ -5788,6 +5844,8 @@ router11.get("/restaurants/:id", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Restaurant not found" });
+  const extra = extraSettingsService.getSettings(req.params.id);
+  data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
   return res.json(data || {});
 });
 router11.get("/restaurants/:restId/categories", async (req, res) => {
@@ -7397,7 +7455,7 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = import_path.default.join(process.cwd(), "dist");
+    const distPath = import_path2.default.join(process.cwd(), "dist");
     app.use(import_express14.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
@@ -7409,9 +7467,9 @@ async function start() {
     });
   });
   if (process.env.NODE_ENV === "production") {
-    const distPath = import_path.default.join(process.cwd(), "dist");
+    const distPath = import_path2.default.join(process.cwd(), "dist");
     app.get("*", (req, res) => {
-      res.sendFile(import_path.default.join(distPath, "index.html"));
+      res.sendFile(import_path2.default.join(distPath, "index.html"));
     });
   }
   app.listen(PORT, "0.0.0.0", () => {

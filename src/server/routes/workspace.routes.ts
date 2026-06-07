@@ -1,5 +1,6 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
+import { extraSettingsService } from "../services/extraSettingsService";
 import { 
   supabaseAdmin, 
   loadFallbackDB, 
@@ -744,18 +745,32 @@ router.get("/restaurants/:id", authenticateJWT, async (req, res) => {
     .maybeSingle();
   
   if (error) return res.status(500).json({ error: error.message });
+  if (data) {
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+  }
   res.json(data);
 });
 
 router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
+  const { show_voided_on_receipt, ...dbBody } = req.body;
+
+  if (show_voided_on_receipt !== undefined) {
+    extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
+  }
+
   const { data, error } = await supabaseAdmin
     .from('restaurants')
-    .update(req.body)
+    .update(dbBody)
     .eq('id', req.params.id)
     .select()
     .maybeSingle();
   
   if (error) return res.status(500).json({ error: error.message });
+  if (data) {
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+  }
   res.json(data);
 });
 

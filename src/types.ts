@@ -22,6 +22,7 @@ export interface Restaurant {
   sst: number;
   franchiseId?: string;
   payment_mode?: 'pay_first' | 'pay_later' | 'both';
+  show_voided_on_receipt?: boolean;
 }
 
 export interface Table {

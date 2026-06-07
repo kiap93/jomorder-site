@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../services/dbService";
 import { idempotencyService } from "../services/idempotencyService";
+import { extraSettingsService } from "../services/extraSettingsService";
 import { 
   ResolveSessionSchema, 
   SyncBasketItemSchema, 
@@ -20,6 +21,10 @@ router.get("/restaurants/:id", async (req, res) => {
   
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Restaurant not found" });
+  
+  const extra = extraSettingsService.getSettings(req.params.id);
+  data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+
   return res.json(data || {});
 });
 
