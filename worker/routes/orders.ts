@@ -757,7 +757,7 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
 
     const { data: existingItems, error: itemsError } = await supabase
       .from('order_items')
-      .select('id')
+      .select('*')
       .eq('order_id', orderId);
 
     if (itemsError) {
@@ -765,16 +765,55 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
       return;
     }
 
-    if (Array.isArray(order.items) && (!existingItems || existingItems.length === 0)) {
-      const rowsToInsert = order.items.map((item: any) => {
-        let itemId = item.id;
-        if (!itemId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
-          itemId = crypto.randomUUID();
-          item.id = itemId;
+    const currentExisting = existingItems || [];
+
+    if (Array.isArray(order.items)) {
+      let itemsUpdated = false;
+      const rowsToInsert: any[] = [];
+      const matchedRowIds = new Set<string>();
+
+      const updatedItems = order.items.map((item: any) => {
+        let matchedDbRow: any = null;
+
+        // Try matching by orderItemId first
+        if (item.orderItemId) {
+          matchedDbRow = currentExisting.find((r: any) => r.id === item.orderItemId);
         }
 
-        return {
-          id: itemId,
+        // Next try matching by item.id if it's a valid UUID
+        if (!matchedDbRow && item.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
+          matchedDbRow = currentExisting.find((r: any) => r.id === item.id);
+        }
+
+        // If still not matched, look for database row matching name and price that wasn't matched yet
+        if (!matchedDbRow) {
+          matchedDbRow = currentExisting.find((r: any) => 
+            !matchedRowIds.has(r.id) && 
+            r.name === item.name && 
+            parseFloat(r.price) === parseFloat(item.price)
+          );
+        }
+
+        if (matchedDbRow) {
+          matchedRowIds.add(matchedDbRow.id);
+          if (item.orderItemId !== matchedDbRow.id) {
+            item.orderItemId = matchedDbRow.id;
+            itemsUpdated = true;
+          }
+          return item;
+        }
+
+        // Generate ID
+        let newUuid = item.id;
+        if (!newUuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newUuid)) {
+          newUuid = crypto.randomUUID();
+        }
+
+        item.orderItemId = newUuid;
+        itemsUpdated = true;
+
+        rowsToInsert.push({
+          id: newUuid,
           order_id: orderId,
           menu_item_id: item.menuItemId || null,
           name: item.name || 'Unknown Item',
@@ -787,7 +826,9 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
           cancelled_quantity: 0,
           refund_status: 'none',
           refund_amount: 0.00
-        };
+        });
+
+        return item;
       });
 
       if (rowsToInsert.length > 0) {
@@ -795,8 +836,13 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
         if (insertError) {
           console.error("[CancellationService] order_items bulk insert error:", insertError.message);
         } else {
-          await supabase.from('orders').update({ items: order.items }).eq('id', orderId);
+          itemsUpdated = true;
         }
+      }
+
+      if (itemsUpdated) {
+        order.items = updatedItems;
+        await supabase.from('orders').update({ items: updatedItems }).eq('id', orderId);
       }
     }
   } catch (err: any) {
@@ -850,15 +896,38 @@ orderRoutes.post("/api/orders/:orderId/items/:itemId/cancel", authenticate, asyn
 
     await ensureOrderItemsSynced(supabase, orderId);
 
+    // Resolve non-uuid/optimistic itemId to actual UUID in database
+    let resolvedItemId = itemId;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId);
+
+    if (!isUuid) {
+      const { data: orderRow } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      if (orderRow && Array.isArray(orderRow.items)) {
+        const matchedItem = orderRow.items.find((it: any) => it.id === itemId);
+        if (matchedItem && matchedItem.orderItemId) {
+          resolvedItemId = matchedItem.orderItemId;
+        } else {
+          await ensureOrderItemsSynced(supabase, orderId, orderRow);
+          const { data: refreshedOrder } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+          if (refreshedOrder && Array.isArray(refreshedOrder.items)) {
+            const matchedRefreshed = refreshedOrder.items.find((it: any) => it.id === itemId);
+            if (matchedRefreshed && matchedRefreshed.orderItemId) {
+              resolvedItemId = matchedRefreshed.orderItemId;
+            }
+          }
+        }
+      }
+    }
+
     // 1. Load the order item row
     const { data: orderItem, error: oiError } = await supabase
       .from('order_items')
       .select('*')
-      .eq('id', itemId)
+      .eq('id', resolvedItemId)
       .maybeSingle();
 
     if (oiError || !orderItem) {
-      return c.json({ error: `Order item matches no records/details. Item space not found.` }, 404);
+      return c.json({ error: `Order item matches no records/details. Item space not found under resolved ID ${resolvedItemId}` }, 404);
     }
 
     // 2. Load the order to get the settings and status
@@ -1016,6 +1085,21 @@ orderRoutes.post("/api/orders/:orderId/items/:itemId/cancel", authenticate, asyn
         console.error("[CancellationService] order_item_refunds insert failed:", refundErr.message);
       }
       await logOrderItemEvent(supabase, orderId, targetCancelId, 'ITEM_REFUNDED', cancelledBy, cancelledByRole, 'cancelled', 'cancelled', `Refund created for RM ${refundAmtForCancellation.toFixed(2)}`);
+
+      // General Audit Log for Refund trigger on Edge/Worker
+      try {
+        const email = caller?.email || "unknown@restaurant.com";
+        await logToAuditDb(
+          supabase,
+          cancelledBy || caller?.id || "unknown",
+          email,
+          cancelledByRole,
+          `MANUAL REFUND INITIATED: Refund created for RM ${refundAmtForCancellation.toFixed(2)} on Order ${orderId}`,
+          order.restaurant_id || "default"
+        );
+      } catch (err) {
+        console.error("Failed to log edge refund trigger:", err);
+      }
     }
 
     // 8. Rebuild the order items JSON and recalculate prices

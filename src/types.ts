@@ -232,8 +232,10 @@ export interface OrderItem {
   voidedAt?: string;
   voidApprovedBy?: string;
   status?: string;
+  originalUnitPrice?: number;
+  finalUnitPrice?: number;
   discount?: {
-    type: 'percentage' | 'fixed';
+    type: 'percentage' | 'fixed' | 'override';
     value: number;
     reason?: string;
     appliedBy?: string;

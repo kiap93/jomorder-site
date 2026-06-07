@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { supabaseAdmin } from "./dbService";
 
 export interface AuditLog {
   id: string;
@@ -11,26 +10,15 @@ export interface AuditLog {
   restaurant_id: string;
 }
 
-const AUDIT_LOGS_FILE = path.join(process.cwd(), "audit_logs.json");
+const auditLogsInMemory: AuditLog[] = [];
 
 export function readAuditLogs(): AuditLog[] {
-  try {
-    if (!fs.existsSync(AUDIT_LOGS_FILE)) {
-      fs.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify([]));
-    }
-    return JSON.parse(fs.readFileSync(AUDIT_LOGS_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read audit_logs.json", err);
-    return [];
-  }
+  return auditLogsInMemory;
 }
 
 export function writeAuditLogs(logs: AuditLog[]) {
-  try {
-    fs.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(logs, null, 2));
-  } catch (err) {
-    console.error("Failed to write audit_logs.json", err);
-  }
+  auditLogsInMemory.length = 0;
+  auditLogsInMemory.push(...logs);
 }
 
 export function logToAudit(userId: string, userEmail: string, role: string, action: string, restaurantId: string) {
@@ -49,4 +37,23 @@ export function logToAudit(userId: string, userEmail: string, role: string, acti
     logs.length = 2000;
   }
   writeAuditLogs(logs);
+
+  // Persist to audit_logs database table asynchronously
+  (async () => {
+    try {
+      const { error } = await supabaseAdmin.from('audit_logs').insert({
+        restaurant_id: restaurantId,
+        user_id: userId || null,
+        user_email: userEmail,
+        user_role: role,
+        action: action,
+        metadata: {}
+      });
+      if (error) {
+        console.error("[Audit] Error inserting audit log to DB:", error.message);
+      }
+    } catch (err: any) {
+      console.error("[Audit] Exception inserting audit log to DB:", err?.message || err);
+    }
+  })();
 }

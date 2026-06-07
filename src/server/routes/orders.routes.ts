@@ -223,4 +223,178 @@ router.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTen
   }
 });
 
+// GET /orders/:orderId/item-adjustments
+router.get("/orders/:orderId/item-adjustments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('order_item_adjustments')
+      .select('*, order_items(name)')
+      .eq('order_id', orderId);
+
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (err: any) {
+    console.error("[API] Failed to get item adjustments:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /orders/:orderId/items/:itemId/discount
+router.post("/orders/:orderId/items/:itemId/discount", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { discountType, discountValue, overridePrice, reason } = req.body;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    const { DiscountService } = await import("../services/discountService");
+
+    // If discountType is 'none' or null, we treat this as a removal of the active discount
+    if (!discountType || discountType === 'none') {
+      const result = await DiscountService.removeDiscount(
+        orderId,
+        itemId,
+        caller?.restaurantId || 'default',
+        caller?.id || 'unknown',
+        caller?.email || 'unknown@restaurant.com',
+        caller?.role || 'cashier'
+      );
+      return res.json(result);
+    }
+
+    const value = parseFloat(discountValue) || 0;
+    const ovPrice = overridePrice !== undefined ? parseFloat(overridePrice) : undefined;
+
+    const result = await DiscountService.applyDiscount(
+      orderId,
+      itemId,
+      caller?.restaurantId || 'default',
+      {
+        discountType,
+        discountValue: value,
+        overridePrice: ovPrice,
+        reason: reason || 'Manual item discount',
+        userId: caller?.id || 'unknown',
+        userEmail: caller?.email || 'unknown@restaurant.com',
+        userRole: caller?.role || 'cashier'
+      }
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[API] Error in item discount route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /orders/:orderId/items/:itemId/void
+router.post("/orders/:orderId/items/:itemId/void", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { reason } = req.body;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    if (!reason || reason.trim() === '') {
+      return res.status(400).json({ error: "Reason for void is required." });
+    }
+
+    const { VoidService } = await import("../services/voidService");
+    const result = await VoidService.voidItem(
+      orderId,
+      itemId,
+      caller?.restaurantId || 'default',
+      {
+        reason,
+        userId: caller?.id || 'unknown',
+        userEmail: caller?.email || 'unknown@restaurant.com',
+        userRole: caller?.role || 'cashier'
+      }
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[API] Error in item void route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /orders/:orderId/items/:itemId/restore
+router.post("/orders/:orderId/items/:itemId/restore", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    const { VoidService } = await import("../services/voidService");
+    const result = await VoidService.restoreVoid(
+      orderId,
+      itemId,
+      caller?.restaurantId || 'default',
+      caller?.id || 'unknown',
+      caller?.email || 'unknown@restaurant.com',
+      caller?.role || 'cashier'
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[API] Error in item restore route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve
+router.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { adjustmentId } = req.params;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    // Audit check: Only managers / owners can approve
+    const userRole = (caller?.role || 'cashier').toLowerCase();
+    if (!['owner', 'manager', 'admin'].includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden: Only Owners or Managers can approve item modifications." });
+    }
+
+    const { OrderAdjustmentService } = await import("../services/orderAdjustmentService");
+    const result = await OrderAdjustmentService.approveAdjustment(
+      adjustmentId,
+      caller?.id || 'unknown',
+      caller?.email || 'unknown@restaurant.com',
+      caller?.role || 'manager'
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[API] Error in approve adjustment route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject
+router.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { adjustmentId } = req.params;
+  const { rejectionReason } = req.body;
+  const caller = (req as Request & { user?: any }).user;
+
+  try {
+    // Only managers / owners can reject
+    const userRole = (caller?.role || 'cashier').toLowerCase();
+    if (!['owner', 'manager', 'admin'].includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden: Only Owners or Managers can reject item modifications." });
+    }
+
+    const { OrderAdjustmentService } = await import("../services/orderAdjustmentService");
+    const result = await OrderAdjustmentService.rejectAdjustment(
+      adjustmentId,
+      rejectionReason || 'Rejected by Manager',
+      caller?.id || 'unknown',
+      caller?.email || 'unknown@restaurant.com',
+      caller?.role || 'manager'
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[API] Error in reject adjustment route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 export default router;

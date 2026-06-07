@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./dbService";
 import crypto from "crypto";
+import { logToAudit } from "./auditService";
 
 export interface BusinessSettings {
   allow_customer_cancel: boolean;
@@ -115,9 +116,10 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
       order = data;
     }
 
+    // 1. Fetch any existing items in order_items table for this order
     const { data: existingItems, error: itemsError } = await supabaseAdmin
       .from('order_items')
-      .select('id')
+      .select('*')
       .eq('order_id', orderId);
 
     if (itemsError) {
@@ -125,16 +127,55 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
       return;
     }
 
-    if (Array.isArray(order.items) && (!existingItems || existingItems.length === 0)) {
-      const rowsToInsert = order.items.map((item: any) => {
-        let itemId = item.id;
-        if (!itemId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
-          itemId = crypto.randomUUID();
-          item.id = itemId;
+    const currentExisting = existingItems || [];
+
+    if (Array.isArray(order.items)) {
+      let itemsUpdated = false;
+      const rowsToInsert: any[] = [];
+      const matchedRowIds = new Set<string>();
+
+      const updatedItems = order.items.map((item: any) => {
+        let matchedDbRow: any = null;
+
+        // Try matching by orderItemId first
+        if (item.orderItemId) {
+          matchedDbRow = currentExisting.find(r => r.id === item.orderItemId);
         }
 
-        return {
-          id: itemId,
+        // Next try matching by item.id if it's a valid UUID
+        if (!matchedDbRow && item.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
+          matchedDbRow = currentExisting.find(r => r.id === item.id);
+        }
+
+        // If still not matched, let's look for any row in database that matches by name, price and wasn't already matched
+        if (!matchedDbRow) {
+          matchedDbRow = currentExisting.find(r => 
+            !matchedRowIds.has(r.id) && 
+            r.name === item.name && 
+            parseFloat(r.price) === parseFloat(item.price)
+          );
+        }
+
+        if (matchedDbRow) {
+          matchedRowIds.add(matchedDbRow.id);
+          if (item.orderItemId !== matchedDbRow.id) {
+            item.orderItemId = matchedDbRow.id;
+            itemsUpdated = true;
+          }
+          return item;
+        }
+
+        // If no matching database row is found, we need to generate one
+        let newUuid = item.id;
+        if (!newUuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newUuid)) {
+          newUuid = crypto.randomUUID();
+        }
+
+        item.orderItemId = newUuid;
+        itemsUpdated = true;
+
+        rowsToInsert.push({
+          id: newUuid,
           order_id: orderId,
           menu_item_id: item.menuItemId || null,
           name: item.name || 'Unknown Item',
@@ -147,7 +188,9 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
           cancelled_quantity: 0,
           refund_status: 'none',
           refund_amount: 0.00
-        };
+        });
+
+        return item;
       });
 
       if (rowsToInsert.length > 0) {
@@ -155,9 +198,13 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
         if (insertError) {
           console.error("[CancellationService] order_items bulk insert error:", insertError.message);
         } else {
-          // Commit generating ID snapshots
-          await supabaseAdmin.from('orders').update({ items: order.items }).eq('id', orderId);
+          itemsUpdated = true;
         }
+      }
+
+      if (itemsUpdated) {
+        order.items = updatedItems;
+        await supabaseAdmin.from('orders').update({ items: updatedItems }).eq('id', orderId);
       }
     }
   } catch (err: any) {
@@ -173,17 +220,58 @@ export async function cancelOrderItemQuantity(
   cancelQty: number,
   reason: string,
   cancelledBy: string | null,
-  cancelledByRole: string
+  cancelledByRole: string,
+  orderIdParam?: string
 ) {
+  let resolvedItemId = orderItemId;
+  let finalOrderId = orderIdParam;
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderItemId);
+
+  if (!isUuid) {
+    let orderRow: any = null;
+    if (finalOrderId) {
+      const { data } = await supabaseAdmin.from('orders').select('*').eq('id', finalOrderId).maybeSingle();
+      orderRow = data;
+    } else {
+      const { data } = await supabaseAdmin
+        .from('orders')
+        .select('*')
+        .contains('items', [{ id: orderItemId }])
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        orderRow = data;
+        finalOrderId = data.id;
+      }
+    }
+
+    if (orderRow && Array.isArray(orderRow.items)) {
+      const matchedItem = orderRow.items.find((it: any) => it.id === orderItemId);
+      if (matchedItem && matchedItem.orderItemId) {
+        resolvedItemId = matchedItem.orderItemId;
+      } else {
+        await ensureOrderItemsSynced(orderRow.id, orderRow);
+        const { data: refreshedOrder } = await supabaseAdmin.from('orders').select('*').eq('id', orderRow.id).maybeSingle();
+        if (refreshedOrder && Array.isArray(refreshedOrder.items)) {
+          const matchedRefreshed = refreshedOrder.items.find((it: any) => it.id === orderItemId);
+          if (matchedRefreshed && matchedRefreshed.orderItemId) {
+            resolvedItemId = matchedRefreshed.orderItemId;
+          }
+        }
+      }
+    }
+  }
+
   // 1. Load the order item row
   const { data: orderItem, error: oiError } = await supabaseAdmin
     .from('order_items')
     .select('*')
-    .eq('id', orderItemId)
+    .eq('id', resolvedItemId)
     .maybeSingle();
 
   if (oiError || !orderItem) {
-    throw new Error(`Order item matches no records. Details: ${oiError?.message || 'Item not found'}`);
+    throw new Error(`Order item matches no records. Details: ${oiError?.message || 'Item space not found under resolved ID ' + resolvedItemId}`);
   }
 
   const orderId = orderItem.order_id;
@@ -349,6 +437,30 @@ export async function cancelOrderItemQuantity(
       console.error("[CancellationService] order_item_refunds insert failed:", refundErr.message);
     }
     await logOrderItemEvent(orderId, targetCancelId, 'ITEM_REFUNDED', cancelledBy, cancelledByRole, 'cancelled', 'cancelled', `Refund created for RM ${refundAmtForCancellation.toFixed(2)}`);
+
+    // Audit Log for Refund Modification
+    let userEmail = "unknown@restaurant.com";
+    if (cancelledBy) {
+      try {
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('email')
+          .eq('id', cancelledBy)
+          .maybeSingle();
+        if (profile && profile.email) {
+          userEmail = profile.email;
+        }
+      } catch (e) {
+        console.warn("[CancellationService] Failed to fetch email for audit:", e);
+      }
+    }
+    logToAudit(
+      cancelledBy || 'unknown',
+      userEmail,
+      cancelledByRole,
+      `MANUAL REFUND INITIATED: Refund created for RM ${refundAmtForCancellation.toFixed(2)} on Order ${orderId}`,
+      order.restaurant_id || 'default'
+    );
   }
 
   // 8. Rebuild the order items JSON and recalculate prices

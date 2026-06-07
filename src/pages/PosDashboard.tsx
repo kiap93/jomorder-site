@@ -56,6 +56,30 @@ export function PosDashboard() {
   const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // New item level Adjustments states
+  const [activatingDiscountItem, setActivatingDiscountItem] = useState<{
+    orderId: string;
+    itemId: string;
+    name: string;
+    price: number;
+    quantity: number;
+    activeDiscount?: any;
+  } | null>(null);
+  const [discountTypeSelect, setDiscountTypeSelect] = useState<'percentage' | 'fixed' | 'override'>('percentage');
+  const [discountValueInput, setDiscountValueInput] = useState<string>('0');
+  const [discountReasonText, setDiscountReasonText] = useState<string>('Manual item discount');
+
+  // Staff order item void state
+  const [activatingVoidItem, setActivatingVoidItem] = useState<{
+    orderId: string;
+    itemId: string;
+    name: string;
+    price: number;
+    quantity: number;
+  } | null>(null);
+  const [voidReasonText, setVoidReasonText] = useState<string>('Customer Request');
+  const [adjustmentFeedback, setAdjustmentFeedback] = useState<string | null>(null);
+
   const handleStaffCancelItem = async () => {
     if (!cancellingItem) return;
     setActionLoading(true);
@@ -90,6 +114,117 @@ export function PosDashboard() {
 
     } catch (err: any) {
       setCancelError(err.message || "Unable to cancel item.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApplyDiscount = async () => {
+    if (!activatingDiscountItem) return;
+    setActionLoading(true);
+    setAdjustmentFeedback(null);
+
+    try {
+      const token = useAuthStore.getState().token;
+      const val = parseFloat(discountValueInput) || 0;
+
+      const response = await fetch(getApiUrl(`/api/orders/${activatingDiscountItem.orderId}/items/${activatingDiscountItem.itemId}/discount`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          discountType: discountTypeSelect,
+          discountValue: val,
+          overridePrice: discountTypeSelect === 'override' ? val : undefined,
+          reason: discountReasonText || 'Manual item discount'
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Failed to adjust discount.");
+      }
+
+      if (resData.pending_approval) {
+        setAdjustmentFeedback("Discount request submitted! Pending manager approval.");
+      } else {
+        setAdjustmentFeedback("Discount successfully applied!");
+      }
+
+      setTimeout(() => {
+        setActivatingDiscountItem(null);
+        setAdjustmentFeedback(null);
+        setRefreshTrigger(p => p + 1);
+      }, 1500);
+
+    } catch (err: any) {
+      setAdjustmentFeedback(`Error: ${err.message || "Failed to update discount"}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApplyVoid = async () => {
+    if (!activatingVoidItem) return;
+    setActionLoading(true);
+    setAdjustmentFeedback(null);
+
+    try {
+      const token = useAuthStore.getState().token;
+      const response = await fetch(getApiUrl(`/api/orders/${activatingVoidItem.orderId}/items/${activatingVoidItem.itemId}/void`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          reason: voidReasonText || 'Unspecified void'
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Failed to request item void.");
+      }
+
+      if (resData.pending_approval) {
+        setAdjustmentFeedback("Void request submitted! Pending manager approval.");
+      } else {
+        setAdjustmentFeedback("Item successfully voided!");
+      }
+
+      setTimeout(() => {
+        setActivatingVoidItem(null);
+        setAdjustmentFeedback(null);
+        setRefreshTrigger(p => p + 1);
+      }, 1500);
+
+    } catch (err: any) {
+      setAdjustmentFeedback(`Error: ${err.message || "Failed to request void"}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRestoreVoid = async (orderId: string, itemId: string) => {
+    setActionLoading(true);
+    try {
+      const token = useAuthStore.getState().token;
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}/items/${itemId}/restore`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Failed to restore item.");
+      }
+      setRefreshTrigger(p => p + 1);
+    } catch (err: any) {
+      alert(`Could not restore voided item: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -480,14 +615,16 @@ export function PosDashboard() {
                 {order.items.map((item, idx) => {
                   const itemStatus = item.status || order.status || 'pending';
                   const isCancelled = itemStatus === 'cancelled' || item.voided;
+                  const itemOriginalPrice = item.originalUnitPrice !== undefined ? item.originalUnitPrice : item.price;
+                  const itemFinalPrice = item.finalUnitPrice !== undefined ? item.finalUnitPrice : item.price;
 
                   return (
                     <div key={idx} className="flex justify-between items-start border-b border-gray-105 pb-1.5 last:border-0 last:pb-0">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-1">
                         <span className={`font-black text-[11px] px-1 rounded h-fit leading-tight mt-0.5 ${isCancelled ? 'bg-red-50 text-red-550 line-through font-normal' : 'bg-gray-105 text-gray-900'}`}>
                           {item.quantity}
                         </span>
-                        <div>
+                        <div className="flex-1">
                           <h4 className={`text-[11px] font-bold leading-tight ${isCancelled ? 'line-through text-gray-400 font-normal shadow-none' : 'text-gray-800'}`}>
                             {item.name}
                           </h4>
@@ -510,6 +647,12 @@ export function PosDashboard() {
                             </span>
                           </div>
 
+                          {item.discount && !isCancelled && (
+                            <p className="text-[10px] text-orange-600 font-bold mt-0.5 bg-orange-50/50 px-1 py-0.2 rounded-sm inline-block">
+                              🏷️ {item.discount.type === 'percentage' ? `${item.discount.value}% off` : item.discount.type === 'fixed' ? `RM ${item.discount.value} off` : `Override RM ${item.discount.value}`}
+                            </p>
+                          )}
+
                           {item.smartRenderedLines?.customer ? (
                             <div className="mt-0.5 space-y-0">
                               {item.smartRenderedLines.customer.map((line, i) => (
@@ -527,6 +670,76 @@ export function PosDashboard() {
                               {item.options.map(o => o.valueName).join(', ')}
                             </p>
                           ) : null}
+
+                          {/* Quick Cashier Adjustments Links */}
+                          {!isCancelled && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                            <div className="flex gap-2 mt-1 pb-0.5">
+                              <button
+                                onClick={() => {
+                                  setDiscountTypeSelect(item.discount?.type || 'percentage');
+                                  setDiscountValueInput(String(item.discount?.value || '0'));
+                                  setDiscountReasonText(item.discount?.reason || 'Manual item discount');
+                                  setActivatingDiscountItem({
+                                    orderId: order.id,
+                                    itemId: item.id || '',
+                                    name: item.name,
+                                    price: itemOriginalPrice,
+                                    quantity: item.quantity,
+                                    activeDiscount: item.discount
+                                  });
+                                }}
+                                className="text-[9px] font-black uppercase text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100/70 p-1.5 py-0.5 rounded leading-none transition border-0 cursor-pointer"
+                              >
+                                {item.discount ? 'Edit Discount' : 'Discount'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setVoidReasonText('Customer Request');
+                                  setActivatingVoidItem({
+                                    orderId: order.id,
+                                    itemId: item.id || '',
+                                    name: item.name,
+                                    price: itemOriginalPrice,
+                                    quantity: item.quantity
+                                  });
+                                }}
+                                className="text-[9px] font-black uppercase text-red-650 hover:text-red-700 bg-red-50 hover:bg-red-100/70 p-1.5 py-0.5 rounded leading-none transition border-0 cursor-pointer"
+                              >
+                                Void
+                              </button>
+                            </div>
+                          )}
+
+                          {item.voided && (
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[9px] italic text-zinc-500 font-medium">
+                                Voided ("{item.voidReason || 'No comment'}")
+                              </span>
+                              {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                                <button
+                                  onClick={() => handleRestoreVoid(order.id, item.id || '')}
+                                  className="text-[9px] font-black uppercase text-blue-650 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 p-1 py-0.5 rounded leading-none transition border-0 cursor-pointer"
+                                >
+                                  Unvoid
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Display Pricing Columns */}
+                      <div className="text-right pl-2 select-none">
+                        {item.discount && !isCancelled && (
+                          <div className="text-[9px] line-through text-zinc-400 leading-none">
+                            RM {itemOriginalPrice.toFixed(2)}
+                          </div>
+                        )}
+                        <div className={`text-[10px] font-black leading-tight mt-0.5 ${isCancelled ? 'line-through text-zinc-400' : 'text-zinc-900 font-mono'}`}>
+                          RM {itemFinalPrice.toFixed(2)}
+                        </div>
+                        <div className="text-[8px] font-bold text-zinc-400 font-mono">
+                          Total: RM {(itemFinalPrice * item.quantity).toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -824,6 +1037,280 @@ export function PosDashboard() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Item Level Discount Modal with Real Time Instant Previews */}
+      {activatingDiscountItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-left space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                Apply Item-Level Discount
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-1 font-bold">
+                Item: <span className="text-gray-900 font-black">{activatingDiscountItem.name}</span> (Base Price: RM {activatingDiscountItem.price.toFixed(2)})
+              </p>
+            </div>
+
+            {adjustmentFeedback && (
+              <div className={`text-xs font-bold p-3 rounded-lg leading-relaxed ${adjustmentFeedback.toLowerCase().includes('error') ? 'bg-red-50 text-red-650' : 'bg-orange-50 text-orange-700'}`}>
+                {adjustmentFeedback}
+              </div>
+            )}
+
+            {!adjustmentFeedback && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-1">
+                  {(['percentage', 'fixed', 'override'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setDiscountTypeSelect(type);
+                        setDiscountValueInput(type === 'override' ? String(activatingDiscountItem.price) : '0');
+                      }}
+                      className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition border ${discountTypeSelect === type ? 'bg-orange-500 border-orange-500 text-white' : 'bg-gray-50 border-gray-150 text-gray-500 hover:bg-gray-100'}`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Inline Value input */}
+                <div>
+                  <label className="block text-[8px] font-black uppercase text-gray-400 mb-1">
+                    {discountTypeSelect === 'percentage' ? 'Percentage Value (%)' : discountTypeSelect === 'fixed' ? 'Fixed Reductions Amount (RM)' : 'Custom Override Price (RM)'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={discountValueInput}
+                    onChange={(e) => setDiscountValueInput(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-250 rounded-lg text-xs font-bold focus:outline-none"
+                  />
+                </div>
+
+                {/* Reason field select and input */}
+                <div>
+                  <label className="block text-[8px] font-black uppercase text-gray-400 mb-1">
+                    Discount Reason Comment
+                  </label>
+                  <select
+                    value={['Goodwill Promo', 'Staff Dining', 'Menu Revision', 'Other'].includes(discountReasonText) ? discountReasonText : 'Other'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Other') {
+                        setDiscountReasonText('');
+                      } else {
+                        setDiscountReasonText(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 border border-gray-250 rounded-lg text-xs bg-gray-55 focus:outline-none focus:ring-1 focus:ring-orange-400 font-bold mb-2"
+                  >
+                    <option value="Goodwill Promo">Goodwill Promo (Customer Complaint / Delight)</option>
+                    <option value="Staff Dining">Staff Dining (Manager's Allowance Benefit)</option>
+                    <option value="Menu Revision">Menu Revision / Campaign Discount</option>
+                    <option value="Other">Other (Write Custom Reason)</option>
+                  </select>
+
+                  {!['Goodwill Promo', 'Staff Dining', 'Menu Revision'].includes(discountReasonText) && (
+                    <input
+                      type="text"
+                      placeholder="Type custom discount reason..."
+                      value={discountReasonText}
+                      onChange={(e) => setDiscountReasonText(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-250 rounded-lg text-xs font-bold focus:outline-none"
+                    />
+                  )}
+                </div>
+
+                {/* Real Time Live Price Difference Preview Calculations */}
+                <div className="bg-gray-50 border border-gray-150 p-3 rounded-xl space-y-1.5 select-none">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-gray-400 mb-1">Live Calculation Matrix</h4>
+                  <div className="flex justify-between text-xs font-medium text-gray-650">
+                    <span>Base Value:</span>
+                    <span>RM {(activatingDiscountItem.price * activatingDiscountItem.quantity).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-medium text-red-650">
+                    <span>Discount Reduction:</span>
+                    <span>
+                      {(() => {
+                        const val = parseFloat(discountValueInput) || 0;
+                        const subTotal = activatingDiscountItem.price * activatingDiscountItem.quantity;
+                        let disc = 0;
+                        if (discountTypeSelect === 'percentage') {
+                          disc = subTotal * (val / 100);
+                        } else if (discountTypeSelect === 'fixed') {
+                          disc = val * activatingDiscountItem.quantity;
+                        } else if (discountTypeSelect === 'override') {
+                          disc = subTotal - (val * activatingDiscountItem.quantity);
+                        }
+                        return `- RM ${Math.max(0, disc).toFixed(2)}`;
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs font-black text-gray-900 border-t border-gray-200 pt-1.5">
+                    <span>Optimistic Final:</span>
+                    <span>
+                      {(() => {
+                        const val = parseFloat(discountValueInput) || 0;
+                        const subTotal = activatingDiscountItem.price * activatingDiscountItem.quantity;
+                        let disc = 0;
+                        if (discountTypeSelect === 'percentage') {
+                          disc = subTotal * (val / 100);
+                        } else if (discountTypeSelect === 'fixed') {
+                          disc = val * activatingDiscountItem.quantity;
+                        } else if (discountTypeSelect === 'override') {
+                          disc = subTotal - (val * activatingDiscountItem.quantity);
+                        }
+                        return `RM ${Math.max(0, subTotal - disc).toFixed(2)}`;
+                      })()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bottom Trigger actions */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setActivatingDiscountItem(null)}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-gray-500 bg-gray-105 hover:bg-gray-150 rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+
+                  {activatingDiscountItem.activeDiscount && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setActionLoading(true);
+                        try {
+                          const token = useAuthStore.getState().token;
+                          const response = await fetch(getApiUrl(`/api/orders/${activatingDiscountItem.orderId}/items/${activatingDiscountItem.itemId}/discount`), {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ discountType: 'none' })
+                          });
+                          if (!response.ok) throw new Error("Failed to clear discount.");
+                          setActivatingDiscountItem(null);
+                          setRefreshTrigger(p => p + 1);
+                        } catch (err: any) {
+                          alert(err.message);
+                        } finally {
+                          setActionLoading(false);
+                        }
+                      }}
+                      disabled={actionLoading}
+                      className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-orange-700 bg-orange-100 hover:bg-orange-200 rounded-lg transition"
+                    >
+                      Remove All
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleApplyDiscount}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-orange-650 hover:bg-orange-500 rounded-lg transition shadow-sm"
+                  >
+                    {actionLoading ? 'Applying...' : 'Apply adjustment'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Item Level Void Modal */}
+      {activatingVoidItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-left space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                Void Checklist Item
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-1 font-bold">
+                Item: <span className="text-gray-900 font-black">{activatingVoidItem.name}</span> (Qty: {activatingVoidItem.quantity})
+              </p>
+            </div>
+
+            {adjustmentFeedback && (
+              <div className={`text-xs font-bold p-3 rounded-lg leading-relaxed ${adjustmentFeedback.toLowerCase().includes('error') ? 'bg-red-50 text-red-650' : 'bg-red-50 text-red-750'}`}>
+                {adjustmentFeedback}
+              </div>
+            )}
+
+            {!adjustmentFeedback && (
+              <div className="space-y-4">
+                {/* Warning Card */}
+                <div className="bg-red-50/50 border border-red-100 p-3 rounded-lg text-[10px] font-bold text-red-700 leading-relaxed">
+                  ⚠️ WARNING: This item value will be excluded from order tax/subtotals immediately. The record is permanently kept for audit logs under your signature initials.
+                </div>
+
+                {/* Reason selecting field */}
+                <div>
+                  <label className="block text-[8px] font-black uppercase text-gray-400 mb-1">
+                    Select Void Reason Code
+                  </label>
+                  <select
+                    value={['Customer Changed Mind', 'Kitchen Error', 'Accidental Entry', 'Ingredients Depleted', 'Other'].includes(voidReasonText) ? voidReasonText : 'Other'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Other') {
+                        setVoidReasonText('');
+                      } else {
+                        setVoidReasonText(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 border border-gray-250 rounded-lg text-xs bg-gray-55 focus:outline-none focus:ring-1 focus:ring-red-400 font-bold mb-2"
+                  >
+                    <option value="Customer Changed Mind">Customer Changed Mind</option>
+                    <option value="Kitchen Error">Kitchen Error (Incorrectly Prepared)</option>
+                    <option value="Accidental Entry">Accidental Entry (Operator Mistake)</option>
+                    <option value="Ingredients Depleted">Ingredients Depleted (Out of Stock)</option>
+                    <option value="Other">Other (Write Custom Reason)</option>
+                  </select>
+
+                  {!['Customer Changed Mind', 'Kitchen Error', 'Accidental Entry', 'Ingredients Depleted'].includes(voidReasonText) && (
+                    <input
+                      type="text"
+                      placeholder="Type custom void reason..."
+                      value={voidReasonText}
+                      onChange={(e) => setVoidReasonText(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-250 rounded-lg text-xs font-bold focus:outline-none"
+                    />
+                  )}
+                </div>
+
+                {/* Actions bottom bar */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setActivatingVoidItem(null)}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-gray-500 bg-gray-105 hover:bg-gray-150 rounded-lg transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApplyVoid}
+                    disabled={actionLoading}
+                    className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-red-650 hover:bg-red-600 rounded-lg transition shadow-sm"
+                  >
+                    {actionLoading ? 'Voiding...' : 'Request item void'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

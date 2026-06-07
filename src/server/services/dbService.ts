@@ -2,16 +2,12 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { OAuth2Client } from "google-auth-library";
 import dotenv from "dotenv";
 import path from "path";
-import fs from "fs";
 
 dotenv.config();
 
 export function getJwtSecret(env?: any): string {
   const secret = (env && env.JWT_SECRET) || process.env.JWT_SECRET;
   if (!secret) {
-    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
-      return "dummy_jwt_secret_for_ci_bypass";
-    }
     throw new Error("JWT_SECRET is required");
   }
   return secret;
@@ -40,31 +36,23 @@ export interface FallbackDB {
   profiles: Record<string, any>[];
 }
 
-const FALLBACK_DB_FILE = './db_fallbacks.json';
+const fallbackDBInMemory: FallbackDB = {
+  organizations: [],
+  organization_users: [],
+  restaurants: [],
+  restaurant_users: [],
+  profiles: []
+};
 
 export function loadFallbackDB(): FallbackDB {
-  try {
-    if (fs.existsSync(FALLBACK_DB_FILE)) {
-      return JSON.parse(fs.readFileSync(FALLBACK_DB_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.warn("Fallback DB read error:", e);
-  }
-  return {
-    organizations: [],
-    organization_users: [],
-    restaurants: [],
-    restaurant_users: [],
-    profiles: []
-  };
+  return fallbackDBInMemory;
 }
 
 export function saveFallbackDB(db: FallbackDB) {
-  try {
-    fs.writeFileSync(FALLBACK_DB_FILE, JSON.stringify(db, null, 2), 'utf8');
-  } catch (e) {
-    console.warn("Fallback DB write error:", e);
-  }
+  Object.keys(fallbackDBInMemory).forEach(key => {
+    (fallbackDBInMemory as any)[key] = [];
+  });
+  Object.assign(fallbackDBInMemory, db);
 }
 
 // --- SUPERADMIN API SUITE REGISTRIES ---
@@ -90,26 +78,15 @@ export interface RegistryEntry {
   franchise_mode?: boolean;
 }
 
-const REGISTRY_FILE = path.join(process.cwd(), "tenant_registry.json");
+const tenantRegistryInMemory: Record<string, RegistryEntry> = {};
 
 export function readRegistry(): Record<string, RegistryEntry> {
-  try {
-    if (!fs.existsSync(REGISTRY_FILE)) {
-      fs.writeFileSync(REGISTRY_FILE, JSON.stringify({}));
-    }
-    return JSON.parse(fs.readFileSync(REGISTRY_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read tenant_registry.json, returning empty object", err);
-    return {};
-  }
+  return tenantRegistryInMemory;
 }
 
 export function writeRegistry(data: Record<string, RegistryEntry>) {
-  try {
-    fs.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Failed to write tenant_registry.json", err);
-  }
+  Object.keys(tenantRegistryInMemory).forEach(key => delete tenantRegistryInMemory[key]);
+  Object.assign(tenantRegistryInMemory, data);
 }
 
 export async function getOrganizationSettings(supabase: SupabaseClient, orgId: string): Promise<RegistryEntry> {
@@ -237,31 +214,20 @@ export function getTenantRegistry(tenantId: string): RegistryEntry {
 }
 
 // --- STAFF REGISTRY AND AUDIT LOGGING ARCHITECTURE ---
-const STAFF_REGISTRY_FILE = path.join(process.cwd(), "staff_registry.json");
-
 export interface StaffSettings {
   status: 'active' | 'suspended';
   permissions: Record<string, boolean>;
 }
 
+const staffRegistryInMemory: Record<string, StaffSettings> = {};
+
 export function readStaffRegistry(): Record<string, StaffSettings> {
-  try {
-    if (!fs.existsSync(STAFF_REGISTRY_FILE)) {
-      fs.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify({}));
-    }
-    return JSON.parse(fs.readFileSync(STAFF_REGISTRY_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read staff_registry.json", err);
-    return {};
-  }
+  return staffRegistryInMemory;
 }
 
 export function writeStaffRegistry(data: Record<string, StaffSettings>) {
-  try {
-    fs.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Failed to write staff_registry.json", err);
-  }
+  Object.keys(staffRegistryInMemory).forEach(key => delete staffRegistryInMemory[key]);
+  Object.assign(staffRegistryInMemory, data);
 }
 
 export function getStaffSettings(userId: string, role: string): StaffSettings {

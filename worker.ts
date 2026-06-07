@@ -19,18 +19,10 @@ app.use('*', cors());
 
 app.use('*', async (c, next) => {
   if (!c.env || !c.env.JWT_SECRET) {
-    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
-      c.env = { ...c.env, JWT_SECRET: "dummy_jwt_secret_for_ci_bypass" } as any;
-    } else {
-      throw new Error('JWT_SECRET env variable is required');
-    }
+    throw new Error('JWT_SECRET is required');
   }
   if (!c.env.SUPABASE_SERVICE_ROLE_KEY) {
-    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
-      c.env = { ...c.env, SUPABASE_SERVICE_ROLE_KEY: "dummy_supabase_key_for_ci_bypass" } as any;
-    } else {
-      throw new Error('SUPABASE_SERVICE_ROLE_KEY missing');
-    }
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY missing');
   }
   await next();
 });

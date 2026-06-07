@@ -50,12 +50,22 @@ export function OrdersTab({
                   <span className="text-xs font-black text-zinc-900">{t('admin.table')} {order.tables?.name || 'Walk-in'}</span>
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex flex-col gap-0.5">
-                    {order.items?.map((item: OrderItem, i: number) => (
-                      <span key={i} className="text-[10px] font-bold text-zinc-600 leading-tight">
-                        {item.quantity}x {item.name}
-                      </span>
-                    ))}
+                  <div className="flex flex-col gap-1">
+                    {order.items?.map((item: OrderItem, i: number) => {
+                      const isCancelled = item.status === 'cancelled' || item.voided;
+                      return (
+                        <div key={i} className="flex items-center gap-1.5 flex-wrap text-[10px] font-bold leading-tight">
+                          <span className={isCancelled ? 'line-through text-red-400 font-normal' : 'text-zinc-600'}>
+                            {item.quantity}x {item.name}
+                          </span>
+                          {isCancelled && (
+                            <span className="text-[8px] font-black uppercase tracking-wider px-1 py-0.2 rounded bg-red-50 text-red-650">
+                              Cancelled
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </td>
                 <td className="px-3 py-2">

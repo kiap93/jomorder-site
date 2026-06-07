@@ -354,6 +354,10 @@ class PrinterService {
       const unroutedItems: OrderItem[] = [];
 
       (order.items || []).forEach(item => {
+        // Exclude voided or cancelled items from kitchen tickets routing
+        if (item.voided || item.status === 'voided' || item.status === 'cancelled') {
+          return;
+        }
         const itemAny = item as ExtendedOrderItem;
         const catId = itemCategoryMap.get(item.menuItemId) || itemAny.product?.categoryId || itemAny.categoryId || item.menuItemId;
         const mappedPrinterId = routeMap.get(catId);

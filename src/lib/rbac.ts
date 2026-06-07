@@ -23,7 +23,13 @@ export type PermissionCode =
   | 'payments.refund'
   | 'reports.view'
   | 'users.manage'
-  | 'settings.manage';
+  | 'settings.manage'
+  | 'discount_item'
+  | 'void_item'
+  | 'approve_discount'
+  | 'approve_void'
+  | 'view_discount_history'
+  | 'view_void_history';
 
 export interface Permission {
   code: PermissionCode;
@@ -60,29 +66,36 @@ export interface WorkspaceMembership {
 export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
   super_admin: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
-    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage',
+    'discount_item', 'void_item', 'approve_discount', 'approve_void', 'view_discount_history', 'view_void_history'
   ],
   superadmin: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
-    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage',
+    'discount_item', 'void_item', 'approve_discount', 'approve_void', 'view_discount_history', 'view_void_history'
   ],
   owner: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
-    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage',
+    'discount_item', 'void_item', 'approve_discount', 'approve_void', 'view_discount_history', 'view_void_history'
   ],
   admin: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
-    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage',
+    'discount_item', 'void_item', 'approve_discount', 'approve_void', 'view_discount_history', 'view_void_history'
   ],
   manager: [
     'orders.view', 'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready',
-    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage'
+    'payments.view', 'payments.refund', 'reports.view', 'users.manage', 'settings.manage',
+    'discount_item', 'void_item', 'approve_discount', 'approve_void', 'view_discount_history', 'view_void_history'
   ],
   cashier: [
-    'orders.view', 'orders.bump', 'orders.ready', 'payments.view'
+    'orders.view', 'orders.bump', 'orders.ready', 'payments.view',
+    'discount_item', 'void_item', 'view_discount_history', 'view_void_history'
   ],
   waiter: [
-    'orders.view', 'orders.bump', 'orders.ready'
+    'orders.view', 'orders.bump', 'orders.ready',
+    'discount_item', 'void_item', 'view_discount_history', 'view_void_history'
   ],
   kitchen: [
     'kitchen.view', 'orders.prepare', 'orders.bump', 'orders.ready'

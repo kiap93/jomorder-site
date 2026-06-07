@@ -13,16 +13,11 @@ export function getStripeClient(): Stripe {
   if (!stripeInstance) {
     const secretKey = process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
-      // In development / demo environment, fallback to a mock/simulated key to allow basic flows
-      console.warn("[STRIPE WARNING] STRIPE_SECRET_KEY environment variable is not defined. Initializing with mock dummy string.");
-      stripeInstance = new Stripe("sk_test_dummy_key_jomorder_secure_stripes", {
-        apiVersion: "2025-02-11.accredited" as any,
-      });
-    } else {
-      stripeInstance = new Stripe(secretKey, {
-        apiVersion: "2025-02-11.accredited" as any,
-      });
+      throw new Error("Missing STRIPE_SECRET_KEY");
     }
+    stripeInstance = new Stripe(secretKey, {
+      apiVersion: "2025-02-11.accredited" as any,
+    });
   }
   return stripeInstance;
 }

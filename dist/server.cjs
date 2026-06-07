@@ -33,53 +33,25 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 function getJwtSecret(env) {
   const secret = env && env.JWT_SECRET || process.env.JWT_SECRET;
   if (!secret) {
-    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
-      return "dummy_jwt_secret_for_ci_bypass";
-    }
     throw new Error("JWT_SECRET is required");
   }
   return secret;
 }
 function loadFallbackDB() {
-  try {
-    if (import_fs.default.existsSync(FALLBACK_DB_FILE)) {
-      return JSON.parse(import_fs.default.readFileSync(FALLBACK_DB_FILE, "utf8"));
-    }
-  } catch (e) {
-    console.warn("Fallback DB read error:", e);
-  }
-  return {
-    organizations: [],
-    organization_users: [],
-    restaurants: [],
-    restaurant_users: [],
-    profiles: []
-  };
+  return fallbackDBInMemory;
 }
 function saveFallbackDB(db) {
-  try {
-    import_fs.default.writeFileSync(FALLBACK_DB_FILE, JSON.stringify(db, null, 2), "utf8");
-  } catch (e) {
-    console.warn("Fallback DB write error:", e);
-  }
+  Object.keys(fallbackDBInMemory).forEach((key) => {
+    fallbackDBInMemory[key] = [];
+  });
+  Object.assign(fallbackDBInMemory, db);
 }
 function readRegistry() {
-  try {
-    if (!import_fs.default.existsSync(REGISTRY_FILE)) {
-      import_fs.default.writeFileSync(REGISTRY_FILE, JSON.stringify({}));
-    }
-    return JSON.parse(import_fs.default.readFileSync(REGISTRY_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read tenant_registry.json, returning empty object", err);
-    return {};
-  }
+  return tenantRegistryInMemory;
 }
 function writeRegistry(data) {
-  try {
-    import_fs.default.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Failed to write tenant_registry.json", err);
-  }
+  Object.keys(tenantRegistryInMemory).forEach((key) => delete tenantRegistryInMemory[key]);
+  Object.assign(tenantRegistryInMemory, data);
 }
 async function getOrganizationSettings(supabase, orgId) {
   try {
@@ -190,22 +162,11 @@ function getTenantRegistry(tenantId) {
   return registry[tenantId];
 }
 function readStaffRegistry() {
-  try {
-    if (!import_fs.default.existsSync(STAFF_REGISTRY_FILE)) {
-      import_fs.default.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify({}));
-    }
-    return JSON.parse(import_fs.default.readFileSync(STAFF_REGISTRY_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read staff_registry.json", err);
-    return {};
-  }
+  return staffRegistryInMemory;
 }
 function writeStaffRegistry(data) {
-  try {
-    import_fs.default.writeFileSync(STAFF_REGISTRY_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Failed to write staff_registry.json", err);
-  }
+  Object.keys(staffRegistryInMemory).forEach((key) => delete staffRegistryInMemory[key]);
+  Object.assign(staffRegistryInMemory, data);
 }
 function getStaffSettings(userId, role) {
   const registry = readStaffRegistry();
@@ -228,15 +189,13 @@ function getStaffSettings(userId, role) {
   }
   return registry[userId];
 }
-var import_supabase_js, import_google_auth_library, import_dotenv, import_path, import_fs, GOOGLE_CLIENT_ID, googleClient, supabaseUrl, supabaseKey, supabaseAdmin, FALLBACK_DB_FILE, REGISTRY_FILE, STAFF_REGISTRY_FILE;
+var import_supabase_js, import_google_auth_library, import_dotenv, GOOGLE_CLIENT_ID, googleClient, supabaseUrl, supabaseKey, supabaseAdmin, fallbackDBInMemory, tenantRegistryInMemory, staffRegistryInMemory;
 var init_dbService = __esm({
   "src/server/services/dbService.ts"() {
     "use strict";
     import_supabase_js = require("@supabase/supabase-js");
     import_google_auth_library = require("google-auth-library");
     import_dotenv = __toESM(require("dotenv"), 1);
-    import_path = __toESM(require("path"), 1);
-    import_fs = __toESM(require("fs"), 1);
     import_dotenv.default.config();
     GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
     googleClient = new import_google_auth_library.OAuth2Client(GOOGLE_CLIENT_ID);
@@ -246,9 +205,66 @@ var init_dbService = __esm({
       supabaseUrl,
       supabaseKey
     );
-    FALLBACK_DB_FILE = "./db_fallbacks.json";
-    REGISTRY_FILE = import_path.default.join(process.cwd(), "tenant_registry.json");
-    STAFF_REGISTRY_FILE = import_path.default.join(process.cwd(), "staff_registry.json");
+    fallbackDBInMemory = {
+      organizations: [],
+      organization_users: [],
+      restaurants: [],
+      restaurant_users: [],
+      profiles: []
+    };
+    tenantRegistryInMemory = {};
+    staffRegistryInMemory = {};
+  }
+});
+
+// src/server/services/auditService.ts
+function readAuditLogs() {
+  return auditLogsInMemory;
+}
+function writeAuditLogs(logs) {
+  auditLogsInMemory.length = 0;
+  auditLogsInMemory.push(...logs);
+}
+function logToAudit(userId, userEmail, role, action, restaurantId) {
+  const logs = readAuditLogs();
+  const log = {
+    id: "audit-" + Math.random().toString(36).substr(2, 9),
+    user_id: userId,
+    user_email: userEmail,
+    role,
+    action,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    restaurant_id: restaurantId
+  };
+  logs.unshift(log);
+  if (logs.length > 2e3) {
+    logs.length = 2e3;
+  }
+  writeAuditLogs(logs);
+  (async () => {
+    try {
+      const { error } = await supabaseAdmin.from("audit_logs").insert({
+        restaurant_id: restaurantId,
+        user_id: userId || null,
+        user_email: userEmail,
+        user_role: role,
+        action,
+        metadata: {}
+      });
+      if (error) {
+        console.error("[Audit] Error inserting audit log to DB:", error.message);
+      }
+    } catch (err) {
+      console.error("[Audit] Exception inserting audit log to DB:", err?.message || err);
+    }
+  })();
+}
+var auditLogsInMemory;
+var init_auditService = __esm({
+  "src/server/services/auditService.ts"() {
+    "use strict";
+    init_dbService();
+    auditLogsInMemory = [];
   }
 });
 
@@ -320,20 +336,45 @@ async function ensureOrderItemsSynced(orderId, orderData) {
       if (error || !data) return;
       order = data;
     }
-    const { data: existingItems, error: itemsError } = await supabaseAdmin.from("order_items").select("id").eq("order_id", orderId);
+    const { data: existingItems, error: itemsError } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
     if (itemsError) {
       console.warn("[CancellationService] Error loading existing order_items. Table might be missing:", itemsError.message);
       return;
     }
-    if (Array.isArray(order.items) && (!existingItems || existingItems.length === 0)) {
-      const rowsToInsert = order.items.map((item) => {
-        let itemId = item.id;
-        if (!itemId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
-          itemId = import_crypto3.default.randomUUID();
-          item.id = itemId;
+    const currentExisting = existingItems || [];
+    if (Array.isArray(order.items)) {
+      let itemsUpdated = false;
+      const rowsToInsert = [];
+      const matchedRowIds = /* @__PURE__ */ new Set();
+      const updatedItems = order.items.map((item) => {
+        let matchedDbRow = null;
+        if (item.orderItemId) {
+          matchedDbRow = currentExisting.find((r) => r.id === item.orderItemId);
         }
-        return {
-          id: itemId,
+        if (!matchedDbRow && item.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
+          matchedDbRow = currentExisting.find((r) => r.id === item.id);
+        }
+        if (!matchedDbRow) {
+          matchedDbRow = currentExisting.find(
+            (r) => !matchedRowIds.has(r.id) && r.name === item.name && parseFloat(r.price) === parseFloat(item.price)
+          );
+        }
+        if (matchedDbRow) {
+          matchedRowIds.add(matchedDbRow.id);
+          if (item.orderItemId !== matchedDbRow.id) {
+            item.orderItemId = matchedDbRow.id;
+            itemsUpdated = true;
+          }
+          return item;
+        }
+        let newUuid = item.id;
+        if (!newUuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newUuid)) {
+          newUuid = import_crypto3.default.randomUUID();
+        }
+        item.orderItemId = newUuid;
+        itemsUpdated = true;
+        rowsToInsert.push({
+          id: newUuid,
           order_id: orderId,
           menu_item_id: item.menuItemId || null,
           name: item.name || "Unknown Item",
@@ -346,25 +387,61 @@ async function ensureOrderItemsSynced(orderId, orderData) {
           cancelled_quantity: 0,
           refund_status: "none",
           refund_amount: 0
-        };
+        });
+        return item;
       });
       if (rowsToInsert.length > 0) {
         const { error: insertError } = await supabaseAdmin.from("order_items").insert(rowsToInsert);
         if (insertError) {
           console.error("[CancellationService] order_items bulk insert error:", insertError.message);
         } else {
-          await supabaseAdmin.from("orders").update({ items: order.items }).eq("id", orderId);
+          itemsUpdated = true;
         }
+      }
+      if (itemsUpdated) {
+        order.items = updatedItems;
+        await supabaseAdmin.from("orders").update({ items: updatedItems }).eq("id", orderId);
       }
     }
   } catch (err) {
     console.error("[CancellationService] ensureOrderItemsSynced exception:", err);
   }
 }
-async function cancelOrderItemQuantity(orderItemId, cancelQty, reason, cancelledBy, cancelledByRole) {
-  const { data: orderItem, error: oiError } = await supabaseAdmin.from("order_items").select("*").eq("id", orderItemId).maybeSingle();
+async function cancelOrderItemQuantity(orderItemId, cancelQty, reason, cancelledBy, cancelledByRole, orderIdParam) {
+  let resolvedItemId = orderItemId;
+  let finalOrderId = orderIdParam;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderItemId);
+  if (!isUuid) {
+    let orderRow = null;
+    if (finalOrderId) {
+      const { data } = await supabaseAdmin.from("orders").select("*").eq("id", finalOrderId).maybeSingle();
+      orderRow = data;
+    } else {
+      const { data } = await supabaseAdmin.from("orders").select("*").contains("items", [{ id: orderItemId }]).limit(1).maybeSingle();
+      if (data) {
+        orderRow = data;
+        finalOrderId = data.id;
+      }
+    }
+    if (orderRow && Array.isArray(orderRow.items)) {
+      const matchedItem = orderRow.items.find((it) => it.id === orderItemId);
+      if (matchedItem && matchedItem.orderItemId) {
+        resolvedItemId = matchedItem.orderItemId;
+      } else {
+        await ensureOrderItemsSynced(orderRow.id, orderRow);
+        const { data: refreshedOrder } = await supabaseAdmin.from("orders").select("*").eq("id", orderRow.id).maybeSingle();
+        if (refreshedOrder && Array.isArray(refreshedOrder.items)) {
+          const matchedRefreshed = refreshedOrder.items.find((it) => it.id === orderItemId);
+          if (matchedRefreshed && matchedRefreshed.orderItemId) {
+            resolvedItemId = matchedRefreshed.orderItemId;
+          }
+        }
+      }
+    }
+  }
+  const { data: orderItem, error: oiError } = await supabaseAdmin.from("order_items").select("*").eq("id", resolvedItemId).maybeSingle();
   if (oiError || !orderItem) {
-    throw new Error(`Order item matches no records. Details: ${oiError?.message || "Item not found"}`);
+    throw new Error(`Order item matches no records. Details: ${oiError?.message || "Item space not found under resolved ID " + resolvedItemId}`);
   }
   const orderId = orderItem.order_id;
   const { data: order, error: oError } = await supabaseAdmin.from("orders").select("*, restaurants(*)").eq("id", orderId).maybeSingle();
@@ -477,6 +554,24 @@ async function cancelOrderItemQuantity(orderItemId, cancelQty, reason, cancelled
       console.error("[CancellationService] order_item_refunds insert failed:", refundErr.message);
     }
     await logOrderItemEvent(orderId, targetCancelId, "ITEM_REFUNDED", cancelledBy, cancelledByRole, "cancelled", "cancelled", `Refund created for RM ${refundAmtForCancellation.toFixed(2)}`);
+    let userEmail = "unknown@restaurant.com";
+    if (cancelledBy) {
+      try {
+        const { data: profile } = await supabaseAdmin.from("profiles").select("email").eq("id", cancelledBy).maybeSingle();
+        if (profile && profile.email) {
+          userEmail = profile.email;
+        }
+      } catch (e) {
+        console.warn("[CancellationService] Failed to fetch email for audit:", e);
+      }
+    }
+    logToAudit(
+      cancelledBy || "unknown",
+      userEmail,
+      cancelledByRole,
+      `MANUAL REFUND INITIATED: Refund created for RM ${refundAmtForCancellation.toFixed(2)} on Order ${orderId}`,
+      order.restaurant_id || "default"
+    );
   }
   const { data: refreshedOrderItems } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
   if (refreshedOrderItems && refreshedOrderItems.length > 0) {
@@ -564,12 +659,547 @@ var init_cancellationService = __esm({
     "use strict";
     init_dbService();
     import_crypto3 = __toESM(require("crypto"), 1);
+    init_auditService();
+  }
+});
+
+// src/server/services/orderAdjustmentService.ts
+var orderAdjustmentService_exports = {};
+__export(orderAdjustmentService_exports, {
+  OrderAdjustmentService: () => OrderAdjustmentService,
+  recalculateOrderAndSync: () => recalculateOrderAndSync
+});
+async function recalculateOrderAndSync(orderId) {
+  const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("*, restaurants(*)").eq("id", orderId).maybeSingle();
+  if (orderErr || !order) {
+    console.error("[Recalculate] Failed to fetch order:", orderErr?.message);
+    return;
+  }
+  const { data: orderItems, error: itemsErr } = await supabaseAdmin.from("order_items").select("*").eq("order_id", orderId);
+  if (itemsErr || !orderItems) {
+    console.error("[Recalculate] Failed to fetch order_items:", itemsErr?.message);
+    return;
+  }
+  orderItems.forEach((oi) => {
+    if (oi.original_unit_price === null || oi.original_unit_price === void 0) {
+      oi.original_unit_price = parseFloat(oi.price);
+    }
+    if (oi.final_unit_price === null || oi.final_unit_price === void 0) {
+      oi.final_unit_price = parseFloat(oi.price);
+    }
+  });
+  const itemsJson = orderItems.map((oi) => {
+    const isVoided = oi.status === "voided";
+    const isCancelled = oi.status === "cancelled";
+    const originalPrice = parseFloat(oi.original_unit_price);
+    let finalPrice = originalPrice;
+    if (oi.discount_type) {
+      if (oi.discount_type === "percentage") {
+        finalPrice = originalPrice * (1 - parseFloat(oi.discount_value) / 100);
+      } else if (oi.discount_type === "fixed") {
+        finalPrice = originalPrice - parseFloat(oi.discount_value);
+      } else if (oi.discount_type === "override") {
+        finalPrice = parseFloat(oi.override_price !== null ? oi.override_price : oi.discount_value);
+      }
+      finalPrice = Math.max(0, finalPrice);
+    }
+    finalPrice = Math.round(finalPrice * 100) / 100;
+    return {
+      id: oi.id,
+      menuItemId: oi.menu_item_id,
+      name: oi.name,
+      price: originalPrice,
+      // Base price
+      originalUnitPrice: originalPrice,
+      finalUnitPrice: finalPrice,
+      quantity: oi.quantity,
+      status: oi.status,
+      options: oi.options || [],
+      specialInstructions: oi.special_instructions,
+      voided: isVoided || isCancelled,
+      voidedAt: oi.voided_at || oi.cancelled_at || null,
+      voidedBy: oi.voided_by || oi.cancelled_by || null,
+      voidReason: oi.void_reason || oi.cancellation_reason || null,
+      discount: oi.discount_type ? {
+        type: oi.discount_type,
+        value: parseFloat(oi.discount_value),
+        overridePrice: oi.override_price ? parseFloat(oi.override_price) : null,
+        reason: oi.discount_reason,
+        discountedBy: oi.discounted_by,
+        discountedAt: oi.discounted_at
+      } : null
+    };
+  });
+  const restaurant = order.restaurants;
+  const scRate = (restaurant?.service_charge || 0) / 100;
+  const sstRate = (restaurant?.sst || 0) / 100;
+  let subtotal = 0;
+  itemsJson.forEach((it) => {
+    if (it.status !== "voided" && it.status !== "cancelled") {
+      subtotal += it.finalUnitPrice * it.quantity;
+    }
+  });
+  let orderDiscAmt = 0;
+  if (order.discount) {
+    if (order.discount.type === "percentage") {
+      orderDiscAmt = subtotal * (order.discount.value / 100);
+    } else {
+      orderDiscAmt = Math.min(subtotal, order.discount.value);
+    }
+  }
+  const netSubtotal = Math.max(0, subtotal - orderDiscAmt);
+  const scAmount = netSubtotal * scRate;
+  const sstAmount = (netSubtotal + scAmount) * sstRate;
+  const grandTotal = netSubtotal + scAmount + sstAmount;
+  for (const oi of orderItems) {
+    const originalPrice = parseFloat(oi.original_unit_price);
+    let finalPrice = originalPrice;
+    if (oi.discount_type) {
+      if (oi.discount_type === "percentage") {
+        finalPrice = originalPrice * (1 - parseFloat(oi.discount_value) / 100);
+      } else if (oi.discount_type === "fixed") {
+        finalPrice = originalPrice - parseFloat(oi.discount_value);
+      } else if (oi.discount_type === "override") {
+        finalPrice = parseFloat(oi.override_price !== null ? oi.override_price : oi.discount_value);
+      }
+      finalPrice = Math.max(0, finalPrice);
+    }
+    finalPrice = Math.round(finalPrice * 100) / 100;
+    await supabaseAdmin.from("order_items").update({
+      original_unit_price: originalPrice,
+      final_unit_price: finalPrice
+    }).eq("id", oi.id);
+  }
+  const activeItemCount = orderItems.filter((oi) => oi.status !== "voided" && oi.status !== "cancelled").reduce((sum, oi) => sum + oi.quantity, 0);
+  const orderStatus = activeItemCount === 0 ? "cancelled" : order.status;
+  const { error: patchError } = await supabaseAdmin.from("orders").update({
+    items: itemsJson,
+    total_price: grandTotal,
+    status: orderStatus,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  }).eq("id", orderId);
+  if (patchError) {
+    console.error("[Recalculate] Failed to sync back parent order total:", patchError.message);
+  }
+}
+var OrderAdjustmentService;
+var init_orderAdjustmentService = __esm({
+  "src/server/services/orderAdjustmentService.ts"() {
+    "use strict";
+    init_dbService();
+    init_auditService();
+    OrderAdjustmentService = class {
+      /**
+       * Approves a pending void/discount request.
+       */
+      static async approveAdjustment(adjustmentId, approverId, approverEmail, approverRole) {
+        const { data: request, error: reqErr } = await supabaseAdmin.from("order_item_adjustments").select("*").eq("id", adjustmentId).maybeSingle();
+        if (reqErr || !request) {
+          throw new Error(`Adjustment request not found: ${reqErr?.message || ""}`);
+        }
+        if (request.status !== "pending") {
+          throw new Error(`Adjustment is already evaluated. Status: ${request.status}`);
+        }
+        const { order_id: orderId, order_item_id: orderItemId, restaurant_id: restId, type } = request;
+        const { data: item, error: itemErr } = await supabaseAdmin.from("order_items").select("*").eq("id", orderItemId).maybeSingle();
+        if (itemErr || !item) {
+          throw new Error("Order item associated with this request not found.");
+        }
+        const { error: updReqErr } = await supabaseAdmin.from("order_item_adjustments").update({
+          status: "approved",
+          approved_by: approverId,
+          approved_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", adjustmentId);
+        if (updReqErr) throw new Error("Failed to approve adjustment request.");
+        if (type === "void") {
+          const { error: voidErr } = await supabaseAdmin.from("order_items").update({
+            status: "voided",
+            void_reason: request.reason,
+            voided_by: request.requested_by,
+            voided_at: (/* @__PURE__ */ new Date()).toISOString()
+          }).eq("id", orderItemId);
+          if (voidErr) throw new Error(`Failed to apply approved void to item: ${voidErr.message}`);
+          await supabaseAdmin.from("order_item_events").insert({
+            order_id: orderId,
+            order_item_id: orderItemId,
+            event_type: "ITEM_VOID_APPROVED",
+            created_by: approverId,
+            created_by_role: approverRole,
+            old_status: item.status,
+            new_status: "voided",
+            reason: `Void Approved by Manager. Request reason: ${request.reason}`
+          });
+          logToAudit(
+            approverId,
+            approverEmail,
+            approverRole,
+            `ITEM_VOID_APPROVED: Approved void for item ${item.name} in Order ${orderId}`,
+            restId || "default"
+          );
+        } else if (type === "discount") {
+          const originalPrice = parseFloat(item.original_unit_price || item.price);
+          let finalPrice = originalPrice;
+          const { discount_type: dType, discount_value: dVal, override_price: oPrice } = request;
+          if (dType === "percentage") {
+            finalPrice = originalPrice * (1 - parseFloat(dVal) / 100);
+          } else if (dType === "fixed") {
+            finalPrice = originalPrice - parseFloat(dVal);
+          } else if (dType === "override") {
+            finalPrice = parseFloat(oPrice !== null ? oPrice : dVal);
+          }
+          finalPrice = Math.max(0, finalPrice);
+          const { error: discErr } = await supabaseAdmin.from("order_items").update({
+            discount_type: dType,
+            discount_value: dVal,
+            override_price: oPrice,
+            discount_reason: request.reason,
+            discounted_by: request.requested_by,
+            discounted_at: (/* @__PURE__ */ new Date()).toISOString(),
+            original_unit_price: originalPrice,
+            final_unit_price: finalPrice
+          }).eq("id", orderItemId);
+          if (discErr) throw new Error(`Failed to apply approved discount to item: ${discErr.message}`);
+          await supabaseAdmin.from("order_item_events").insert({
+            order_id: orderId,
+            order_item_id: orderItemId,
+            event_type: "ITEM_DISCOUNT_APPROVED",
+            created_by: approverId,
+            created_by_role: approverRole,
+            old_status: item.status,
+            new_status: item.status,
+            reason: `Discount Approved. Req: ${dType} (${dVal}). Reason: ${request.reason}`
+          });
+          logToAudit(
+            approverId,
+            approverEmail,
+            approverRole,
+            `ITEM_DISCOUNT_APPROVED: Approved ${dType} (${dVal}) discount for item ${item.name} in Order ${orderId}`,
+            restId || "default"
+          );
+        }
+        await recalculateOrderAndSync(orderId);
+        return { success: true, message: "Adjustment request approved successfully." };
+      }
+      /**
+       * Rejects a pending void/discount request.
+       */
+      static async rejectAdjustment(adjustmentId, rejectionReason, approverId, approverEmail, approverRole) {
+        const { data: request, error: reqErr } = await supabaseAdmin.from("order_item_adjustments").select("*, order_items(name)").eq("id", adjustmentId).maybeSingle();
+        if (reqErr || !request) {
+          throw new Error("Adjustment request not found.");
+        }
+        if (request.status !== "pending") {
+          throw new Error("Adjustment request is no longer pending.");
+        }
+        const { error: updErr } = await supabaseAdmin.from("order_item_adjustments").update({
+          status: "rejected",
+          rejection_reason: rejectionReason || "Rejected by Manager",
+          approved_by: approverId,
+          approved_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", adjustmentId);
+        if (updErr) throw new Error("Failed to reject adjustment request.");
+        const itemName = request.order_items?.name || "Item";
+        logToAudit(
+          approverId,
+          approverEmail,
+          approverRole,
+          `ITEM_ADJUSTMENT_REJECTED: Rejected ${request.type} for item ${itemName} in Order ${request.order_id}. Reason: ${rejectionReason}`,
+          request.restaurant_id || "default"
+        );
+        return { success: true, message: "Adjustment request rejected successfully." };
+      }
+    };
+  }
+});
+
+// src/server/services/discountService.ts
+var discountService_exports = {};
+__export(discountService_exports, {
+  DiscountService: () => DiscountService
+});
+var DiscountService;
+var init_discountService = __esm({
+  "src/server/services/discountService.ts"() {
+    "use strict";
+    init_dbService();
+    init_orderAdjustmentService();
+    init_auditService();
+    DiscountService = class {
+      /**
+       * Applies a discount to an individual order item.
+       * If before kitchen accepts (item status is 'pending'), it's applied immediately.
+       * Otherwise, it creates a pending adjustment request.
+       */
+      static async applyDiscount(orderId, itemId, restaurantId, input) {
+        const { discountType, discountValue, overridePrice, reason, userId, userEmail, userRole } = input;
+        if (!["percentage", "fixed", "override"].includes(discountType)) {
+          throw new Error("Invalid discount type. Supported: percentage, fixed, override");
+        }
+        if (discountValue < 0 || overridePrice && overridePrice < 0) {
+          throw new Error("Discount value or override price cannot be negative");
+        }
+        const { data: item, error: itemErr } = await supabaseAdmin.from("order_items").select("*, orders(status)").eq("id", itemId).maybeSingle();
+        if (itemErr || !item) {
+          throw new Error(`Order item not found: ${itemErr?.message || ""}`);
+        }
+        const orderStatus = item.orders?.status || "pending";
+        const itemStatus = item.status || "pending";
+        const isCompleted = orderStatus === "completed" || itemStatus === "completed";
+        const requireApproval = isCompleted || itemStatus !== "pending";
+        const hasImmediatePrivileges = ["owner", "manager"].includes(userRole.toLowerCase());
+        const needsApproval = requireApproval && !hasImmediatePrivileges;
+        if (needsApproval) {
+          const { data: request, error: reqErr } = await supabaseAdmin.from("order_item_adjustments").insert({
+            order_id: orderId,
+            order_item_id: itemId,
+            restaurant_id: restaurantId,
+            type: "discount",
+            discount_type: discountType,
+            discount_value: discountValue,
+            override_price: overridePrice || null,
+            reason: reason || "Item discount request",
+            requested_by: userId,
+            status: "pending"
+          }).select().single();
+          if (reqErr) throw new Error(`Failed to submit discount request: ${reqErr.message}`);
+          logToAudit(
+            userId,
+            userEmail,
+            userRole,
+            `SUBMITTED DISCOUNT REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+            restaurantId
+          );
+          return {
+            success: true,
+            pending: true,
+            requestId: request.id,
+            message: "Discount request submitted. Awaiting manager approval."
+          };
+        }
+        const originalPrice = parseFloat(item.original_unit_price || item.price);
+        let finalPrice = originalPrice;
+        if (discountType === "percentage") {
+          finalPrice = originalPrice * (1 - discountValue / 100);
+        } else if (discountType === "fixed") {
+          finalPrice = originalPrice - discountValue;
+        } else if (discountType === "override") {
+          finalPrice = overridePrice !== void 0 ? overridePrice : discountValue;
+        }
+        finalPrice = Math.max(0, finalPrice);
+        const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+          discount_type: discountType,
+          discount_value: discountValue,
+          override_price: overridePrice || null,
+          discount_reason: reason || null,
+          discounted_by: userId,
+          discounted_at: (/* @__PURE__ */ new Date()).toISOString(),
+          original_unit_price: originalPrice,
+          final_unit_price: finalPrice
+        }).eq("id", itemId);
+        if (updateErr) throw new Error(`Failed to apply discount: ${updateErr.message}`);
+        await supabaseAdmin.from("order_item_events").insert({
+          order_id: orderId,
+          order_item_id: itemId,
+          event_type: "ITEM_DISCOUNTED",
+          created_by: userId,
+          created_by_role: userRole,
+          old_status: itemStatus,
+          new_status: itemStatus,
+          reason: `Discount Applied: Type ${discountType}, Val ${discountValue}. Reason: ${reason}`
+        });
+        logToAudit(
+          userId,
+          userEmail,
+          userRole,
+          `ITEM_DISCOUNTED: Applied ${discountType} discount (${discountValue}) to item ${item.name}. Old Price: RM${originalPrice.toFixed(2)}, New Price: RM${finalPrice.toFixed(2)}`,
+          restaurantId
+        );
+        await recalculateOrderAndSync(orderId);
+        return {
+          success: true,
+          pending: false,
+          message: "Discount applied immediately and totals recalculated."
+        };
+      }
+      /**
+       * Removals of an active discount from an item.
+       */
+      static async removeDiscount(orderId, itemId, restaurantId, userId, userEmail, userRole) {
+        const { data: item, error: itemErr } = await supabaseAdmin.from("order_items").select("*").eq("id", itemId).maybeSingle();
+        if (itemErr || !item) {
+          throw new Error("Order item not found.");
+        }
+        const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+          discount_type: null,
+          discount_value: null,
+          override_price: null,
+          discount_reason: null,
+          discounted_by: null,
+          discounted_at: null,
+          final_unit_price: item.original_unit_price || item.price
+        }).eq("id", itemId);
+        if (updateErr) throw new Error(`Empty discount removal failed: ${updateErr.message}`);
+        await supabaseAdmin.from("order_item_events").insert({
+          order_id: orderId,
+          order_item_id: itemId,
+          event_type: "ITEM_DISCOUNT_REMOVED",
+          created_by: userId,
+          created_by_role: userRole,
+          old_status: item.status,
+          new_status: item.status,
+          reason: "Discount removed"
+        });
+        logToAudit(
+          userId,
+          userEmail,
+          userRole,
+          `ITEM_DISCOUNT_REMOVED: Removed discount from item ${item.name}`,
+          restaurantId
+        );
+        await recalculateOrderAndSync(orderId);
+        return { success: true, message: "Discount removed." };
+      }
+    };
+  }
+});
+
+// src/server/services/voidService.ts
+var voidService_exports = {};
+__export(voidService_exports, {
+  VoidService: () => VoidService
+});
+var VoidService;
+var init_voidService = __esm({
+  "src/server/services/voidService.ts"() {
+    "use strict";
+    init_dbService();
+    init_orderAdjustmentService();
+    init_auditService();
+    VoidService = class {
+      /**
+       * Voids an individual order item.
+       * If before kitchen accepts (item.status === 'pending'), it voids immediately.
+       * Otherwise, it creates a pending adjustment request.
+       */
+      static async voidItem(orderId, itemId, restaurantId, input) {
+        const { reason, userId, userEmail, userRole } = input;
+        const { data: item, error: itemErr } = await supabaseAdmin.from("order_items").select("*, orders(status)").eq("id", itemId).maybeSingle();
+        if (itemErr || !item) {
+          throw new Error(`Order item not found: ${itemErr?.message || ""}`);
+        }
+        if (item.status === "voided") {
+          throw new Error("Item is already voided.");
+        }
+        const orderStatus = item.orders?.status || "pending";
+        const itemStatus = item.status || "pending";
+        const isCompleted = orderStatus === "completed" || itemStatus === "completed";
+        const requireApproval = isCompleted || itemStatus !== "pending";
+        const hasImmediatePrivileges = ["owner", "manager"].includes(userRole.toLowerCase());
+        const needsApproval = requireApproval && !hasImmediatePrivileges;
+        if (needsApproval) {
+          const { data: request, error: reqErr } = await supabaseAdmin.from("order_item_adjustments").insert({
+            order_id: orderId,
+            order_item_id: itemId,
+            restaurant_id: restaurantId,
+            type: "void",
+            reason: reason || "Item void request",
+            requested_by: userId,
+            status: "pending"
+          }).select().single();
+          if (reqErr) throw new Error(`Failed to submit void request: ${reqErr.message}`);
+          logToAudit(
+            userId,
+            userEmail,
+            userRole,
+            `SUBMITTED VOID REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+            restaurantId
+          );
+          return {
+            success: true,
+            pending: true,
+            requestId: request.id,
+            message: "Void request submitted. Awaiting manager approval."
+          };
+        }
+        const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+          status: "voided",
+          void_reason: reason,
+          voided_by: userId,
+          voided_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", itemId);
+        if (updateErr) throw new Error(`Failed to void order item: ${updateErr.message}`);
+        await supabaseAdmin.from("order_item_events").insert({
+          order_id: orderId,
+          order_item_id: itemId,
+          event_type: "ITEM_VOIDED",
+          created_by: userId,
+          created_by_role: userRole,
+          old_status: itemStatus,
+          new_status: "voided",
+          reason: `Item Voided immediately: ${reason}`
+        });
+        logToAudit(
+          userId,
+          userEmail,
+          userRole,
+          `ITEM_VOIDED: Voided item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+          restaurantId
+        );
+        await recalculateOrderAndSync(orderId);
+        return {
+          success: true,
+          pending: false,
+          message: "Item voided immediately and totals recalculated."
+        };
+      }
+      /**
+       * Restores a voided item back to active status.
+       */
+      static async restoreVoid(orderId, itemId, restaurantId, userId, userEmail, userRole) {
+        const { data: item, error: itemErr } = await supabaseAdmin.from("order_items").select("*").eq("id", itemId).maybeSingle();
+        if (itemErr || !item) {
+          throw new Error("Order item not found.");
+        }
+        if (item.status !== "voided") {
+          throw new Error("Item is not voided.");
+        }
+        const { error: updateErr } = await supabaseAdmin.from("order_items").update({
+          status: "pending",
+          void_reason: null,
+          voided_by: null,
+          voided_at: null
+        }).eq("id", itemId);
+        if (updateErr) throw new Error(`Failed to restore voided item: ${updateErr.message}`);
+        await supabaseAdmin.from("order_item_events").insert({
+          order_id: orderId,
+          order_item_id: itemId,
+          event_type: "ITEM_VOID_RESTORED",
+          created_by: userId,
+          created_by_role: userRole,
+          old_status: "voided",
+          new_status: "pending",
+          reason: "Void restored by user request."
+        });
+        logToAudit(
+          userId,
+          userEmail,
+          userRole,
+          `ITEM_VOID_RESTORED: Restored voided item ${item.name} in Order ${orderId}`,
+          restaurantId
+        );
+        await recalculateOrderAndSync(orderId);
+        return {
+          success: true,
+          message: "Voided item restored successfully."
+        };
+      }
+    };
   }
 });
 
 // server.ts
 var import_express14 = __toESM(require("express"), 1);
-var import_path3 = __toESM(require("path"), 1);
+var import_path = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
 var import_cors = __toESM(require("cors"), 1);
@@ -1047,7 +1677,13 @@ var ROLE_PERMISSIONS = {
     "payments.refund",
     "reports.view",
     "users.manage",
-    "settings.manage"
+    "settings.manage",
+    "discount_item",
+    "void_item",
+    "approve_discount",
+    "approve_void",
+    "view_discount_history",
+    "view_void_history"
   ],
   superadmin: [
     "orders.view",
@@ -1059,7 +1695,13 @@ var ROLE_PERMISSIONS = {
     "payments.refund",
     "reports.view",
     "users.manage",
-    "settings.manage"
+    "settings.manage",
+    "discount_item",
+    "void_item",
+    "approve_discount",
+    "approve_void",
+    "view_discount_history",
+    "view_void_history"
   ],
   owner: [
     "orders.view",
@@ -1071,7 +1713,13 @@ var ROLE_PERMISSIONS = {
     "payments.refund",
     "reports.view",
     "users.manage",
-    "settings.manage"
+    "settings.manage",
+    "discount_item",
+    "void_item",
+    "approve_discount",
+    "approve_void",
+    "view_discount_history",
+    "view_void_history"
   ],
   admin: [
     "orders.view",
@@ -1083,7 +1731,13 @@ var ROLE_PERMISSIONS = {
     "payments.refund",
     "reports.view",
     "users.manage",
-    "settings.manage"
+    "settings.manage",
+    "discount_item",
+    "void_item",
+    "approve_discount",
+    "approve_void",
+    "view_discount_history",
+    "view_void_history"
   ],
   manager: [
     "orders.view",
@@ -1095,18 +1749,32 @@ var ROLE_PERMISSIONS = {
     "payments.refund",
     "reports.view",
     "users.manage",
-    "settings.manage"
+    "settings.manage",
+    "discount_item",
+    "void_item",
+    "approve_discount",
+    "approve_void",
+    "view_discount_history",
+    "view_void_history"
   ],
   cashier: [
     "orders.view",
     "orders.bump",
     "orders.ready",
-    "payments.view"
+    "payments.view",
+    "discount_item",
+    "void_item",
+    "view_discount_history",
+    "view_void_history"
   ],
   waiter: [
     "orders.view",
     "orders.bump",
-    "orders.ready"
+    "orders.ready",
+    "discount_item",
+    "void_item",
+    "view_discount_history",
+    "view_void_history"
   ],
   kitchen: [
     "kitchen.view",
@@ -1152,10 +1820,7 @@ function hasPermission(role, permission, customPermissions) {
 var getSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if ((process.env.GITHUB_ACTIONS === "true" || process.env.CI) && process.env.NODE_ENV !== "production") {
-      return "dummy_jwt_secret_for_ci_bypass";
-    }
-    throw new Error("JWT_SECRET is required but was not defined in environment variables");
+    throw new Error("JWT_SECRET is required");
   }
   return secret;
 };
@@ -1724,48 +2389,7 @@ var translation_routes_default = router2;
 // src/server/routes/menu.routes.ts
 var import_express3 = require("express");
 init_dbService();
-
-// src/server/services/auditService.ts
-var import_fs2 = __toESM(require("fs"), 1);
-var import_path2 = __toESM(require("path"), 1);
-var AUDIT_LOGS_FILE = import_path2.default.join(process.cwd(), "audit_logs.json");
-function readAuditLogs() {
-  try {
-    if (!import_fs2.default.existsSync(AUDIT_LOGS_FILE)) {
-      import_fs2.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify([]));
-    }
-    return JSON.parse(import_fs2.default.readFileSync(AUDIT_LOGS_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to read audit_logs.json", err);
-    return [];
-  }
-}
-function writeAuditLogs(logs) {
-  try {
-    import_fs2.default.writeFileSync(AUDIT_LOGS_FILE, JSON.stringify(logs, null, 2));
-  } catch (err) {
-    console.error("Failed to write audit_logs.json", err);
-  }
-}
-function logToAudit(userId, userEmail, role, action, restaurantId) {
-  const logs = readAuditLogs();
-  const log = {
-    id: "audit-" + Math.random().toString(36).substr(2, 9),
-    user_id: userId,
-    user_email: userEmail,
-    role,
-    action,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    restaurant_id: restaurantId
-  };
-  logs.unshift(log);
-  if (logs.length > 2e3) {
-    logs.length = 2e3;
-  }
-  writeAuditLogs(logs);
-}
-
-// src/server/routes/menu.routes.ts
+init_auditService();
 var router3 = (0, import_express3.Router)();
 router3.get("/restaurants/:restId/categories", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
@@ -2082,6 +2706,7 @@ var menu_routes_default = router3;
 // src/server/routes/staff.routes.ts
 var import_express4 = require("express");
 init_dbService();
+init_auditService();
 var router4 = (0, import_express4.Router)();
 router4.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation("restId"), requirePermissions("users.manage"), async (req, res) => {
   const { restId } = req.params;
@@ -3667,6 +4292,7 @@ var tables_routes_default = router7;
 // src/server/routes/orders.routes.ts
 var import_express8 = require("express");
 init_dbService();
+init_auditService();
 var router8 = (0, import_express8.Router)();
 router8.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { restId } = req.params;
@@ -3834,6 +4460,145 @@ router8.post("/orders/:orderId/items/:itemId/cancel", authenticateJWT, requireTe
     res.status(400).json({ error: err.message });
   }
 });
+router8.get("/orders/:orderId/item-adjustments", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId } = req.params;
+  try {
+    const { data, error } = await supabaseAdmin.from("order_item_adjustments").select("*, order_items(name)").eq("order_id", orderId);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (err) {
+    console.error("[API] Failed to get item adjustments:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/discount", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { discountType, discountValue, overridePrice, reason } = req.body;
+  const caller = req.user;
+  try {
+    const { DiscountService: DiscountService2 } = await Promise.resolve().then(() => (init_discountService(), discountService_exports));
+    if (!discountType || discountType === "none") {
+      const result2 = await DiscountService2.removeDiscount(
+        orderId,
+        itemId,
+        caller?.restaurantId || "default",
+        caller?.id || "unknown",
+        caller?.email || "unknown@restaurant.com",
+        caller?.role || "cashier"
+      );
+      return res.json(result2);
+    }
+    const value = parseFloat(discountValue) || 0;
+    const ovPrice = overridePrice !== void 0 ? parseFloat(overridePrice) : void 0;
+    const result = await DiscountService2.applyDiscount(
+      orderId,
+      itemId,
+      caller?.restaurantId || "default",
+      {
+        discountType,
+        discountValue: value,
+        overridePrice: ovPrice,
+        reason: reason || "Manual item discount",
+        userId: caller?.id || "unknown",
+        userEmail: caller?.email || "unknown@restaurant.com",
+        userRole: caller?.role || "cashier"
+      }
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("[API] Error in item discount route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/void", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const { reason } = req.body;
+  const caller = req.user;
+  try {
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ error: "Reason for void is required." });
+    }
+    const { VoidService: VoidService2 } = await Promise.resolve().then(() => (init_voidService(), voidService_exports));
+    const result = await VoidService2.voidItem(
+      orderId,
+      itemId,
+      caller?.restaurantId || "default",
+      {
+        reason,
+        userId: caller?.id || "unknown",
+        userEmail: caller?.email || "unknown@restaurant.com",
+        userRole: caller?.role || "cashier"
+      }
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("[API] Error in item void route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/restore", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { orderId, itemId } = req.params;
+  const caller = req.user;
+  try {
+    const { VoidService: VoidService2 } = await Promise.resolve().then(() => (init_voidService(), voidService_exports));
+    const result = await VoidService2.restoreVoid(
+      orderId,
+      itemId,
+      caller?.restaurantId || "default",
+      caller?.id || "unknown",
+      caller?.email || "unknown@restaurant.com",
+      caller?.role || "cashier"
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("[API] Error in item restore route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/approve", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { adjustmentId } = req.params;
+  const caller = req.user;
+  try {
+    const userRole = (caller?.role || "cashier").toLowerCase();
+    if (!["owner", "manager", "admin"].includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden: Only Owners or Managers can approve item modifications." });
+    }
+    const { OrderAdjustmentService: OrderAdjustmentService2 } = await Promise.resolve().then(() => (init_orderAdjustmentService(), orderAdjustmentService_exports));
+    const result = await OrderAdjustmentService2.approveAdjustment(
+      adjustmentId,
+      caller?.id || "unknown",
+      caller?.email || "unknown@restaurant.com",
+      caller?.role || "manager"
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("[API] Error in approve adjustment route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+router8.post("/orders/:orderId/items/:itemId/adjustments/:adjustmentId/reject", authenticateJWT, requireTenantIsolation(), async (req, res) => {
+  const { adjustmentId } = req.params;
+  const { rejectionReason } = req.body;
+  const caller = req.user;
+  try {
+    const userRole = (caller?.role || "cashier").toLowerCase();
+    if (!["owner", "manager", "admin"].includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden: Only Owners or Managers can reject item modifications." });
+    }
+    const { OrderAdjustmentService: OrderAdjustmentService2 } = await Promise.resolve().then(() => (init_orderAdjustmentService(), orderAdjustmentService_exports));
+    const result = await OrderAdjustmentService2.rejectAdjustment(
+      adjustmentId,
+      rejectionReason || "Rejected by Manager",
+      caller?.id || "unknown",
+      caller?.email || "unknown@restaurant.com",
+      caller?.role || "manager"
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error("[API] Error in reject adjustment route:", err);
+    return res.status(400).json({ error: err.message });
+  }
+});
 var orders_routes_default = router8;
 
 // src/server/routes/sessions.routes.ts
@@ -3951,6 +4716,9 @@ var IdempotencyService = class {
   }
 };
 var idempotencyService = new IdempotencyService();
+
+// src/server/routes/payments.routes.ts
+init_auditService();
 
 // src/server/services/payments/index.ts
 init_dbService();
@@ -5888,15 +6656,11 @@ function getStripeClient() {
   if (!stripeInstance) {
     const secretKey = process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
-      console.warn("[STRIPE WARNING] STRIPE_SECRET_KEY environment variable is not defined. Initializing with mock dummy string.");
-      stripeInstance = new import_stripe3.default("sk_test_dummy_key_jomorder_secure_stripes", {
-        apiVersion: "2025-02-11.accredited"
-      });
-    } else {
-      stripeInstance = new import_stripe3.default(secretKey, {
-        apiVersion: "2025-02-11.accredited"
-      });
+      throw new Error("Missing STRIPE_SECRET_KEY");
     }
+    stripeInstance = new import_stripe3.default(secretKey, {
+      apiVersion: "2025-02-11.accredited"
+    });
   }
   return stripeInstance;
 }
@@ -6633,7 +7397,7 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = import_path3.default.join(process.cwd(), "dist");
+    const distPath = import_path.default.join(process.cwd(), "dist");
     app.use(import_express14.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
@@ -6645,9 +7409,9 @@ async function start() {
     });
   });
   if (process.env.NODE_ENV === "production") {
-    const distPath = import_path3.default.join(process.cwd(), "dist");
+    const distPath = import_path.default.join(process.cwd(), "dist");
     app.get("*", (req, res) => {
-      res.sendFile(import_path3.default.join(distPath, "index.html"));
+      res.sendFile(import_path.default.join(distPath, "index.html"));
     });
   }
   app.listen(PORT, "0.0.0.0", () => {

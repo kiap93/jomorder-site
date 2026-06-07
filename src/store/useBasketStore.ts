@@ -5,6 +5,7 @@ interface BasketState {
   items: OrderItem[];
   addItem: (item: OrderItem) => void;
   removeItem: (index: number) => void;
+  setItemDiscount: (index: number, discount: OrderItem['discount']) => void;
   clearBasket: () => void;
   getTotal: () => number;
 }
@@ -15,11 +16,30 @@ export const useBasketStore = create<BasketState>((set, get) => ({
   removeItem: (index) => set((state) => ({
     items: state.items.filter((_, i) => i !== index)
   })),
+  setItemDiscount: (index, discount) => set((state) => {
+    const updatedItems = [...state.items];
+    if (updatedItems[index]) {
+      updatedItems[index] = { ...updatedItems[index], discount };
+    }
+    return { items: updatedItems };
+  }),
   clearBasket: () => set({ items: [] }),
   getTotal: () => {
     return get().items.reduce((total, item) => {
       const optionsTotal = item.options.reduce((optTotal, opt) => optTotal + opt.priceDelta, 0);
-      return total + (item.price + optionsTotal) * item.quantity;
+      const itemBasePrice = item.price + optionsTotal;
+      const itemSubtotal = itemBasePrice * item.quantity;
+      let discountAmt = 0;
+      if (item.discount) {
+        if (item.discount.type === 'percentage') {
+          discountAmt = itemSubtotal * (item.discount.value / 100);
+        } else if (item.discount.type === 'fixed') {
+          discountAmt = item.discount.value * item.quantity;
+        } else if (item.discount.type === 'override') {
+          discountAmt = Math.max(0, itemSubtotal - (item.discount.value * item.quantity));
+        }
+      }
+      return total + Math.max(0, itemSubtotal - discountAmt);
     }, 0);
   }
 }));

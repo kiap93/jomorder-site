@@ -334,7 +334,14 @@ export function AdminPanel() {
     revenue: 0,
     orders: 0,
     avgTicket: 0,
-    topItems: [] as { name: string, count: number, revenue: number }[]
+    topItems: [] as { name: string, count: number, revenue: number }[],
+    grossSales: 0,
+    totalDiscounts: 0,
+    discountCount: 0,
+    voidedItemsCount: 0,
+    voidedAmount: 0,
+    discountList: [] as any[],
+    voidList: [] as any[]
   });
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0],
@@ -379,27 +386,106 @@ export function AdminPanel() {
       if (error) throw error;
 
       if (orders) {
+        let grossSalesSum = 0;
+        let totalDiscountsSum = 0;
+        let discountCountSum = 0;
+        let voidedItemsCountSum = 0;
+        let voidedAmountSum = 0;
+        const discountList: any[] = [];
+        const voidList: any[] = [];
+
         const stats = {
           revenue: 0,
           orders: orders.length,
           avgTicket: 0,
-          topItems: [] as { name: string, count: number, revenue: number }[]
+          topItems: [] as { name: string, count: number, revenue: number }[],
+          grossSales: 0,
+          totalDiscounts: 0,
+          discountCount: 0,
+          voidedItemsCount: 0,
+          voidedAmount: 0,
+          discountList: [] as any[],
+          voidList: [] as any[]
         };
 
         const itemMap = new Map<string, { count: number, revenue: number }>();
 
         orders.forEach(order => {
-          stats.revenue += parseFloat(String(order.total_price || order.totalPrice || 0));
+          const finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
+          stats.revenue += finalPriceSum;
           
-          order.items?.forEach((item: OrderItem) => {
-            if (!item || typeof item.price !== 'number' || typeof item.quantity !== 'number') return;
+          order.items?.forEach((item: any) => {
+            if (!item || typeof item.quantity !== 'number') return;
+            
+            const itemPrice = parseFloat(String(item.originalUnitPrice !== undefined ? item.originalUnitPrice : item.price || 0));
+            const optionsTotal = Array.isArray(item.options) ? item.options.reduce((sum: number, opt: any) => sum + (parseFloat(opt.priceDelta) || 0), 0) : 0;
+            const fullBasePrice = itemPrice + optionsTotal;
+            const itemQuantity = item.quantity;
+            const baseSubtotal = fullBasePrice * itemQuantity;
+
+            const isVoided = item.status === 'voided' || item.voided === true;
+            const isCancelled = item.status === 'cancelled';
+
+            if (isVoided || isCancelled) {
+              voidedItemsCountSum += itemQuantity;
+              voidedAmountSum += baseSubtotal;
+              voidList.push({
+                orderId: order.id,
+                itemName: item.name,
+                amount: baseSubtotal,
+                reason: item.voidReason || item.void_reason || 'Unspecified',
+                staff: item.voidedBy || 'Staff',
+                date: item.voidedAt || order.created_at || new Date().toISOString()
+              });
+              return; // Skip accounting for active sales
+            }
+
+            // Gross sales
+            grossSalesSum += baseSubtotal;
+
+            // Check if there is an item level discount active
+            let itemDiscAmt = 0;
+            if (item.discount) {
+              discountCountSum += 1;
+              if (item.discount.type === 'percentage') {
+                itemDiscAmt = baseSubtotal * (parseFloat(item.discount.value) / 100);
+              } else if (item.discount.type === 'fixed') {
+                itemDiscAmt = parseFloat(item.discount.value) * itemQuantity;
+              } else if (item.discount.type === 'override') {
+                itemDiscAmt = Math.max(0, baseSubtotal - (parseFloat(item.discount.value) * itemQuantity));
+              }
+              itemDiscAmt = Math.round(itemDiscAmt * 100) / 100;
+              totalDiscountsSum += itemDiscAmt;
+
+              discountList.push({
+                orderId: order.id,
+                itemName: item.name,
+                type: item.discount.type,
+                value: parseFloat(item.discount.value),
+                amount: itemDiscAmt,
+                reason: item.discount.reason || 'Manual discount',
+                staff: item.discount.discountedBy || 'Staff',
+                date: item.discount.discountedAt || order.created_at || new Date().toISOString()
+              });
+            }
+
+            // Normal pricing compilation for top-selling items
+            const finalComputedItemPrice = parseFloat(item.finalUnitPrice !== undefined ? item.finalUnitPrice : (item.price || 0));
             const current = itemMap.get(item.name) || { count: 0, revenue: 0 };
             itemMap.set(item.name, {
-              count: current.count + item.quantity,
-              revenue: current.revenue + (item.price * item.quantity)
+              count: current.count + itemQuantity,
+              revenue: current.revenue + (finalComputedItemPrice * itemQuantity)
             });
           });
         });
+
+        stats.grossSales = grossSalesSum;
+        stats.totalDiscounts = totalDiscountsSum;
+        stats.discountCount = discountCountSum;
+        stats.voidedItemsCount = voidedItemsCountSum;
+        stats.voidedAmount = voidedAmountSum;
+        stats.discountList = discountList;
+        stats.voidList = voidList;
 
         stats.avgTicket = stats.orders > 0 ? stats.revenue / stats.orders : 0;
         stats.topItems = Array.from(itemMap.entries())
