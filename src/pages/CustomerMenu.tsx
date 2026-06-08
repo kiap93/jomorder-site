@@ -1025,7 +1025,8 @@ export function CustomerMenu() {
           status: 'pending' as any,
           totalPrice: total,
           paymentMethod: 'counter',
-          items: itemsWithMetadata.map((i: any) => ({
+          items: itemsWithMetadata.map((i: any, idx: number) => ({
+            id: i.id || `item_${idx}_${Math.random().toString(36).slice(2, 9)}`,
             menuItemId: i.menuItemId,
             name: i.name,
             price: i.price,
@@ -1177,7 +1178,8 @@ export function CustomerMenu() {
           status: 'pending' as any,
           totalPrice: total,
           paymentMethod: 'online',
-          items: itemsWithMetadata.map((i: any) => ({
+          items: itemsWithMetadata.map((i: any, idx: number) => ({
+            id: i.id || `item_${idx}_${Math.random().toString(36).slice(2, 9)}`,
             menuItemId: i.menuItemId,
             name: i.name,
             price: i.price,

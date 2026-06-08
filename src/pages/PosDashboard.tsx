@@ -642,7 +642,7 @@ export function PosDashboard() {
                           if (cancellable.length === 1) {
                             setCancellingItem({
                               orderId: order.id,
-                              itemId: cancellable[0].id || '',
+                              itemId: cancellable[0].orderItemId || cancellable[0].id || '',
                               name: cancellable[0].name,
                               quantity: cancellable[0].quantity
                             });
@@ -823,7 +823,7 @@ export function PosDashboard() {
                     onClick={() => {
                       setCancellingItem({
                         orderId: choosingItemOrder.id,
-                        itemId: item.id || '',
+                        itemId: item.orderItemId || item.id || '',
                         name: item.name,
                         quantity: item.quantity
                       });

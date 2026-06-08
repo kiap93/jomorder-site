@@ -527,7 +527,7 @@ export function OrderTracker() {
                                     onClick={() => {
                                       setCancellingItem({
                                         orderId: o.id,
-                                        itemId: item.id || '',
+                                        itemId: item.orderItemId || item.id || '',
                                         name: item.name,
                                         quantity: item.quantity,
                                         status: itemStatus,

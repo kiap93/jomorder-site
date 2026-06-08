@@ -800,6 +800,10 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
             item.orderItemId = matchedDbRow.id;
             itemsUpdated = true;
           }
+          if (item.id !== matchedDbRow.id) {
+            item.id = matchedDbRow.id;
+            itemsUpdated = true;
+          }
           return item;
         }
 
@@ -810,6 +814,9 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
         }
 
         item.orderItemId = newUuid;
+        if (item.id !== newUuid) {
+          item.id = newUuid;
+        }
         itemsUpdated = true;
 
         rowsToInsert.push({

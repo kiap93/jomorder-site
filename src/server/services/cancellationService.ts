@@ -162,6 +162,10 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
             item.orderItemId = matchedDbRow.id;
             itemsUpdated = true;
           }
+          if (item.id !== matchedDbRow.id) {
+            item.id = matchedDbRow.id;
+            itemsUpdated = true;
+          }
           return item;
         }
 
@@ -172,6 +176,9 @@ export async function ensureOrderItemsSynced(orderId: string, orderData?: any) {
         }
 
         item.orderItemId = newUuid;
+        if (item.id !== newUuid) {
+          item.id = newUuid;
+        }
         itemsUpdated = true;
 
         rowsToInsert.push({

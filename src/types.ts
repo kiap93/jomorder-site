@@ -214,6 +214,7 @@ export interface OrderItemOption {
 
 export interface OrderItem {
   id?: string; // Optional for basket items
+  orderItemId?: string;
   menuItemId: string;
   name: string;
   kitchenName?: string;

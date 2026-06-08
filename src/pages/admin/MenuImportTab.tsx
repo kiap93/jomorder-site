@@ -14,6 +14,7 @@ import {
   Timer
 } from 'lucide-react';
 import { getApiUrl } from '../../lib/api';
+import { useAuthStore } from '../../store/useAuthStore';
 
 interface MenuImportTabProps {
   t: (key: string) => string;
@@ -33,6 +34,10 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
   // Progress polling interval reference
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
+  const getAuthToken = () => {
+    return useAuthStore.getState().token || localStorage.getItem('token') || '';
+  };
+
   useEffect(() => {
     fetchHistory();
     return () => {
@@ -44,7 +49,7 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
     try {
       const response = await fetch(getApiUrl('/api/menu-import/history'), {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
       if (response.ok) {
@@ -105,7 +110,7 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Authorization': `Bearer ${getAuthToken()}`
           },
           body: JSON.stringify({ zipBase64: base64String })
         });
@@ -144,7 +149,7 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
       const response = await fetch(getApiUrl(`/api/menu-import/jobs/${jobId}/confirm`), {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
 
@@ -175,7 +180,7 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
       try {
         const response = await fetch(getApiUrl(`/api/menu-import/jobs/${id}/status`), {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Authorization': `Bearer ${getAuthToken()}`
           }
         });
 
@@ -199,7 +204,7 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
   };
 
   const exportCurrentMenuZip = () => {
-    const token = localStorage.getItem('token');
+    const token = getAuthToken();
     window.location.href = getApiUrl(`/api/menu-import/export?authorization=Bearer ${token}`);
   };
 
