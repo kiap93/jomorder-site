@@ -804,6 +804,31 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
             item.id = matchedDbRow.id;
             itemsUpdated = true;
           }
+          if (item.quantity !== matchedDbRow.quantity) {
+            item.quantity = matchedDbRow.quantity;
+            itemsUpdated = true;
+          }
+          if (item.status !== matchedDbRow.status) {
+            item.status = matchedDbRow.status;
+            itemsUpdated = true;
+          }
+          const isDbCancelled = matchedDbRow.status === 'cancelled';
+          if (item.voided !== isDbCancelled) {
+            item.voided = isDbCancelled;
+            itemsUpdated = true;
+          }
+          if (item.voidedAt !== matchedDbRow.cancelled_at) {
+            item.voidedAt = matchedDbRow.cancelled_at;
+            itemsUpdated = true;
+          }
+          if (item.voidedBy !== matchedDbRow.cancelled_by) {
+            item.voidedBy = matchedDbRow.cancelled_by;
+            itemsUpdated = true;
+          }
+          if (item.voidReason !== matchedDbRow.cancellation_reason) {
+            item.voidReason = matchedDbRow.cancellation_reason;
+            itemsUpdated = true;
+          }
           return item;
         }
 
@@ -837,6 +862,29 @@ async function ensureOrderItemsSynced(supabase: any, orderId: string, orderData?
 
         return item;
       });
+
+      // 2. Append any unmatched rows from database (e.g. split cancelled products) to the overall json
+      const unmatchedDbRows = currentExisting.filter((r: any) => !matchedRowIds.has(r.id));
+      if (unmatchedDbRows.length > 0) {
+        unmatchedDbRows.forEach((r: any) => {
+          updatedItems.push({
+            id: r.id,
+            orderItemId: r.id,
+            menuItemId: r.menu_item_id,
+            name: r.name,
+            price: parseFloat(r.price),
+            quantity: r.quantity,
+            status: r.status,
+            options: r.options || [],
+            specialInstructions: r.special_instructions || null,
+            voided: r.status === 'cancelled',
+            voidedAt: r.cancelled_at || null,
+            voidedBy: r.cancelled_by || null,
+            voidReason: r.cancellation_reason || null
+          });
+        });
+        itemsUpdated = true;
+      }
 
       if (rowsToInsert.length > 0) {
         const { error: insertError } = await supabase.from('order_items').insert(rowsToInsert);

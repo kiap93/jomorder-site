@@ -365,6 +365,35 @@ async function ensureOrderItemsSynced(orderId, orderData) {
             item.orderItemId = matchedDbRow.id;
             itemsUpdated = true;
           }
+          if (item.id !== matchedDbRow.id) {
+            item.id = matchedDbRow.id;
+            itemsUpdated = true;
+          }
+          if (item.quantity !== matchedDbRow.quantity) {
+            item.quantity = matchedDbRow.quantity;
+            itemsUpdated = true;
+          }
+          if (item.status !== matchedDbRow.status) {
+            item.status = matchedDbRow.status;
+            itemsUpdated = true;
+          }
+          const isDbCancelled = matchedDbRow.status === "cancelled";
+          if (item.voided !== isDbCancelled) {
+            item.voided = isDbCancelled;
+            itemsUpdated = true;
+          }
+          if (item.voidedAt !== matchedDbRow.cancelled_at) {
+            item.voidedAt = matchedDbRow.cancelled_at;
+            itemsUpdated = true;
+          }
+          if (item.voidedBy !== matchedDbRow.cancelled_by) {
+            item.voidedBy = matchedDbRow.cancelled_by;
+            itemsUpdated = true;
+          }
+          if (item.voidReason !== matchedDbRow.cancellation_reason) {
+            item.voidReason = matchedDbRow.cancellation_reason;
+            itemsUpdated = true;
+          }
           return item;
         }
         let newUuid = item.id;
@@ -372,6 +401,9 @@ async function ensureOrderItemsSynced(orderId, orderData) {
           newUuid = import_crypto3.default.randomUUID();
         }
         item.orderItemId = newUuid;
+        if (item.id !== newUuid) {
+          item.id = newUuid;
+        }
         itemsUpdated = true;
         rowsToInsert.push({
           id: newUuid,
@@ -390,6 +422,27 @@ async function ensureOrderItemsSynced(orderId, orderData) {
         });
         return item;
       });
+      const unmatchedDbRows = currentExisting.filter((r) => !matchedRowIds.has(r.id));
+      if (unmatchedDbRows.length > 0) {
+        unmatchedDbRows.forEach((r) => {
+          updatedItems.push({
+            id: r.id,
+            orderItemId: r.id,
+            menuItemId: r.menu_item_id,
+            name: r.name,
+            price: parseFloat(r.price),
+            quantity: r.quantity,
+            status: r.status,
+            options: r.options || [],
+            specialInstructions: r.special_instructions || null,
+            voided: r.status === "cancelled",
+            voidedAt: r.cancelled_at || null,
+            voidedBy: r.cancelled_by || null,
+            voidReason: r.cancellation_reason || null
+          });
+        });
+        itemsUpdated = true;
+      }
       if (rowsToInsert.length > 0) {
         const { error: insertError } = await supabaseAdmin.from("order_items").insert(rowsToInsert);
         if (insertError) {
