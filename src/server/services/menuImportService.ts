@@ -859,7 +859,15 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       const parsedPrice = parseFloat(item.price || item.base_price || "0");
       const parsedBasePrice = parseFloat(item.base_price || item.price || "0");
 
+      const itemId = generateUUID();
+      const itemCode = item.item_code?.trim();
+      if (itemCode) {
+        itemIdByItemCode.set(itemCode, itemId);
+        itemIdByItemCode.set(itemCode.toLowerCase(), itemId);
+      }
+
       return {
+        id: itemId,
         restaurant_id: restId,
         category_id: categoryId,
         name: item.name,
@@ -888,13 +896,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
         return;
       }
 
-      insertedChunk?.forEach((item: any) => {
-        const itemCode = item.options?.item_code;
-        if (itemCode) {
-          itemIdByItemCode.set(itemCode, item.id);
-        }
-        createdCount++;
-      });
+      createdCount += chunk.length;
 
       // Update progress smoothly during large processes
       job.progress = 40 + Math.round((i / itemsToInsert.length) * 30); // scale up to 70%
@@ -931,8 +933,8 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       const itemCode = map.item_code?.trim();
       const gCode = map.group_code?.trim();
       
-      const productId = itemIdByItemCode.get(itemCode);
-      const gConfig = data.configGroups.find(cg => cg.group_code?.trim() === gCode);
+      const productId = itemCode ? itemIdByItemCode.get(itemCode) || itemIdByItemCode.get(itemCode.toLowerCase()) : undefined;
+      const gConfig = data.configGroups.find(cg => cg.group_code?.trim()?.toLowerCase() === gCode?.toLowerCase());
 
       if (productId && gConfig) {
         modGroupsToInsertPayload.push({
@@ -963,8 +965,14 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       const modifiersToInsertPayload: any[] = [];
       
       insertedGroups?.forEach((insertedGroup: any) => {
-        const groupCode = insertedGroup.display_behavior?.group_code;
-        const matchingOptions = data.configOptions.filter(opt => opt.group_code?.trim() === groupCode);
+        const dbBehavior = typeof insertedGroup.display_behavior === 'string'
+          ? JSON.parse(insertedGroup.display_behavior)
+          : insertedGroup.display_behavior;
+        const groupCode = dbBehavior?.group_code;
+        const matchingOptions = data.configOptions.filter(opt => {
+          const optGCode = opt.group_code?.trim() || "";
+          return optGCode.toLowerCase() === groupCode?.trim()?.toLowerCase();
+        });
 
         matchingOptions.forEach(opt => {
           const parsedDelta = parseFloat(opt.price_delta || "0");
@@ -1003,7 +1011,8 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
     // `combo-choice-options.csv` has `group_code`, `child_item_code`, `custom_name`, `price_delta`, `default_selected`
     
     const comboChoiceGroupsPayload = data.comboChoiceGroups.map(g => {
-      const comboProductId = itemIdByItemCode.get(g.combo_product_code?.trim());
+      const parentCode = g.combo_product_code?.trim();
+      const comboProductId = parentCode ? itemIdByItemCode.get(parentCode) || itemIdByItemCode.get(parentCode.toLowerCase()) : undefined;
       return {
         combo_product_id: comboProductId,
         name: g.name,
@@ -1029,11 +1038,18 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
 
       const comboGroupItemsPayload: any[] = [];
       insertedComboGroups?.forEach((cg: any) => {
-        const groupCode = cg.display_behavior?.group_code;
-        const matchingOptions = data.comboChoiceOptions.filter(o => o.group_code?.trim() === groupCode);
+        const dbBehavior = typeof cg.display_behavior === 'string'
+          ? JSON.parse(cg.display_behavior)
+          : cg.display_behavior;
+        const groupCode = dbBehavior?.group_code;
+        const matchingOptions = data.comboChoiceOptions.filter(o => {
+          const oGCode = o.group_code?.trim() || "";
+          return oGCode.toLowerCase() === groupCode?.trim()?.toLowerCase();
+        });
 
         matchingOptions.forEach(opt => {
-          const childProductId = itemIdByItemCode.get(opt.child_item_code?.trim());
+          const childCode = opt.child_item_code?.trim();
+          const childProductId = childCode ? itemIdByItemCode.get(childCode) || itemIdByItemCode.get(childCode.toLowerCase()) : undefined;
           if (childProductId) {
             const parsedDelta = parseFloat(opt.price_delta || "0");
             comboGroupItemsPayload.push({

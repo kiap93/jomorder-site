@@ -3408,7 +3408,14 @@ async function executeTransactionalImport(supabase, jobId) {
       };
       const parsedPrice = parseFloat(item.price || item.base_price || "0");
       const parsedBasePrice = parseFloat(item.base_price || item.price || "0");
+      const itemId = generateUUID();
+      const itemCode = item.item_code?.trim();
+      if (itemCode) {
+        itemIdByItemCode.set(itemCode, itemId);
+        itemIdByItemCode.set(itemCode.toLowerCase(), itemId);
+      }
       return {
+        id: itemId,
         restaurant_id: restId,
         category_id: categoryId,
         name: item.name,
@@ -3430,13 +3437,7 @@ async function executeTransactionalImport(supabase, jobId) {
         await restoreBackupOnCrash(`Batch item insert failed: ${insErr.message}`);
         return;
       }
-      insertedChunk?.forEach((item) => {
-        const itemCode = item.options?.item_code;
-        if (itemCode) {
-          itemIdByItemCode.set(itemCode, item.id);
-        }
-        createdCount++;
-      });
+      createdCount += chunk.length;
       job.progress = 40 + Math.round(i / itemsToInsert.length * 30);
       job.message = `Imported items chunk (${createdCount}/${itemsToInsert.length})...`;
       await activeJobs2.set(jobId, { ...job });
@@ -3450,8 +3451,8 @@ async function executeTransactionalImport(supabase, jobId) {
     data.itemConfigMapping.forEach((map) => {
       const itemCode = map.item_code?.trim();
       const gCode = map.group_code?.trim();
-      const productId = itemIdByItemCode.get(itemCode);
-      const gConfig = data.configGroups.find((cg) => cg.group_code?.trim() === gCode);
+      const productId = itemCode ? itemIdByItemCode.get(itemCode) || itemIdByItemCode.get(itemCode.toLowerCase()) : void 0;
+      const gConfig = data.configGroups.find((cg) => cg.group_code?.trim()?.toLowerCase() === gCode?.toLowerCase());
       if (productId && gConfig) {
         modGroupsToInsertPayload.push({
           product_id: productId,
@@ -3472,8 +3473,12 @@ async function executeTransactionalImport(supabase, jobId) {
       }
       const modifiersToInsertPayload = [];
       insertedGroups?.forEach((insertedGroup) => {
-        const groupCode = insertedGroup.display_behavior?.group_code;
-        const matchingOptions = data.configOptions.filter((opt) => opt.group_code?.trim() === groupCode);
+        const dbBehavior = typeof insertedGroup.display_behavior === "string" ? JSON.parse(insertedGroup.display_behavior) : insertedGroup.display_behavior;
+        const groupCode = dbBehavior?.group_code;
+        const matchingOptions = data.configOptions.filter((opt) => {
+          const optGCode = opt.group_code?.trim() || "";
+          return optGCode.toLowerCase() === groupCode?.trim()?.toLowerCase();
+        });
         matchingOptions.forEach((opt) => {
           const parsedDelta = parseFloat(opt.price_delta || "0");
           modifiersToInsertPayload.push({
@@ -3499,7 +3504,8 @@ async function executeTransactionalImport(supabase, jobId) {
     job.message = "Assembling Combo Product Composition Matrices...";
     await activeJobs2.set(jobId, { ...job });
     const comboChoiceGroupsPayload = data.comboChoiceGroups.map((g) => {
-      const comboProductId = itemIdByItemCode.get(g.combo_product_code?.trim());
+      const parentCode = g.combo_product_code?.trim();
+      const comboProductId = parentCode ? itemIdByItemCode.get(parentCode) || itemIdByItemCode.get(parentCode.toLowerCase()) : void 0;
       return {
         combo_product_id: comboProductId,
         name: g.name,
@@ -3519,10 +3525,15 @@ async function executeTransactionalImport(supabase, jobId) {
       }
       const comboGroupItemsPayload = [];
       insertedComboGroups?.forEach((cg) => {
-        const groupCode = cg.display_behavior?.group_code;
-        const matchingOptions = data.comboChoiceOptions.filter((o) => o.group_code?.trim() === groupCode);
+        const dbBehavior = typeof cg.display_behavior === "string" ? JSON.parse(cg.display_behavior) : cg.display_behavior;
+        const groupCode = dbBehavior?.group_code;
+        const matchingOptions = data.comboChoiceOptions.filter((o) => {
+          const oGCode = o.group_code?.trim() || "";
+          return oGCode.toLowerCase() === groupCode?.trim()?.toLowerCase();
+        });
         matchingOptions.forEach((opt) => {
-          const childProductId = itemIdByItemCode.get(opt.child_item_code?.trim());
+          const childCode = opt.child_item_code?.trim();
+          const childProductId = childCode ? itemIdByItemCode.get(childCode) || itemIdByItemCode.get(childCode.toLowerCase()) : void 0;
           if (childProductId) {
             const parsedDelta = parseFloat(opt.price_delta || "0");
             comboGroupItemsPayload.push({
