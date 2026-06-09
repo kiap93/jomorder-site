@@ -58,6 +58,33 @@ export class IndexedDbStorage {
     }
   }
 
+  async incrementAndGet(key: string, defaultValue = 0): Promise<number> {
+    try {
+      const db = await this.init();
+      return new Promise<number>((resolve, reject) => {
+        const transaction = db.transaction(this.storeName, 'readwrite');
+        const store = transaction.objectStore(this.storeName);
+        const getRequest = store.get(key);
+        
+        getRequest.onsuccess = () => {
+          const currentVal = getRequest.result !== undefined ? Number(getRequest.result) || defaultValue : defaultValue;
+          const nextVal = currentVal + 1;
+          const putRequest = store.put(nextVal, key);
+          
+          putRequest.onsuccess = () => {
+            resolve(nextVal);
+          };
+          putRequest.onerror = () => reject(putRequest.error);
+        };
+        
+        getRequest.onerror = () => reject(getRequest.error);
+      });
+    } catch (err) {
+      console.error(`IndexedDbStorage failed to incrementAndGet for key ${key}:`, err);
+      return defaultValue + 1;
+    }
+  }
+
   async removeItem(key: string): Promise<void> {
     try {
       const db = await this.init();

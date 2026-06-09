@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { GoogleGenAI } from '@google/genai';
 import { Bindings, Variables } from '../types';
-import { getSupabase, getStaffSettingsFromDb, logToAuditDb } from '../services/db_service';
+import { getSupabase, getStaffSettingsFromDb, logToAuditDb, getUserSupabaseClient } from '../services/db_service';
 import { detectLanguageAndTranslate, runBackgroundTranslationJob, sanitizeTranslationOutput } from '../services/ai_service';
 import { authenticate } from '../middleware/auth';
 
@@ -52,7 +52,7 @@ menuRoutes.get('/api/public/restaurants/:restId/menu-items', async (c) => {
 
 // Admin View Restaurant Details
 menuRoutes.get("/api/restaurants/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { data, error } = await supabase
     .from('restaurants')
     .select('*')
@@ -66,7 +66,7 @@ menuRoutes.get("/api/restaurants/:id", authenticate, async (c) => {
 
 // Admin Update Restaurant Details
 menuRoutes.patch("/api/restaurants/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const { data, error } = await supabase
     .from('restaurants')
@@ -82,7 +82,7 @@ menuRoutes.patch("/api/restaurants/:id", authenticate, async (c) => {
 // --- CATEGORIES (ADMIN) ---
 
 menuRoutes.get("/api/restaurants/:restId/categories", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { data, error } = await supabase
     .from('categories')
     .select('*')
@@ -94,7 +94,7 @@ menuRoutes.get("/api/restaurants/:restId/categories", authenticate, async (c) =>
 });
 
 menuRoutes.post("/api/categories", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const { data, error } = await supabase
     .from('categories')
@@ -107,7 +107,7 @@ menuRoutes.post("/api/categories", authenticate, async (c) => {
 });
 
 menuRoutes.delete("/api/categories/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { error } = await supabase
     .from('categories')
     .delete()
@@ -120,7 +120,7 @@ menuRoutes.delete("/api/categories/:id", authenticate, async (c) => {
 // --- MENU ITEMS (ADMIN) ---
 
 menuRoutes.get("/api/restaurants/:restId/menu-items", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { data, error } = await supabase
     .from('menu_items')
     .select(`
@@ -136,7 +136,7 @@ menuRoutes.get("/api/restaurants/:restId/menu-items", authenticate, async (c) =>
 });
 
 menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const caller = c.get('user');
 
@@ -245,7 +245,7 @@ menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
 });
 
 menuRoutes.post("/api/menu-items", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const caller = c.get('user');
 
@@ -353,7 +353,7 @@ menuRoutes.post("/api/menu-items", authenticate, async (c) => {
 });
 
 menuRoutes.delete("/api/menu-items/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const caller = c.get('user');
 
   if (caller && caller.is_platform_admin !== true) {
@@ -382,7 +382,7 @@ menuRoutes.delete("/api/menu-items/:id", authenticate, async (c) => {
 // --- COMBOS & MODIFIERS BATCH SYNC ---
 
 menuRoutes.post("/api/batch-sync", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { entity, productId, data } = await c.req.json();
   try {
     if (entity === 'combo_groups') {
@@ -462,7 +462,7 @@ menuRoutes.post('/api/translate', authenticate, async (c) => {
 });
 
 menuRoutes.get("/api/translation-jobs", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const filter = c.req.query('filter');
   let query = supabase
     .from('translation_jobs')
@@ -481,7 +481,7 @@ menuRoutes.get("/api/translation-jobs", authenticate, async (c) => {
 });
 
 menuRoutes.patch("/api/translation-jobs/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const { data, error } = await supabase
     .from('translation_jobs')
@@ -495,7 +495,7 @@ menuRoutes.patch("/api/translation-jobs/:id", authenticate, async (c) => {
 });
 
 menuRoutes.patch("/api/tenant-translations", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const { restaurantId, entityId, fieldName, languageCode, translatedText } = body;
   const { data, error } = await supabase

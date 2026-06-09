@@ -144,31 +144,59 @@ router.post("/menu-items", authenticateJWT, requireTenantIsolation(), requirePer
 
         // Queue translation jobs for target languages inside translation_jobs
         const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+        
+        let hasFieldName = true;
+        try {
+          const { error: testErr } = await supabaseAdmin
+            .from('translation_jobs')
+            .select('field_name')
+            .limit(1);
+          if (testErr && (testErr.code === '42703' || testErr.message?.includes('field_name'))) {
+            hasFieldName = false;
+          }
+        } catch {
+          hasFieldName = false;
+        }
+
         for (const lang of targetLangs) {
           if (body.name || originalNameInput) {
-            await supabaseAdmin.from('translation_jobs').upsert({
+            const jobPayload: any = {
               restaurant_id: restaurantId,
               entity_type: 'menu_item',
               entity_id: data.id,
-              field_name: 'name',
-              source_language: 'en',
+              source_language: hasFieldName ? 'en' : 'en:name',
               target_language: lang,
               status: 'pending',
               review_status: 'draft'
-            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'name';
+            }
+            const onConflictCols = hasFieldName 
+              ? 'restaurant_id,entity_id,target_language,field_name'
+              : 'restaurant_id,entity_id,target_language';
+
+            await supabaseAdmin.from('translation_jobs').upsert(jobPayload, { onConflict: onConflictCols });
           }
 
           if (body.description || originalDescInput) {
-            await supabaseAdmin.from('translation_jobs').upsert({
+            const jobPayload: any = {
               restaurant_id: restaurantId,
               entity_type: 'menu_item',
               entity_id: data.id,
-              field_name: 'description',
-              source_language: 'en',
+              source_language: hasFieldName ? 'en' : 'en:description',
               target_language: lang,
               status: 'pending',
               review_status: 'draft'
-            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'description';
+            }
+            const onConflictCols = hasFieldName 
+              ? 'restaurant_id,entity_id,target_language,field_name'
+              : 'restaurant_id,entity_id,target_language';
+
+            await supabaseAdmin.from('translation_jobs').upsert(jobPayload, { onConflict: onConflictCols });
           }
         }
       } catch (err) {
@@ -260,31 +288,59 @@ router.patch("/menu-items/:id", authenticateJWT, requireTenantIsolation(), requi
 
         // Queue translation jobs for target languages inside translation_jobs on update
         const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+        
+        let hasFieldName = true;
+        try {
+          const { error: testErr } = await supabaseAdmin
+            .from('translation_jobs')
+            .select('field_name')
+            .limit(1);
+          if (testErr && (testErr.code === '42703' || testErr.message?.includes('field_name'))) {
+            hasFieldName = false;
+          }
+        } catch {
+          hasFieldName = false;
+        }
+
         for (const lang of targetLangs) {
           if (body.name || originalNameInput) {
-            await supabaseAdmin.from('translation_jobs').upsert({
+            const jobPayload: any = {
               restaurant_id: restaurantId,
               entity_type: 'menu_item',
               entity_id: data.id,
-              field_name: 'name',
-              source_language: 'en',
+              source_language: hasFieldName ? 'en' : 'en:name',
               target_language: lang,
               status: 'pending',
               review_status: 'draft'
-            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'name';
+            }
+            const onConflictCols = hasFieldName 
+              ? 'restaurant_id,entity_id,target_language,field_name'
+              : 'restaurant_id,entity_id,target_language';
+
+            await supabaseAdmin.from('translation_jobs').upsert(jobPayload, { onConflict: onConflictCols });
           }
 
           if (body.description || originalDescInput) {
-            await supabaseAdmin.from('translation_jobs').upsert({
+            const jobPayload: any = {
               restaurant_id: restaurantId,
               entity_type: 'menu_item',
               entity_id: data.id,
-              field_name: 'description',
-              source_language: 'en',
+              source_language: hasFieldName ? 'en' : 'en:description',
               target_language: lang,
               status: 'pending',
               review_status: 'draft'
-            }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'description';
+            }
+            const onConflictCols = hasFieldName 
+              ? 'restaurant_id,entity_id,target_language,field_name'
+              : 'restaurant_id,entity_id,target_language';
+
+            await supabaseAdmin.from('translation_jobs').upsert(jobPayload, { onConflict: onConflictCols });
           }
         }
       } catch (err) {

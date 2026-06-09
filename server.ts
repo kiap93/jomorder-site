@@ -53,11 +53,35 @@ app.use(apiRouter);
 // Background translation job definition for food items
 async function runBackgroundTranslationJob() {
   try {
-    const { data: jobs, error: fetchErr } = await supabaseAdmin
-      .from('translation_jobs')
-      .select('id, restaurant_id, entity_type, entity_id, field_name, source_language, target_language')
-      .eq('status', 'pending')
-      .limit(5);
+    let hasFieldName = true;
+    try {
+      const { error: testErr } = await supabaseAdmin
+        .from('translation_jobs')
+        .select('field_name')
+        .limit(1);
+      if (testErr && (testErr.code === '42703' || testErr.message?.includes('field_name'))) {
+        hasFieldName = false;
+      }
+    } catch {
+      hasFieldName = false;
+    }
+
+    let fetchResult;
+    if (hasFieldName) {
+      fetchResult = await supabaseAdmin
+        .from('translation_jobs')
+        .select('id, restaurant_id, entity_type, entity_id, field_name, source_language, target_language')
+        .eq('status', 'pending')
+        .limit(5);
+    } else {
+      fetchResult = await supabaseAdmin
+        .from('translation_jobs')
+        .select('id, restaurant_id, entity_type, entity_id, source_language, target_language')
+        .eq('status', 'pending')
+        .limit(5);
+    }
+
+    const { data: jobs, error: fetchErr } = fetchResult;
 
     if (fetchErr) {
       console.error('[Background Translation Job] Error fetching pending jobs:', fetchErr);
@@ -68,9 +92,16 @@ async function runBackgroundTranslationJob() {
       return;
     }
 
-    console.log(`[Background Translation Job] Found ${jobs.length} pending translation jobs to process.`);
+    console.log(`[Background Translation Job] Found ${jobs.length} pending translation jobs to process. hasFieldName: ${hasFieldName}`);
 
     for (const job of jobs) {
+      let fieldName = 'name';
+      if (hasFieldName) {
+        fieldName = (job as any).field_name || 'name';
+      } else if (job.source_language && job.source_language.includes(':')) {
+        fieldName = job.source_language.split(':')[1] || 'name';
+      }
+
       // Mark job as processing to avoid double processing
       await supabaseAdmin
         .from('translation_jobs')
@@ -87,7 +118,7 @@ async function runBackgroundTranslationJob() {
             .maybeSingle();
 
           if (item) {
-            textToTranslate = job.field_name === 'description' ? item.description : item.name;
+            textToTranslate = fieldName === 'description' ? item.description : item.name;
           }
         }
 
@@ -127,7 +158,7 @@ async function runBackgroundTranslationJob() {
               restaurant_id: job.restaurant_id,
               entity_type: job.entity_type,
               entity_id: job.entity_id,
-              field_name: job.field_name,
+              field_name: fieldName,
               language_code: job.target_language,
               translated_text: translated,
               translation_status: 'translated',

@@ -1,5 +1,6 @@
 import { useAuthStore } from "../../../store/useAuthStore";
 import { BillingOverview, PlanCode } from "../types";
+import { getApiUrl } from "../../../lib/api";
 
 /**
  * Gets the standard Authorization headers with JWT token
@@ -20,7 +21,7 @@ export const billingService = {
    * Fetches active plan subscription and statistics usage tracker
    */
   async getOverview(restId: string): Promise<BillingOverview> {
-    const res = await fetch(`/api/billing/overview?restId=${restId}`, {
+    const res = await fetch(getApiUrl(`/api/billing/overview?restId=${restId}`), {
       method: "GET",
       headers: getHeaders()
     });
@@ -37,7 +38,7 @@ export const billingService = {
    * Triggers Stripe checkout link generation
    */
   async createCheckoutSession(restId: string, plan: PlanCode): Promise<{ url: string }> {
-    const res = await fetch("/api/billing/create-checkout-session", {
+    const res = await fetch(getApiUrl("/api/billing/create-checkout-session"), {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({ restaurantId: restId, plan })
@@ -55,7 +56,7 @@ export const billingService = {
    * Deploys Customer Self-Service Portal redirect link
    */
   async createPortalSession(restId: string): Promise<{ url: string }> {
-    const res = await fetch("/api/billing/create-portal-session", {
+    const res = await fetch(getApiUrl("/api/billing/create-portal-session"), {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({ restaurantId: restId })
@@ -73,7 +74,7 @@ export const billingService = {
    * Triggers immediate cancellation behavior
    */
   async cancelSubscription(restId: string): Promise<void> {
-    const res = await fetch("/api/billing/cancel", {
+    const res = await fetch(getApiUrl("/api/billing/cancel"), {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({ restaurantId: restId })
@@ -89,7 +90,7 @@ export const billingService = {
    * Test controller allowing instant preview of packages in sandbox limits
    */
   async simulateSandboxPlan(plan: PlanCode): Promise<void> {
-    const res = await fetch("/api/billing/sandbox-simulate", {
+    const res = await fetch(getApiUrl("/api/billing/sandbox-simulate"), {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({ plan })

@@ -1,6 +1,8 @@
 export type Bindings = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_ANON_KEY?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
   JWT_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GEMINI_API_KEY: string;

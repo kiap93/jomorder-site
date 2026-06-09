@@ -54,7 +54,20 @@ router.get("/translation-jobs", authenticateJWT, requireTenantIsolation(), requi
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+
+  const normalizedData = (data || []).map((j: any) => {
+    let field_name = j.field_name;
+    if (!field_name && j.source_language && j.source_language.includes(':')) {
+      field_name = j.source_language.split(':')[1];
+    } else if (!field_name) {
+      field_name = 'name';
+    }
+    return {
+      ...j,
+      field_name: field_name || 'name'
+    };
+  });
+  res.json(normalizedData);
 });
 
 router.patch("/translation-jobs/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {

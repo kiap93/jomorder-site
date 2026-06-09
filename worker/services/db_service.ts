@@ -5,6 +5,35 @@ import { Bindings } from '../types';
 export const getSupabase = (env: Bindings) => 
   createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
+export const getAdminSupabase = (env: Bindings) => getSupabase(env);
+
+// Use a user-scoped Supabase client that respects Row Level Security
+export const getUserSupabase = (env: Bindings, tokenOrAuthHeader?: string) => {
+  const anonKey = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!tokenOrAuthHeader) {
+    return createClient(env.SUPABASE_URL, anonKey);
+  }
+  
+  let token = tokenOrAuthHeader;
+  if (token.toLowerCase().startsWith('bearer ')) {
+    token = token.substring(7).trim();
+  }
+  
+  return createClient(env.SUPABASE_URL, anonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+};
+
+// Convenient helper using the Hono context to extract header and return a user client
+export function getUserSupabaseClient(c: any) {
+  const authHeader = c.req.header('Authorization') || c.req.query('authorization') || '';
+  return getUserSupabase(c.env, authHeader);
+}
+
 // Helper for finding/restoring staff settings
 export async function getStaffSettingsFromDb(supabase: any, userId: string, role: string, restaurantId?: string) {
   try {

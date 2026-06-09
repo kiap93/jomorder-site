@@ -904,6 +904,78 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       await activeJobs.set(jobId, { ...job });
     }
 
+    // Start translation cue for all newly imported items automatically
+    try {
+      let hasFieldName = true;
+      try {
+        const { error: testErr } = await supabaseAdmin
+          .from('translation_jobs')
+          .select('field_name')
+          .limit(1);
+        if (testErr && (testErr.code === '42703' || testErr.message?.includes('field_name'))) {
+          hasFieldName = false;
+        }
+      } catch {
+        hasFieldName = false;
+      }
+
+      const targetLangs = ['zh', 'ms', 'th', 'ja', 'ko'];
+      const translationJobsToInsert: any[] = [];
+
+      itemsToInsert.forEach((item: any) => {
+        targetLangs.forEach(lang => {
+          if (item.name) {
+            const jobPayload: any = {
+              restaurant_id: restId,
+              entity_type: 'menu_item',
+              entity_id: item.id,
+              source_language: hasFieldName ? 'en' : 'en:name',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'name';
+            }
+            translationJobsToInsert.push(jobPayload);
+          }
+          if (item.description) {
+            const jobPayload: any = {
+              restaurant_id: restId,
+              entity_type: 'menu_item',
+              entity_id: item.id,
+              source_language: hasFieldName ? 'en' : 'en:description',
+              target_language: lang,
+              status: 'pending',
+              review_status: 'draft'
+            };
+            if (hasFieldName) {
+              jobPayload.field_name = 'description';
+            }
+            translationJobsToInsert.push(jobPayload);
+          }
+        });
+      });
+
+      if (translationJobsToInsert.length > 0) {
+        // Upsert in chunks of 150 to keep request sizes manageable
+        const jobChunkSize = 150;
+        const onConflictCols = hasFieldName 
+          ? 'restaurant_id,entity_id,target_language,field_name'
+          : 'restaurant_id,entity_id,target_language';
+
+        for (let j = 0; j < translationJobsToInsert.length; j += jobChunkSize) {
+          const chunk = translationJobsToInsert.slice(j, j + jobChunkSize);
+          await supabaseAdmin
+            .from('translation_jobs')
+            .upsert(chunk, { onConflict: onConflictCols });
+        }
+        console.log(`[Import Translation Queue] Queued ${translationJobsToInsert.length} translation jobs for imported menu items.`);
+      }
+    } catch (transQueueErr) {
+      console.warn("[Import Translation Queue] Failed to queue translation jobs, continuing import: ", transQueueErr);
+    }
+
     // Step 4: Import Config groups & options
     job.progress = 75;
     job.message = 'Structuring Modifier Configurator Engines...';

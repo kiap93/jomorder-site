@@ -96,7 +96,7 @@ router.post("/billing/create-portal-session", authenticateJWT, async (req: Authe
  * POST /api/billing/upgrade
  * Support instantaneous plan shifts and change records
  */
-router.post("/api/billing/upgrade", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/billing/upgrade", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -119,7 +119,7 @@ router.post("/api/billing/upgrade", authenticateJWT, async (req: AuthenticatedRe
  * POST /api/billing/cancel
  * Halts period billing cycles
  */
-router.post("/api/billing/cancel", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/billing/cancel", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });

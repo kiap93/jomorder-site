@@ -79,7 +79,20 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         .select('*')
         .eq('restaurant_id', restaurantId)
         .eq('target_language', targetLang);
-      setAllTranslationJobs(jobData || []);
+      
+      const normalizedJobs = (jobData || []).map((j: any) => {
+        let field_name = j.field_name;
+        if (!field_name && j.source_language && j.source_language.includes(':')) {
+          field_name = j.source_language.split(':')[1];
+        } else if (!field_name) {
+          field_name = 'name';
+        }
+        return {
+          ...j,
+          field_name
+        };
+      });
+      setAllTranslationJobs(normalizedJobs);
     } catch (err) {
       console.error('Failed to fetch translation status data:', err);
     }
@@ -334,17 +347,38 @@ export const TranslationStudio: React.FC<TranslationStudioProps> = ({ restaurant
         if (upsertError) throw upsertError;
 
         // 3. Create/Update translation job for review flow
-        await supabase.from('translation_jobs').upsert({
+        let hasFieldName = true;
+        try {
+          const { error: testErr } = await supabase
+            .from('translation_jobs')
+            .select('field_name')
+            .limit(1);
+          if (testErr && (testErr.code === '42703' || testErr.message?.includes('field_name'))) {
+            hasFieldName = false;
+          }
+        } catch {
+          hasFieldName = false;
+        }
+
+        const jobPayload: any = {
           restaurant_id: restaurantId,
           entity_type: entityType,
           entity_id: selectedEntity.id,
-          field_name: field,
-          source_language: 'en',
+          source_language: hasFieldName ? 'en' : `en:${field}`,
           target_language: targetLang,
           status: 'completed',
           reviewed_text: finalTranslation,
           review_status: 'draft'
-        }, { onConflict: 'restaurant_id,entity_id,target_language,field_name' });
+        };
+        if (hasFieldName) {
+          jobPayload.field_name = field;
+        }
+
+        const onConflictCols = hasFieldName 
+          ? 'restaurant_id,entity_id,target_language,field_name'
+          : 'restaurant_id,entity_id,target_language';
+
+        await supabase.from('translation_jobs').upsert(jobPayload, { onConflict: onConflictCols });
       }
       
       // Update original translations to current state after successful save

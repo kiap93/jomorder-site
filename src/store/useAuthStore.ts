@@ -25,7 +25,23 @@ let initializationPromise: Promise<(() => void)> | null = null;
 const getStorageKey = () => 'manual_supabase_jwt';
 
 // Worker channel for cross-tab synchronization
-const authChannel = new BroadcastChannel('auth_worker');
+let authChannel: BroadcastChannel | null = null;
+
+const getAuthChannel = () => {
+  if (typeof window === 'undefined') return null;
+  if (!authChannel) {
+    authChannel = new BroadcastChannel('auth_worker');
+  }
+  return authChannel;
+};
+
+const postAuthMessage = (message: any) => {
+  const channel = getAuthChannel();
+  if (channel) {
+    channel.postMessage(message);
+  }
+};
+
 const currentTabId = typeof window !== 'undefined' ? (Math.random().toString(36).substring(2, 11) + '-' + Date.now()) : 'ssr-env';
 let lastProcessedChangeTime = 0;
 
@@ -55,20 +71,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         logger.log("AuthStore (Worker): Syncing auth state from another tab...");
         get().refreshSession();
       };
-      authChannel.addEventListener('message', channelListener);
+      
+      const channel = getAuthChannel();
+      if (channel) {
+        channel.addEventListener('message', channelListener);
+      }
 
       // Cross-tab sync relies on multi-tab BroadcastChannel
       if (window.location.pathname.includes('/table/')) {
         set({ loading: false });
         return () => {
-          authChannel.removeEventListener('message', channelListener);
+          const ch = getAuthChannel();
+          if (ch) {
+            ch.removeEventListener('message', channelListener);
+            ch.close();
+            authChannel = null;
+          }
         };
       }
 
       await get().refreshSession();
 
       return () => {
-        authChannel.removeEventListener('message', channelListener);
+        const ch = getAuthChannel();
+        if (ch) {
+          ch.removeEventListener('message', channelListener);
+          ch.close();
+          authChannel = null;
+        }
         initializationPromise = null;
       };
     })();
@@ -148,23 +178,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await indexedDbStorage.setItem(getStorageKey(), token);
 
       set({ 
-        user: { id: profile.id, email: profile.email },
-        profile: {
-          id: profile.id,
-          email: profile.email,
-          role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
-          restaurantId: profile.restaurantId || profile.restaurant_id,
-          organizationId: profile.organizationId || profile.organization_id || null,
-          status: profile.status,
-          permissions: profile.permissions,
-          platform_role: profile.platform_role || null
-        } as UserProfile,
-        token,
-        loading: false 
+          user: { id: profile.id, email: profile.email },
+          profile: {
+            id: profile.id,
+            email: profile.email,
+            role: profile.role ? (profile.role.toLowerCase() as any) : 'owner',
+            restaurantId: profile.restaurantId || profile.restaurant_id,
+            organizationId: profile.organizationId || profile.organization_id || null,
+            status: profile.status,
+            permissions: profile.permissions,
+            platform_role: profile.platform_role || null
+          } as UserProfile,
+          token,
+          loading: false 
       });
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
+      postAuthMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -213,7 +243,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
+      postAuthMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -264,7 +294,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
+      postAuthMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       set({ loading: false });
       throw err;
@@ -294,7 +324,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     useWorkspaceStore.getState().clearWorkspaces();
     
     // Notify other tabs via worker channel
-    authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
+    postAuthMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     initializationPromise = null;
   },
 
@@ -345,7 +375,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       useWorkspaceStore.getState().clearWorkspaces();
 
       // Notify other tabs via worker channel
-      authChannel.postMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
+      postAuthMessage({ type: 'AUTH_STATE_CHANGED', sourceTab: currentTabId });
     } catch (err) {
       throw err;
     }

@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { Bindings, Variables } from '../types';
-import { getSupabase } from '../services/db_service';
+import { getUserSupabaseClient } from '../services/db_service';
 import { authenticate } from '../middleware/auth';
 
 const diningSessionRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Get dining sessions for a restaurant
 diningSessionRoutes.get("/api/restaurants/:restId/dining-sessions", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const restId = c.req.param('restId');
   const status = c.req.query('status');
   
@@ -27,7 +27,7 @@ diningSessionRoutes.get("/api/restaurants/:restId/dining-sessions", authenticate
 
 // Get orders belonging to a dining session
 diningSessionRoutes.get("/api/dining-sessions/:id/orders", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { data, error } = await supabase
     .from('orders')
     .select('*, payments(amount)')
@@ -40,7 +40,7 @@ diningSessionRoutes.get("/api/dining-sessions/:id/orders", authenticate, async (
 
 // Settle dining session from back-office/counter counter-cash payments
 diningSessionRoutes.post("/api/dining-sessions/:id/settle", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const { orderIds, paidAmount } = await c.req.json();
   try {
     const { error: orderError } = await supabase
@@ -71,7 +71,7 @@ diningSessionRoutes.post("/api/dining-sessions/:id/settle", authenticate, async 
 
 // Update dining session details
 diningSessionRoutes.patch("/api/dining-sessions/:id", authenticate, async (c) => {
-  const supabase = getSupabase(c.env);
+  const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
   const { data, error } = await supabase
     .from('dining_sessions')

@@ -1,6 +1,7 @@
 import { offlineService } from './offlineService';
 import { OfflineMutation } from './indexedDbRepository';
 import { logger } from './logger';
+import { indexedDbStorage } from './indexedDbStorage';
 
 function parseHeaders(headers?: HeadersInit): Record<string, string> {
   const result: Record<string, string> = {};
@@ -37,12 +38,8 @@ interface QueueItem {
 
 // Global/persistent states for tracking deterministic sequences and client-side monotonic clock
 let lastSeq = 0;
-try {
-  const saved = typeof window !== 'undefined' ? window.localStorage.getItem('pos_mutation_sequence') : null;
-  if (saved) lastSeq = parseInt(saved, 10) || 0;
-} catch (e) {}
-
 let lastTimestamp = Date.now();
+
 
 // Utility to safely inject sequence numbers and client timestamps into mutation bodies
 function enrichRequestBody(body: any, seqNo: number, timestamp: number, syncId: string): any {
@@ -78,29 +75,31 @@ export class MutationQueue {
     requestDetails?: { url: string; options?: RequestInit }, 
     description?: string
   ) {
-    // Generate deterministic monotonic sequence IDs and client timestamps
-    lastSeq++;
+    // Generate deterministic monotonic sequence IDs and client timestamps via tab-safe IndexedDB transaction.
+    let nextSeq = 1;
     if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem('pos_mutation_sequence', String(lastSeq));
-      } catch (e) {}
+      nextSeq = await indexedDbStorage.incrementAndGet('pos_mutation_sequence', lastSeq);
+      lastSeq = nextSeq;
+    } else {
+      lastSeq++;
+      nextSeq = lastSeq;
     }
 
     const now = Date.now();
     const monotonicTimestamp = Math.max(now, lastTimestamp + 1);
     lastTimestamp = monotonicTimestamp;
-    const deterministicSequenceId = `seq_${lastSeq}_${monotonicTimestamp}`;
+    const deterministicSequenceId = `seq_${nextSeq}_${monotonicTimestamp}`;
 
     // Enrich requestDetails dynamically so that BOTH the immediate execution
     // and potentially postponed/offline-retried tasks bear identical sequence markers!
     if (requestDetails && requestDetails.options) {
       const opts = requestDetails.options;
       if (opts.body) {
-        opts.body = enrichRequestBody(opts.body, lastSeq, monotonicTimestamp, deterministicSequenceId);
+        opts.body = enrichRequestBody(opts.body, nextSeq, monotonicTimestamp, deterministicSequenceId);
       }
       
       const hdrs = parseHeaders(opts.headers);
-      hdrs['X-Sequence-No'] = String(lastSeq);
+      hdrs['X-Sequence-No'] = String(nextSeq);
       hdrs['X-Client-Timestamp'] = String(monotonicTimestamp);
       hdrs['X-Sync-Id'] = deterministicSequenceId;
       opts.headers = hdrs;
