@@ -31,7 +31,7 @@ menuImportRoutes.get("/api/menu-import/templates", async (c) => {
           base_price: "12.90",
           description: "Traditional Malay fragrant rice with crispy fried chicken",
           is_active: "true",
-          product_type: "configurable",
+          product_type: "single",
           image_url: "https://example.com/nasilemak.jpg"
         },
         {
@@ -42,7 +42,7 @@ menuImportRoutes.get("/api/menu-import/templates", async (c) => {
           base_price: "3.50",
           description: "Local pulled frothy milk tea",
           is_active: "true",
-          product_type: "single",
+          product_type: "configurable",
           image_url: "https://example.com/tehtarik.jpg"
         },
         {
