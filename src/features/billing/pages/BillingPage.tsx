@@ -23,8 +23,42 @@ export function BillingPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const simulatePlan = params.get("simulate_plan") as PlanCode | null;
+    const billingStatus = params.get("billing_status");
+
+    const syncRedirectParams = async () => {
+      if (!restId) return;
+      try {
+        setLoading(true);
+        if (simulatePlan && ["starter", "growth", "pro"].includes(simulatePlan)) {
+          await billingService.simulateSandboxPlan(simulatePlan);
+          setSuccessMsg(`Stripe Sandbox Simulated: Successfully synced ${simulatePlan.toUpperCase()} tier!`);
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+        } else if (billingStatus === "success") {
+          setSuccessMsg("Payment completed successfully! Your JomOrder subscription has been updated.");
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+        } else if (billingStatus === "cancelled") {
+          setError("Subscription checkout process was cancelled.");
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+        }
+      } catch (err: any) {
+        console.error("Error processing redirected params:", err);
+        setError(err.message || "Failed to update subscription from redirection query.");
+      } finally {
+        loadOverview();
+      }
+    };
+
     if (restId) {
-      loadOverview();
+      if (simulatePlan || billingStatus) {
+        syncRedirectParams();
+      } else {
+        loadOverview();
+      }
     }
   }, [restId]);
 

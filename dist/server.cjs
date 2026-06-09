@@ -8386,9 +8386,22 @@ router13.post("/billing/create-checkout-session", authenticateJWT, async (req, r
     return res.status(400).json({ error: "You must specify a target subscription plan." });
   }
   const email = user.email || "client@jomorder.com";
-  const host = req.headers.host || "localhost:3000";
-  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = req.headers.origin;
+  if (!origin) {
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        origin = new URL(referer).origin;
+      } catch (_) {
+      }
+    }
+  }
+  if (!origin) {
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
   try {
     const result = await service.createCheckoutSession(tenantId, plan, email, returnUrl);
     res.json(result);
@@ -8405,9 +8418,22 @@ router13.post("/billing/create-portal-session", authenticateJWT, async (req, res
   if (!tenantId) {
     return res.status(400).json({ error: "No active restaurant workspace." });
   }
-  const host = req.headers.host || "localhost:3000";
-  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = req.headers.origin;
+  if (!origin) {
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        origin = new URL(referer).origin;
+      } catch (_) {
+      }
+    }
+  }
+  if (!origin) {
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
   try {
     const result = await service.createPortalSession(tenantId, returnUrl);
     res.json(result);

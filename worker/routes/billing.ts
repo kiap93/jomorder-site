@@ -56,9 +56,21 @@ billingRoutes.post("/api/billing/create-checkout-session", authenticate, async (
   }
 
   const email = user.email || "client@jomorder.com";
-  const host = c.req.header('host') || "localhost:3000";
-  const protocol = c.req.url.startsWith("https") ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = c.req.header('origin');
+  if (!origin) {
+    const referer = c.req.header('referer');
+    if (referer) {
+      try {
+        origin = new URL(referer).origin;
+      } catch (_) {}
+    }
+  }
+  if (!origin) {
+    const host = c.req.header('host') || "localhost:3000";
+    const protocol = c.req.url.startsWith("https") ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
 
   try {
     const result = await service.createCheckoutSession(tenantId, plan as PlanCode, email, returnUrl);
@@ -85,9 +97,21 @@ billingRoutes.post("/api/billing/create-portal-session", authenticate, async (c)
     return c.json({ error: "No active restaurant workspace." }, 400);
   }
 
-  const host = c.req.header('host') || "localhost:3000";
-  const protocol = c.req.url.startsWith("https") ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = c.req.header('origin');
+  if (!origin) {
+    const referer = c.req.header('referer');
+    if (referer) {
+      try {
+        origin = new URL(referer).origin;
+      } catch (_) {}
+    }
+  }
+  if (!origin) {
+    const host = c.req.header('host') || "localhost:3000";
+    const protocol = c.req.url.startsWith("https") ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
 
   try {
     const result = await service.createPortalSession(tenantId, returnUrl);

@@ -53,9 +53,21 @@ router.post("/billing/create-checkout-session", authenticateJWT, async (req: Aut
 
   const email = user.email || "client@jomorder.com";
   // The frontend billing panel URL to return back to once stripe checkout completes 
-  const host = req.headers.host || "localhost:3000";
-  const protocol = req.secure || (req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = req.headers.origin;
+  if (!origin) {
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        origin = new URL(referer as string).origin;
+      } catch (_) {}
+    }
+  }
+  if (!origin) {
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.secure || (req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin as string}/restaurant/${tenantId}/billing`;
 
   try {
     const result = await service.createCheckoutSession(tenantId, plan as PlanCode, email, returnUrl);
@@ -80,9 +92,21 @@ router.post("/billing/create-portal-session", authenticateJWT, async (req: Authe
     return res.status(400).json({ error: "No active restaurant workspace." });
   }
 
-  const host = req.headers.host || "localhost:3000";
-  const protocol = req.secure || (req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
-  const returnUrl = `${protocol}://${host}/restaurant/${tenantId}/billing`;
+  let origin = req.headers.origin;
+  if (!origin) {
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        origin = new URL(referer as string).origin;
+      } catch (_) {}
+    }
+  }
+  if (!origin) {
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.secure || (req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
+    origin = `${protocol}://${host}`;
+  }
+  const returnUrl = `${origin as string}/restaurant/${tenantId}/billing`;
 
   try {
     const result = await service.createPortalSession(tenantId, returnUrl);
