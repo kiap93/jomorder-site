@@ -1878,8 +1878,15 @@ var getSecret = () => {
   return secret;
 };
 var authenticateJWT = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(" ")[1];
+  const authHeader = req.headers.authorization || req.query.authorization;
+  let token = authHeader?.split(" ")[1];
+  if (!token && authHeader) {
+    if (authHeader.toLowerCase().startsWith("bearer ")) {
+      token = authHeader.substring(7);
+    } else {
+      token = authHeader;
+    }
+  }
   if (!token) {
     console.warn(`[AUTH FAIL] No token provided for path ${req.path}`);
     return res.status(401).json({ error: "Unauthorized: No token provided" });

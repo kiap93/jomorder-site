@@ -25,8 +25,16 @@ const getSecret = () => {
  * Decodes the JWT token and binds the object info onto req.user
  */
 export const authenticateJWT = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
+  const authHeader = req.headers.authorization || (req.query.authorization as string);
+  let token = authHeader?.split(' ')[1];
+
+  if (!token && authHeader) {
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      token = authHeader.substring(7);
+    } else {
+      token = authHeader;
+    }
+  }
 
   if (!token) {
     console.warn(`[AUTH FAIL] No token provided for path ${req.path}`);

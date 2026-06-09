@@ -8,8 +8,16 @@ import { getSupabase, getStaffSettingsFromDb, logToAuditDb } from '../services/d
  * Validates JWT token and sets the user payload into the request context.
  */
 export const authenticate: MiddlewareHandler<{ Bindings: Bindings; Variables: Variables }> = async (c, next) => {
-  const authHeader = c.req.header('Authorization');
-  const token = authHeader?.split(' ')[1];
+  const authHeader = c.req.header('Authorization') || c.req.query('authorization');
+  let token = authHeader?.split(' ')[1];
+
+  if (!token && authHeader) {
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      token = authHeader.substring(7);
+    } else {
+      token = authHeader;
+    }
+  }
 
   if (!token) {
     console.warn(`[SECURITY] Authentication failed: No token provided for path ${c.req.path}`);
