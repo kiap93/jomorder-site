@@ -21,6 +21,19 @@ app.use('*', logger());
 app.use('*', cors());
 
 app.use('*', async (c, next) => {
+  if (c.env) {
+    if (typeof process !== 'undefined') {
+      if (!process.env) {
+        (process as any).env = {};
+      }
+      for (const [key, value] of Object.entries(c.env)) {
+        if (value !== undefined && value !== null) {
+          process.env[key] = String(value);
+        }
+      }
+    }
+  }
+
   if (!c.env || !c.env.JWT_SECRET) {
     throw new Error('JWT_SECRET is required');
   }

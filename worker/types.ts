@@ -9,6 +9,10 @@ export type Bindings = {
   ADMIN_USER_EMAIL?: string;
   ADMIN_USER_PASSWORD?: string;
   PAYMENT_ENCRYPTION_KEY?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PRICE_STARTER?: string;
+  STRIPE_PRICE_GROWTH?: string;
+  STRIPE_PRICE_PRO?: string;
 };
 
 export type Variables = {
