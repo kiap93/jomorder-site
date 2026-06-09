@@ -2761,7 +2761,6 @@ var import_express4 = require("express");
 init_dbService();
 
 // src/server/services/menuImportService.ts
-init_dbService();
 var import_jszip = __toESM(require("jszip"), 1);
 var activeJobs = /* @__PURE__ */ new Map();
 var importHistory = [];
@@ -3076,7 +3075,14 @@ async function parseMenuZip(zipBuffer) {
     comboChoiceOptions: parseCSV(comboOptionsCsv)
   };
 }
-function createImportJob(restaurantId) {
+function generateUUID() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+}
+async function createImportJob(supabase, restaurantId) {
   const jobId = Math.random().toString(36).substr(2, 9).toUpperCase();
   const job = {
     id: jobId,
@@ -3088,25 +3094,110 @@ function createImportJob(restaurantId) {
     message: "Job initialized and queued helper context.",
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
+  const recordId = generateUUID();
+  const statusMap = {
+    "queued": "pending",
+    "validating": "pending",
+    "validation_complete": "pending",
+    "importing": "processing",
+    "completed": "completed",
+    "failed": "failed"
+  };
+  const { error } = await supabase.from("translation_jobs").insert({
+    id: recordId,
+    restaurant_id: restaurantId,
+    entity_type: "menu_import",
+    entity_id: recordId,
+    source_language: "en",
+    target_language: jobId,
+    status: statusMap[job.status] || "pending",
+    ai_generated_text: JSON.stringify(job),
+    review_status: "draft",
+    created_at: job.createdAt
+  });
+  if (error) {
+    console.warn("[MenuImportService] Failed to persist job to database:", error.message);
+  }
   activeJobs.set(jobId, job);
   return job;
 }
-function getImportJob(jobId) {
-  return activeJobs.get(jobId);
+async function getImportJob(supabase, jobId) {
+  const memJob = activeJobs.get(jobId);
+  if (memJob) return memJob;
+  try {
+    const { data, error } = await supabase.from("translation_jobs").select("*").eq("entity_type", "menu_import").eq("target_language", jobId).maybeSingle();
+    if (error) {
+      console.warn("[MenuImportService] Failed to get job from database:", error.message);
+      return void 0;
+    }
+    if (data && data.ai_generated_text) {
+      const parsedJob = JSON.parse(data.ai_generated_text);
+      activeJobs.set(jobId, parsedJob);
+      return parsedJob;
+    }
+  } catch (err) {
+    console.warn("[MenuImportService] Exception in getImportJob:", err);
+  }
+  return void 0;
 }
-function getAllImportJobs() {
+async function getAllImportJobs(supabase) {
+  try {
+    const { data, error } = await supabase.from("translation_jobs").select("*").eq("entity_type", "menu_import").order("created_at", { ascending: false });
+    if (error) {
+      console.warn("[MenuImportService] Failed to fetch all jobs from database:", error.message);
+    } else if (data && data.length > 0) {
+      const jobs = data.map((row) => JSON.parse(row.ai_generated_text));
+      return jobs;
+    }
+  } catch (err) {
+    console.warn("[MenuImportService] Exception in getAllImportJobs:", err);
+  }
   return [...importHistory, ...Array.from(activeJobs.values())].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
-async function executeTransactionalImport(jobId) {
-  const job = activeJobs.get(jobId);
+async function updateImportJob(supabase, jobId, job) {
+  activeJobs.set(jobId, job);
+  const statusMap = {
+    "queued": "pending",
+    "validating": "pending",
+    "validation_complete": "pending",
+    "importing": "processing",
+    "completed": "completed",
+    "failed": "failed"
+  };
+  const { error } = await supabase.from("translation_jobs").update({
+    status: statusMap[job.status] || "pending",
+    ai_generated_text: JSON.stringify(job)
+  }).eq("entity_type", "menu_import").eq("target_language", jobId);
+  if (error) {
+    console.warn("[MenuImportService] Failed to update job in database:", error.message);
+  }
+}
+function deleteActiveJobFromMemory(id) {
+  activeJobs.delete(id);
+}
+async function executeTransactionalImport(supabase, jobId) {
+  const supabaseAdmin2 = supabase;
+  const job = await getImportJob(supabase, jobId);
   if (!job || !job.parsedData) return;
+  const activeJobs2 = {
+    get: (id) => job,
+    set: (id, updatedJob) => {
+      Object.assign(job, updatedJob);
+      updateImportJob(supabase, jobId, { ...job }).catch((err) => {
+        console.warn("[MenuImportService] Background database update failed:", err);
+      });
+    },
+    delete: (id) => {
+      deleteActiveJobFromMemory(id);
+    }
+  };
   const restId = job.restaurantId;
   job.status = "importing";
   job.progress = 5;
   job.message = "Backing up existing menu structure for transaction security...";
-  activeJobs.set(jobId, { ...job });
+  activeJobs2.set(jobId, { ...job });
   let backupCategories = [];
   let backupItems = [];
   let backupModifierGroups = [];
@@ -3114,45 +3205,45 @@ async function executeTransactionalImport(jobId) {
   let backupComboGroups = [];
   let backupComboGroupItems = [];
   try {
-    const catQuery = await supabaseAdmin.from("categories").select("*").eq("restaurant_id", restId);
+    const catQuery = await supabaseAdmin2.from("categories").select("*").eq("restaurant_id", restId);
     backupCategories = catQuery.data || [];
-    const itemQuery = await supabaseAdmin.from("menu_items").select("*").eq("restaurant_id", restId);
+    const itemQuery = await supabaseAdmin2.from("menu_items").select("*").eq("restaurant_id", restId);
     backupItems = itemQuery.data || [];
     if (backupItems.length > 0) {
       const itemIds = backupItems.map((i) => i.id);
-      const modGrQuery = await supabaseAdmin.from("modifier_groups").select("*").in("product_id", itemIds);
+      const modGrQuery = await supabaseAdmin2.from("modifier_groups").select("*").in("product_id", itemIds);
       backupModifierGroups = modGrQuery.data || [];
       if (backupModifierGroups.length > 0) {
         const modGrIds = backupModifierGroups.map((g) => g.id);
-        const modQuery = await supabaseAdmin.from("modifiers").select("*").in("group_id", modGrIds);
+        const modQuery = await supabaseAdmin2.from("modifiers").select("*").in("group_id", modGrIds);
         backupModifiers = modQuery.data || [];
       }
-      const comboGrQuery = await supabaseAdmin.from("combo_groups").select("*").in("combo_product_id", itemIds);
+      const comboGrQuery = await supabaseAdmin2.from("combo_groups").select("*").in("combo_product_id", itemIds);
       backupComboGroups = comboGrQuery.data || [];
       if (backupComboGroups.length > 0) {
         const comboGrIds = backupComboGroups.map((g) => g.id);
-        const comboItemQuery = await supabaseAdmin.from("combo_group_items").select("*").in("group_id", comboGrIds);
+        const comboItemQuery = await supabaseAdmin2.from("combo_group_items").select("*").in("group_id", comboGrIds);
         backupComboGroupItems = comboItemQuery.data || [];
       }
     }
   } catch (err) {
     job.status = "failed";
     job.message = `Backup process failed: ${err.message}. Aborting import.`;
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     return;
   }
   job.progress = 15;
   job.message = "Backup success. Starting transactional execution...";
-  activeJobs.set(jobId, { ...job });
+  activeJobs2.set(jobId, { ...job });
   const restoreBackupOnCrash = async (errorMsg) => {
     console.error(`[ROLLBACK] Restoring original menu database layout due to failure: ${errorMsg}`);
     job.status = "failed";
     job.message = `Critical error during import: ${errorMsg}. Rolling back database to pristine state...`;
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     try {
-      await supabaseAdmin.from("categories").delete().eq("restaurant_id", restId);
+      await supabaseAdmin2.from("categories").delete().eq("restaurant_id", restId);
       if (backupCategories.length > 0) {
-        await supabaseAdmin.from("categories").insert(backupCategories.map((c) => ({
+        await supabaseAdmin2.from("categories").insert(backupCategories.map((c) => ({
           id: c.id,
           restaurant_id: c.restaurant_id,
           name: c.name,
@@ -3178,11 +3269,11 @@ async function executeTransactionalImport(jobId) {
             display_behavior: item.display_behavior,
             created_at: item.created_at
           }));
-          await supabaseAdmin.from("menu_items").insert(chunk);
+          await supabaseAdmin2.from("menu_items").insert(chunk);
         }
       }
       if (backupModifierGroups.length > 0) {
-        await supabaseAdmin.from("modifier_groups").insert(backupModifierGroups.map((g) => ({
+        await supabaseAdmin2.from("modifier_groups").insert(backupModifierGroups.map((g) => ({
           id: g.id,
           product_id: g.product_id,
           parent_modifier_id: g.parent_modifier_id,
@@ -3196,7 +3287,7 @@ async function executeTransactionalImport(jobId) {
         })));
       }
       if (backupModifiers.length > 0) {
-        await supabaseAdmin.from("modifiers").insert(backupModifiers.map((m) => ({
+        await supabaseAdmin2.from("modifiers").insert(backupModifiers.map((m) => ({
           id: m.id,
           group_id: m.group_id,
           name: m.name,
@@ -3209,7 +3300,7 @@ async function executeTransactionalImport(jobId) {
         })));
       }
       if (backupComboGroups.length > 0) {
-        await supabaseAdmin.from("combo_groups").insert(backupComboGroups.map((g) => ({
+        await supabaseAdmin2.from("combo_groups").insert(backupComboGroups.map((g) => ({
           id: g.id,
           combo_product_id: g.combo_product_id,
           name: g.name,
@@ -3224,7 +3315,7 @@ async function executeTransactionalImport(jobId) {
         })));
       }
       if (backupComboGroupItems.length > 0) {
-        await supabaseAdmin.from("combo_group_items").insert(backupComboGroupItems.map((item) => ({
+        await supabaseAdmin2.from("combo_group_items").insert(backupComboGroupItems.map((item) => ({
           id: item.id,
           group_id: item.group_id,
           child_product_id: item.child_product_id,
@@ -3241,9 +3332,9 @@ async function executeTransactionalImport(jobId) {
     } catch (restoreErr) {
       job.message += ` CRITICAL DOUBLE-FAILURE! Rollback crashed with error: ${restoreErr.message}. DB is now in partial state. Contact admin.`;
     }
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     importHistory.push({ ...job });
-    activeJobs.delete(jobId);
+    activeJobs2.delete(jobId);
   };
   try {
     const data = job.parsedData;
@@ -3255,7 +3346,7 @@ async function executeTransactionalImport(jobId) {
     const warnings = [];
     job.progress = 25;
     job.message = "Processing and indexing Menu Categories...";
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     const categoriesInCsv = Array.from(new Set(
       data.items.map((i) => i.category_name?.trim()).filter(Boolean)
     ));
@@ -3280,7 +3371,7 @@ async function executeTransactionalImport(jobId) {
       }
     });
     if (newCatsToInsert.length > 0) {
-      const { data: insertedCats, error: catInsErr } = await supabaseAdmin.from("categories").insert(newCatsToInsert).select();
+      const { data: insertedCats, error: catInsErr } = await supabaseAdmin2.from("categories").insert(newCatsToInsert).select();
       if (catInsErr) {
         await restoreBackupOnCrash(`Could not create category elements: ${catInsErr.message}`);
         return;
@@ -3292,10 +3383,10 @@ async function executeTransactionalImport(jobId) {
     }
     job.progress = 40;
     job.message = "Importing items into public.menu_items in batch chunks...";
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     const itemIdByItemCode = /* @__PURE__ */ new Map();
     const itemCodeToOriginalId = /* @__PURE__ */ new Map();
-    const { error: cleanItemsErr } = await supabaseAdmin.from("menu_items").delete().eq("restaurant_id", restId);
+    const { error: cleanItemsErr } = await supabaseAdmin2.from("menu_items").delete().eq("restaurant_id", restId);
     if (cleanItemsErr) {
       await restoreBackupOnCrash(`Fail cleaning up existing menu items: ${cleanItemsErr.message}`);
       return;
@@ -3323,7 +3414,7 @@ async function executeTransactionalImport(jobId) {
     const chunkSize = 100;
     for (let i = 0; i < itemsToInsert.length; i += chunkSize) {
       const chunk = itemsToInsert.slice(i, i + chunkSize);
-      const { data: insertedChunk, error: insErr } = await supabaseAdmin.from("menu_items").insert(chunk).select();
+      const { data: insertedChunk, error: insErr } = await supabaseAdmin2.from("menu_items").insert(chunk).select();
       if (insErr) {
         await restoreBackupOnCrash(`Batch item insert failed: ${insErr.message}`);
         return;
@@ -3337,11 +3428,11 @@ async function executeTransactionalImport(jobId) {
       });
       job.progress = 40 + Math.round(i / itemsToInsert.length * 30);
       job.message = `Imported items chunk (${createdCount}/${itemsToInsert.length})...`;
-      activeJobs.set(jobId, { ...job });
+      activeJobs2.set(jobId, { ...job });
     }
     job.progress = 75;
     job.message = "Structuring Modifier Configurator Engines...";
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     const modGroupIdMap = /* @__PURE__ */ new Map();
     const groupsInserted = [];
     const modGroupsToInsertPayload = [];
@@ -3363,7 +3454,7 @@ async function executeTransactionalImport(jobId) {
       }
     });
     if (modGroupsToInsertPayload.length > 0) {
-      const { data: insertedGroups, error: grInsertErr } = await supabaseAdmin.from("modifier_groups").insert(modGroupsToInsertPayload).select();
+      const { data: insertedGroups, error: grInsertErr } = await supabaseAdmin2.from("modifier_groups").insert(modGroupsToInsertPayload).select();
       if (grInsertErr) {
         await restoreBackupOnCrash(`Could not create modifier groups: ${grInsertErr.message}`);
         return;
@@ -3385,7 +3476,7 @@ async function executeTransactionalImport(jobId) {
         configsImported++;
       });
       if (modifiersToInsertPayload.length > 0) {
-        const { error: optInsertErr } = await supabaseAdmin.from("modifiers").insert(modifiersToInsertPayload);
+        const { error: optInsertErr } = await supabaseAdmin2.from("modifiers").insert(modifiersToInsertPayload);
         if (optInsertErr) {
           await restoreBackupOnCrash(`Could not create modifier options: ${optInsertErr.message}`);
           return;
@@ -3394,7 +3485,7 @@ async function executeTransactionalImport(jobId) {
     }
     job.progress = 88;
     job.message = "Assembling Combo Product Composition Matrices...";
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     const comboChoiceGroupsPayload = data.comboChoiceGroups.map((g) => {
       const comboProductId = itemIdByItemCode.get(g.combo_product_code?.trim());
       return {
@@ -3409,7 +3500,7 @@ async function executeTransactionalImport(jobId) {
       };
     }).filter((g) => g.combo_product_id !== void 0);
     if (comboChoiceGroupsPayload.length > 0) {
-      const { data: insertedComboGroups, error: comboGrErr } = await supabaseAdmin.from("combo_groups").insert(comboChoiceGroupsPayload).select();
+      const { data: insertedComboGroups, error: comboGrErr } = await supabaseAdmin2.from("combo_groups").insert(comboChoiceGroupsPayload).select();
       if (comboGrErr) {
         await restoreBackupOnCrash(`Could not insert combo choice groups: ${comboGrErr.message}`);
         return;
@@ -3435,7 +3526,7 @@ async function executeTransactionalImport(jobId) {
         configsImported++;
       });
       if (comboGroupItemsPayload.length > 0) {
-        const { error: comboItemErr } = await supabaseAdmin.from("combo_group_items").insert(comboGroupItemsPayload);
+        const { error: comboItemErr } = await supabaseAdmin2.from("combo_group_items").insert(comboGroupItemsPayload);
         if (comboItemErr) {
           await restoreBackupOnCrash(`Could not populate combo item compositions: ${comboItemErr.message}`);
           return;
@@ -3459,9 +3550,9 @@ async function executeTransactionalImport(jobId) {
         configsImported
       }
     };
-    activeJobs.set(jobId, { ...job });
+    activeJobs2.set(jobId, { ...job });
     importHistory.push({ ...job });
-    activeJobs.delete(jobId);
+    activeJobs2.delete(jobId);
     console.log(`[Import SUCCESS] Job ${jobId} finished cleanly for restaurant ${restId}`);
   } catch (fatalErr) {
     await restoreBackupOnCrash(fatalErr.message || "Fatal unexpected implementation error");
@@ -3649,7 +3740,7 @@ router4.post("/menu-import/upload", authenticateJWT, requireTenantIsolation(), r
   if (!zipBase64) {
     return res.status(400).json({ error: "Missing uploaded zipBase64 data in payload" });
   }
-  const job = createImportJob(caller.restaurantId);
+  const job = await createImportJob(supabaseAdmin, caller.restaurantId);
   job.status = "validating";
   job.message = "Decompressing ZIP files and parsing CSVs...";
   try {
@@ -3684,7 +3775,7 @@ router4.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantI
   const caller = req.user;
   if (!caller) return res.status(401).json({ error: "Unauthorized access" });
   const { jobId } = req.params;
-  const job = getImportJob(jobId);
+  const job = await getImportJob(supabaseAdmin, jobId);
   if (!job) {
     return res.status(404).json({ error: "Import job context not found." });
   }
@@ -3696,7 +3787,7 @@ router4.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantI
   }
   Promise.resolve().then(async () => {
     try {
-      await executeTransactionalImport(jobId);
+      await executeTransactionalImport(supabaseAdmin, jobId);
     } catch (err) {
       console.error("[BG job error]", err);
     }
@@ -3709,14 +3800,14 @@ router4.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantI
 });
 router4.get("/menu-import/jobs/:jobId/status", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { jobId } = req.params;
-  const job = getImportJob(jobId);
+  const job = await getImportJob(supabaseAdmin, jobId);
   if (!job) {
     return res.status(404).json({ error: "Job context has expired or search query is invalid." });
   }
   res.json(job);
 });
 router4.get("/menu-import/history", authenticateJWT, requireTenantIsolation(), async (req, res) => {
-  res.json(getAllImportJobs());
+  res.json(await getAllImportJobs(supabaseAdmin));
 });
 router4.get("/menu-import/export", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
   const caller = req.user;

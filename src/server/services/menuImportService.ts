@@ -432,9 +432,20 @@ export async function parseMenuZip(zipBuffer: Buffer): Promise<NonNullable<Impor
 }
 
 /**
- * Creates a new background import job and registers it.
+ * Helper to generate simple random UUID compliant with standard DB structures
  */
-export function createImportJob(restaurantId: string): ImportJob {
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Creates a new background import job and registers it in database.
+ */
+export async function createImportJob(supabase: any, restaurantId: string): Promise<ImportJob> {
   const jobId = Math.random().toString(36).substr(2, 9).toUpperCase();
   const job: ImportJob = {
     id: jobId,
@@ -446,27 +457,141 @@ export function createImportJob(restaurantId: string): ImportJob {
     message: 'Job initialized and queued helper context.',
     createdAt: new Date().toISOString()
   };
+
+  const recordId = generateUUID();
+  const statusMap: Record<string, string> = {
+    'queued': 'pending',
+    'validating': 'pending',
+    'validation_complete': 'pending',
+    'importing': 'processing',
+    'completed': 'completed',
+    'failed': 'failed'
+  };
+
+  const { error } = await supabase.from('translation_jobs').insert({
+    id: recordId,
+    restaurant_id: restaurantId,
+    entity_type: 'menu_import',
+    entity_id: recordId,
+    source_language: 'en',
+    target_language: jobId,
+    status: statusMap[job.status] || 'pending',
+    ai_generated_text: JSON.stringify(job),
+    review_status: 'draft',
+    created_at: job.createdAt
+  });
+
+  if (error) {
+    console.warn("[MenuImportService] Failed to persist job to database:", error.message);
+  }
+
   activeJobs.set(jobId, job);
   return job;
 }
 
-export function getImportJob(jobId: string): ImportJob | undefined {
-  return activeJobs.get(jobId);
+export async function getImportJob(supabase: any, jobId: string): Promise<ImportJob | undefined> {
+  const memJob = activeJobs.get(jobId);
+  if (memJob) return memJob;
+
+  try {
+    const { data, error } = await supabase
+      .from('translation_jobs')
+      .select('*')
+      .eq('entity_type', 'menu_import')
+      .eq('target_language', jobId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[MenuImportService] Failed to get job from database:", error.message);
+      return undefined;
+    }
+
+    if (data && data.ai_generated_text) {
+      const parsedJob = JSON.parse(data.ai_generated_text) as ImportJob;
+      activeJobs.set(jobId, parsedJob);
+      return parsedJob;
+    }
+  } catch (err) {
+    console.warn("[MenuImportService] Exception in getImportJob:", err);
+  }
+
+  return undefined;
 }
 
-export function getAllImportJobs(): ImportJob[] {
+export async function getAllImportJobs(supabase: any): Promise<ImportJob[]> {
+  try {
+    const { data, error } = await supabase
+      .from('translation_jobs')
+      .select('*')
+      .eq('entity_type', 'menu_import')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn("[MenuImportService] Failed to fetch all jobs from database:", error.message);
+    } else if (data && data.length > 0) {
+      const jobs: ImportJob[] = data.map((row: any) => JSON.parse(row.ai_generated_text));
+      return jobs;
+    }
+  } catch (err) {
+    console.warn("[MenuImportService] Exception in getAllImportJobs:", err);
+  }
+
   return [...importHistory, ...Array.from(activeJobs.values())].sort((a, b) => 
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
+}
+
+export async function updateImportJob(supabase: any, jobId: string, job: ImportJob): Promise<void> {
+  activeJobs.set(jobId, job);
+
+  const statusMap: Record<string, string> = {
+    'queued': 'pending',
+    'validating': 'pending',
+    'validation_complete': 'pending',
+    'importing': 'processing',
+    'completed': 'completed',
+    'failed': 'failed'
+  };
+
+  const { error } = await supabase
+    .from('translation_jobs')
+    .update({
+      status: statusMap[job.status] || 'pending',
+      ai_generated_text: JSON.stringify(job)
+    })
+    .eq('entity_type', 'menu_import')
+    .eq('target_language', jobId);
+
+  if (error) {
+    console.warn("[MenuImportService] Failed to update job in database:", error.message);
+  }
+}
+
+export function deleteActiveJobFromMemory(id: string) {
+  activeJobs.delete(id);
 }
 
 /**
  * Application-level transactional rollback runner.
  * Takes a backup of all menu structures, and resets it if things crash during execution!
  */
-export async function executeTransactionalImport(jobId: string) {
-  const job = activeJobs.get(jobId);
+export async function executeTransactionalImport(supabase: any, jobId: string) {
+  const supabaseAdmin = supabase;
+  const job = await getImportJob(supabase, jobId);
   if (!job || !job.parsedData) return;
+
+  const activeJobs = {
+    get: (id: string) => job,
+    set: (id: string, updatedJob: any) => {
+      Object.assign(job, updatedJob);
+      updateImportJob(supabase, jobId, { ...job }).catch(err => {
+        console.warn("[MenuImportService] Background database update failed:", err);
+      });
+    },
+    delete: (id: string) => {
+      deleteActiveJobFromMemory(id);
+    }
+  };
 
   const restId = job.restaurantId;
   job.status = 'importing';
@@ -693,7 +818,7 @@ export async function executeTransactionalImport(jobId: string) {
         return;
       }
 
-      insertedCats?.forEach(cat => {
+      insertedCats?.forEach((cat: any) => {
         categoryIdByName.set(cat.name.toLowerCase().trim(), cat.id);
         categoriesCreated++;
       });
@@ -758,7 +883,7 @@ export async function executeTransactionalImport(jobId: string) {
         return;
       }
 
-      insertedChunk?.forEach(item => {
+      insertedChunk?.forEach((item: any) => {
         const itemCode = item.options?.item_code;
         if (itemCode) {
           itemIdByItemCode.set(itemCode, item.id);
@@ -832,7 +957,7 @@ export async function executeTransactionalImport(jobId: string) {
       // Since we duplicated modifier groups for each item, we duplicate their options too.
       const modifiersToInsertPayload: any[] = [];
       
-      insertedGroups?.forEach(insertedGroup => {
+      insertedGroups?.forEach((insertedGroup: any) => {
         const groupCode = insertedGroup.display_behavior?.group_code;
         const matchingOptions = data.configOptions.filter(opt => opt.group_code?.trim() === groupCode);
 
@@ -897,7 +1022,7 @@ export async function executeTransactionalImport(jobId: string) {
       }
 
       const comboGroupItemsPayload: any[] = [];
-      insertedComboGroups?.forEach(cg => {
+      insertedComboGroups?.forEach((cg: any) => {
         const groupCode = cg.display_behavior?.group_code;
         const matchingOptions = data.comboChoiceOptions.filter(o => o.group_code?.trim() === groupCode);
 

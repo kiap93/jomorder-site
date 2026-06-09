@@ -209,7 +209,8 @@ menuImportRoutes.post("/api/menu-import/upload", authenticate, async (c) => {
     return c.json({ error: "Missing uploaded zipBase64 data in payload" }, 400);
   }
 
-  const job = createImportJob(caller.restaurantId);
+  const supabase = getSupabase(c.env);
+  const job = await createImportJob(supabase, caller.restaurantId);
   job.status = 'validating';
   job.message = 'Decompressing ZIP files and parsing CSVs...';
 
@@ -217,8 +218,6 @@ menuImportRoutes.post("/api/menu-import/upload", authenticate, async (c) => {
     const buffer = Buffer.from(zipBase64, 'base64');
     const parsed = await parseMenuZip(buffer);
     job.parsedData = parsed;
-
-    const supabase = getSupabase(c.env);
 
     // Load existing items of this restaurant to run comparisons for previewing
     const { data: existingItems, error: itemsErr } = await supabase
@@ -262,7 +261,8 @@ menuImportRoutes.post("/api/menu-import/jobs/:jobId/confirm", authenticate, asyn
   if (!caller) return c.json({ error: "Unauthorized access" }, 401);
 
   const jobId = c.req.param('jobId');
-  const job = getImportJob(jobId);
+  const supabase = getSupabase(c.env);
+  const job = await getImportJob(supabase, jobId);
 
   if (!job) {
     return c.json({ error: "Import job context not found." }, 404);
@@ -278,12 +278,12 @@ menuImportRoutes.post("/api/menu-import/jobs/:jobId/confirm", authenticate, asyn
 
   // Trigger background runner
   if (c.executionCtx) {
-    c.executionCtx.waitUntil(executeTransactionalImport(jobId));
+    c.executionCtx.waitUntil(executeTransactionalImport(supabase, jobId));
   } else {
     // Local / development synchronous fallback
     Promise.resolve().then(async () => {
       try {
-        await executeTransactionalImport(jobId);
+        await executeTransactionalImport(supabase, jobId);
       } catch (err) {
         console.error("[BG job error]", err);
       }
@@ -300,7 +300,8 @@ menuImportRoutes.post("/api/menu-import/jobs/:jobId/confirm", authenticate, asyn
 // 4. GET /api/menu-import/jobs/:jobId/status -> Live Query Progress
 menuImportRoutes.get("/api/menu-import/jobs/:jobId/status", authenticate, async (c) => {
   const jobId = c.req.param('jobId');
-  const job = getImportJob(jobId);
+  const supabase = getSupabase(c.env);
+  const job = await getImportJob(supabase, jobId);
   if (!job) {
     return c.json({ error: "Job context has expired or search query is invalid." }, 404);
   }
@@ -309,7 +310,8 @@ menuImportRoutes.get("/api/menu-import/jobs/:jobId/status", authenticate, async 
 
 // 5. GET /api/menu-import/history -> Fetch History Report Lists
 menuImportRoutes.get("/api/menu-import/history", authenticate, async (c) => {
-  return c.json(getAllImportJobs());
+  const supabase = getSupabase(c.env);
+  return c.json(await getAllImportJobs(supabase));
 });
 
 // 6. GET /api/menu-import/export -> Fetch and Compile perfect Export ZIP

@@ -206,7 +206,7 @@ router.post("/menu-import/upload", authenticateJWT, requireTenantIsolation(), re
     return res.status(400).json({ error: "Missing uploaded zipBase64 data in payload" });
   }
 
-  const job = createImportJob(caller.restaurantId);
+  const job = await createImportJob(supabaseAdmin, caller.restaurantId);
   job.status = 'validating';
   job.message = 'Decompressing ZIP files and parsing CSVs...';
 
@@ -257,7 +257,7 @@ router.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantIs
   if (!caller) return res.status(401).json({ error: "Unauthorized access" });
 
   const { jobId } = req.params;
-  const job = getImportJob(jobId);
+  const job = await getImportJob(supabaseAdmin, jobId);
 
   if (!job) {
     return res.status(404).json({ error: "Import job context not found." });
@@ -274,7 +274,7 @@ router.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantIs
   // Trigger background runner (Async thread dispatch simulation)
   Promise.resolve().then(async () => {
     try {
-      await executeTransactionalImport(jobId);
+      await executeTransactionalImport(supabaseAdmin, jobId);
     } catch (err) {
       console.error("[BG job error]", err);
     }
@@ -290,7 +290,7 @@ router.post("/menu-import/jobs/:jobId/confirm", authenticateJWT, requireTenantIs
 // 4. GET /api/menu-import/jobs/:jobId/status -> Live Query Progress
 router.get("/menu-import/jobs/:jobId/status", authenticateJWT, requireTenantIsolation(), async (req, res) => {
   const { jobId } = req.params;
-  const job = getImportJob(jobId);
+  const job = await getImportJob(supabaseAdmin, jobId);
   if (!job) {
     return res.status(404).json({ error: "Job context has expired or search query is invalid." });
   }
@@ -299,7 +299,7 @@ router.get("/menu-import/jobs/:jobId/status", authenticateJWT, requireTenantIsol
 
 // 5. GET /api/menu-import/history -> Fetch History Report Lists
 router.get("/menu-import/history", authenticateJWT, requireTenantIsolation(), async (req, res) => {
-  res.json(getAllImportJobs());
+  res.json(await getAllImportJobs(supabaseAdmin));
 });
 
 // 6. GET /api/menu-import/export -> Fetch and Compile perfect Export ZIP
