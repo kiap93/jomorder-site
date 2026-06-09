@@ -11,7 +11,10 @@ import {
   HelpCircle,
   FileCheck,
   History,
-  Timer
+  Timer,
+  Search,
+  Tag,
+  Info
 } from 'lucide-react';
 import { getApiUrl } from '../../lib/api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -30,6 +33,8 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
   const [jobStatus, setJobStatus] = useState<any | null>(null);
   const [historyJobs, setHistoryJobs] = useState<any[]>([]);
   const [activeSubTab, setActiveSubTab] = useState<'upload' | 'history'>('upload');
+  const [selectedPreviewTab, setSelectedPreviewTab] = useState<'new' | 'updated' | 'unchanged' | null>('new');
+  const [previewSearch, setPreviewSearch] = useState('');
   
   // Progress polling interval reference
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -99,6 +104,8 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
     setValidationErrors([]);
     setJobId(null);
     setJobStatus(null);
+    setSelectedPreviewTab('new');
+    setPreviewSearch('');
 
     try {
       const reader = new FileReader();
@@ -207,6 +214,26 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
     const token = getAuthToken();
     window.location.href = getApiUrl(`/api/menu-import/export?authorization=Bearer ${token}`);
   };
+
+  const getPreviewList = () => {
+    if (!jobStatus?.preview) return [];
+    switch (selectedPreviewTab) {
+      case 'new': return jobStatus.preview.newRecords || [];
+      case 'updated': return jobStatus.preview.updatedRecords || [];
+      case 'unchanged': return jobStatus.preview.unchangedRecords || [];
+      default: return [];
+    }
+  };
+
+  const previewList = getPreviewList();
+  const filteredPreviewList = previewList.filter((item: any) => {
+    const query = previewSearch.toLowerCase();
+    return (
+      String(item.name || '').toLowerCase().includes(query) ||
+      String(item.item_code || '').toLowerCase().includes(query) ||
+      String(item.category_name || '').toLowerCase().includes(query)
+    );
+  });
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
@@ -351,6 +378,8 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
                       setJobStatus(null);
                       setValidationErrors([]);
                       setWarnings([]);
+                      setSelectedPreviewTab('new');
+                      setPreviewSearch('');
                     }}
                     className="p-1 text-gray-400 hover:text-gray-950 border border-gray-200 bg-white rounded-lg shadow-sm"
                   >
@@ -418,19 +447,159 @@ export function MenuImportTab({ t }: MenuImportTabProps) {
 
               {/* Records preview block */}
               {jobStatus.preview && (
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
-                    <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">New Items</p>
-                    <p className="text-xl font-black text-emerald-500 mt-1">{jobStatus.preview.newRecords?.length || 0}</p>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Info size={14} className="text-gray-900" />
+                      Parsed Database Preview Records
+                    </h3>
+                    <p className="text-[11px] text-gray-500">
+                      Select a classification below to view parsed records and verify structural changes before committing to live database.
+                    </p>
                   </div>
-                  <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
-                    <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">Updated Items</p>
-                    <p className="text-xl font-black text-blue-500 mt-1">{jobStatus.preview.updatedRecords?.length || 0}</p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPreviewTab('new')}
+                      className={`p-3 rounded-lg border text-center transition-all cursor-pointer ${
+                        selectedPreviewTab === 'new'
+                          ? 'bg-emerald-50 border-emerald-200 shadow-sm'
+                          : 'bg-white border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">New Items</p>
+                      <p className="text-xl font-black text-emerald-600 mt-1">
+                        {jobStatus.preview.newRecords?.length || 0}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPreviewTab('updated')}
+                      className={`p-3 rounded-lg border text-center transition-all cursor-pointer ${
+                        selectedPreviewTab === 'updated'
+                          ? 'bg-blue-50 border-blue-200 shadow-sm'
+                          : 'bg-white border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">Updated Items</p>
+                      <p className="text-xl font-black text-blue-600 mt-1">
+                        {jobStatus.preview.updatedRecords?.length || 0}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPreviewTab('unchanged')}
+                      className={`p-3 rounded-lg border text-center transition-all cursor-pointer ${
+                        selectedPreviewTab === 'unchanged'
+                          ? 'bg-gray-100 border-gray-300 shadow-sm'
+                          : 'bg-white border-gray-100 hover:border-gray-200'
+                      }`}
+                    >
+                      <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">Unchanged</p>
+                      <p className="text-xl font-black text-gray-600 mt-1">
+                        {jobStatus.preview.unchangedRecords?.length || 0}
+                      </p>
+                    </button>
                   </div>
-                  <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
-                    <p className="text-[10px] uppercase font-black tracking-wider text-gray-500">Unchanged</p>
-                    <p className="text-xl font-black text-gray-500 mt-1">{jobStatus.preview.unchangedRecords?.length || 0}</p>
-                  </div>
+
+                  {selectedPreviewTab && (
+                    <div className="bg-white border border-gray-100 rounded-xl overflow-hidden p-4 space-y-3">
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
+                        <input
+                          type="text"
+                          placeholder={`Search ${selectedPreviewTab} items list by code, name or category...`}
+                          value={previewSearch}
+                          onChange={(e) => setPreviewSearch(e.target.value)}
+                          className="w-full bg-gray-50/50 hover:bg-gray-50 focus:bg-white text-xs text-gray-900 border border-gray-200 pl-9 pr-4 py-2 rounded-lg outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-950/10 transition-all font-medium"
+                        />
+                        {previewSearch && (
+                          <button
+                            onClick={() => setPreviewSearch('')}
+                            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-900"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Records Table list */}
+                      <div className="max-h-[300px] overflow-y-auto border border-gray-100 rounded-lg custom-scrollbar">
+                        {filteredPreviewList.length === 0 ? (
+                          <div className="text-center py-10 space-y-1">
+                            <Tag className="text-gray-300 mx-auto" size={24} />
+                            <p className="text-xs text-gray-500 font-bold">No records found matching search query.</p>
+                          </div>
+                        ) : (
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase text-gray-500 sticky top-0 z-10">
+                                <th className="p-3">Item Code & Details</th>
+                                <th className="p-3">Category</th>
+                                <th className="p-3 text-right">Price</th>
+                                <th className="p-3">Type</th>
+                                <th className="p-3 text-center">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {filteredPreviewList.map((item: any, idx: number) => {
+                                const priceVal = item.price || item.base_price || '0';
+                                return (
+                                  <tr key={idx} className="hover:bg-gray-50/30 transition-colors">
+                                    <td className="p-3 space-y-0.5">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-mono text-[10px] bg-gray-150 text-gray-600 px-1 py-0.5 rounded">
+                                          {item.item_code}
+                                        </span>
+                                        {selectedPreviewTab === 'new' && (
+                                          <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded uppercase">
+                                            New
+                                          </span>
+                                        )}
+                                        {selectedPreviewTab === 'updated' && (
+                                          <span className="text-[9px] font-black text-blue-700 bg-blue-50 px-1 py-0.5 rounded uppercase font-bold">
+                                            Delta
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="font-bold text-gray-900">{item.name}</p>
+                                      {item.description && (
+                                        <p className="text-[10px] text-gray-400 font-medium line-clamp-1 max-w-[200px]" title={item.description}>
+                                          {item.description}
+                                        </p>
+                                      )}
+                                    </td>
+                                    <td className="p-3">
+                                      <span className="inline-block text-[10px] font-bold text-gray-600 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
+                                        {item.category_name || 'Unspecified'}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-right font-black text-gray-950 font-mono">
+                                      ${parseFloat(priceVal).toFixed(2)}
+                                    </td>
+                                    <td className="p-3 uppercase">
+                                      <span className="text-[9px] font-black text-gray-500 bg-gray-100 py-0.5 px-1.5 rounded">
+                                        {item.product_type || 'single'}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <span className={`inline-block w-2 h-2 rounded-full ${
+                                        item.is_active === 'false' ? 'bg-red-400' : 'bg-emerald-400'
+                                      }`} title={item.is_active === 'false' ? 'Inactive' : 'Active'} />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

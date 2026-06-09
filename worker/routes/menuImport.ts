@@ -109,7 +109,7 @@ menuImportRoutes.get("/api/menu-import/templates", async (c) => {
     const itemConfigMappingCsv = generateCSV(
       ["item_code", "group_code"],
       [
-        { item_code: "ITM-001", group_code: "GRP-ICE-ST" }
+        { item_code: "ITM-002", group_code: "GRP-ICE-ST" }
       ]
     );
 

@@ -582,11 +582,13 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
 
   const activeJobs = {
     get: (id: string) => job,
-    set: (id: string, updatedJob: any) => {
+    set: async (id: string, updatedJob: any) => {
       Object.assign(job, updatedJob);
-      updateImportJob(supabase, jobId, { ...job }).catch(err => {
-        console.warn("[MenuImportService] Background database update failed:", err);
-      });
+      try {
+        await updateImportJob(supabase, jobId, { ...job });
+      } catch (err: any) {
+        console.warn("[MenuImportService] Background database update failed:", err.message || err);
+      }
     },
     delete: (id: string) => {
       deleteActiveJobFromMemory(id);
@@ -597,7 +599,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
   job.status = 'importing';
   job.progress = 5;
   job.message = 'Backing up existing menu structure for transaction security...';
-  activeJobs.set(jobId, { ...job });
+  await activeJobs.set(jobId, { ...job });
 
   // 1. Back up data
   let backupCategories: any[] = [];
@@ -638,13 +640,13 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
   } catch (err: any) {
     job.status = 'failed';
     job.message = `Backup process failed: ${err.message}. Aborting import.`;
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
     return;
   }
 
   job.progress = 15;
   job.message = 'Backup success. Starting transactional execution...';
-  activeJobs.set(jobId, { ...job });
+  await activeJobs.set(jobId, { ...job });
 
   const restoreBackupOnCrash = async (errorMsg: string) => {
     console.error(`[ROLLBACK] Restoring original menu database layout due to failure: ${errorMsg}`);
@@ -760,7 +762,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       job.message += ` CRITICAL DOUBLE-FAILURE! Rollback crashed with error: ${restoreErr.message}. DB is now in partial state. Contact admin.`;
     }
     
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
     importHistory.push({ ...job });
     activeJobs.delete(jobId);
   };
@@ -777,7 +779,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
     // Step 2. Auto-resolve unique categories
     job.progress = 25;
     job.message = 'Processing and indexing Menu Categories...';
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
 
     const categoriesInCsv = Array.from(new Set(
       data.items.map(i => i.category_name?.trim()).filter(Boolean)
@@ -827,7 +829,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
     // Step 3: Insert/Update menu items
     job.progress = 40;
     job.message = 'Importing items into public.menu_items in batch chunks...';
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
 
     const itemIdByItemCode = new Map<string, string>(); // code -> database UUID
     const itemCodeToOriginalId = new Map<string, string>();
@@ -854,12 +856,15 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
         item_code: item.item_code?.trim()
       };
 
+      const parsedPrice = parseFloat(item.price || item.base_price || "0");
+      const parsedBasePrice = parseFloat(item.base_price || item.price || "0");
+
       return {
         restaurant_id: restId,
         category_id: categoryId,
         name: item.name,
-        price: parseFloat(item.price || item.base_price || "0"),
-        base_price: parseFloat(item.base_price || item.price || "0"),
+        price: isNaN(parsedPrice) ? 0 : parsedPrice,
+        base_price: isNaN(parsedBasePrice) ? 0 : parsedBasePrice,
         description: item.description || null,
         image_url: item.image_url || null,
         is_active: item.is_active === "false" ? false : true,
@@ -894,13 +899,13 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       // Update progress smoothly during large processes
       job.progress = 40 + Math.round((i / itemsToInsert.length) * 30); // scale up to 70%
       job.message = `Imported items chunk (${createdCount}/${itemsToInsert.length})...`;
-      activeJobs.set(jobId, { ...job });
+      await activeJobs.set(jobId, { ...job });
     }
 
     // Step 4: Import Config groups & options
     job.progress = 75;
     job.message = 'Structuring Modifier Configurator Engines...';
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
 
     const modGroupIdMap = new Map<string, string>(); // group_code -> DB uuid
     const groupsInserted: any[] = [];
@@ -962,10 +967,11 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
         const matchingOptions = data.configOptions.filter(opt => opt.group_code?.trim() === groupCode);
 
         matchingOptions.forEach(opt => {
+          const parsedDelta = parseFloat(opt.price_delta || "0");
           modifiersToInsertPayload.push({
             group_id: insertedGroup.id,
             name: opt.name,
-            price_delta: parseFloat(opt.price_delta || "0"),
+            price_delta: isNaN(parsedDelta) ? 0 : parsedDelta,
             is_default: opt.is_default === "true" || opt.is_default === "1" ? true : false,
             sort_order: parseInt(opt.sort_order || "0"),
             display_behavior: { option_code: opt.option_code?.trim() }
@@ -989,7 +995,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
     // Step 5: Import Combo choice groups and items
     job.progress = 88;
     job.message = 'Assembling Combo Product Composition Matrices...';
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
 
     // Similar to modifier groups, combo groups are tied to a combo main product in `combo_product_id`
     // In our CSVs:
@@ -1029,11 +1035,12 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
         matchingOptions.forEach(opt => {
           const childProductId = itemIdByItemCode.get(opt.child_item_code?.trim());
           if (childProductId) {
+            const parsedDelta = parseFloat(opt.price_delta || "0");
             comboGroupItemsPayload.push({
               group_id: cg.id,
               child_product_id: childProductId,
               custom_name: opt.custom_name || null,
-              price_delta: parseFloat(opt.price_delta || "0"),
+              price_delta: isNaN(parsedDelta) ? 0 : parsedDelta,
               default_selected: opt.default_selected === "true" || opt.default_selected === "1" ? true : false,
               sort_order: parseInt(opt.sort_order || "0"),
               display_behavior: { option_code: opt.option_code?.trim() }
@@ -1074,7 +1081,7 @@ export async function executeTransactionalImport(supabase: any, jobId: string) {
       }
     };
     
-    activeJobs.set(jobId, { ...job });
+    await activeJobs.set(jobId, { ...job });
     importHistory.push({ ...job });
     activeJobs.delete(jobId);
 
