@@ -482,8 +482,57 @@ export function CustomerMenu() {
           isActive: i.is_active,
           status: (i.status || 'Available') as any,
           productType: (i.product_type || 'single') as any,
-          comboGroups: i.combo_groups || [],
-          modifierGroups: i.modifier_groups || []
+          comboGroups: (i.combo_groups || []).map((g: any) => ({
+            id: g.id,
+            productId: g.combo_product_id,
+            name: g.name,
+            description: g.description,
+            required: g.required,
+            minSelect: g.min_select,
+            maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            importance: g.importance,
+            sortOrder: g.sort_order,
+            items: (g.items || g.combo_group_items || []).map((gi: any) => ({
+              id: gi.id,
+              groupId: gi.group_id,
+              childProductId: gi.child_product_id,
+              customName: gi.custom_name,
+              priceDelta: parseFloat(gi.price_delta || 0),
+              defaultSelected: gi.default_selected,
+              displayBehavior: gi.display_behavior,
+              importance: gi.importance,
+              sortOrder: gi.sort_order,
+              childProduct: gi.child_product ? {
+                id: gi.child_product.id,
+                name: gi.child_product.name,
+                price: parseFloat(gi.child_product.base_price || 0),
+                basePrice: parseFloat(gi.child_product.base_price || 0),
+                productType: gi.child_product.product_type
+              } : undefined
+            }))
+          })),
+          modifierGroups: (i.modifier_groups || []).map((g: any) => ({
+            id: g.id,
+            productId: g.product_id,
+            parentModifierId: g.parent_modifier_id,
+            name: g.name,
+            required: g.required,
+            minSelect: g.min_select,
+            maxSelect: g.max_select,
+            displayBehavior: g.display_behavior,
+            sortOrder: g.sort_order,
+            modifiers: (g.modifiers || []).map((m: any) => ({
+              id: m.id,
+              groupId: m.group_id,
+              name: m.name,
+              priceDelta: parseFloat(m.price_delta || 0),
+              isDefault: m.is_default,
+              renderImportance: m.render_importance,
+              displayBehavior: m.display_behavior,
+              sortOrder: m.sort_order
+            }))
+          }))
         }));
 
         setRestaurant(prev => {

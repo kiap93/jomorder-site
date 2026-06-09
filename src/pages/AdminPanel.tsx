@@ -577,30 +577,30 @@ export function AdminPanel() {
           displayBehavior: i.display_behavior,
           comboGroups: (i.combo_groups || []).map((g: Record<string, any>) => ({
             id: g.id,
-            productId: g.combo_product_id,
+            productId: g.combo_product_id || g.productId,
             name: g.name,
             description: g.description,
             required: g.required,
-            minSelect: g.min_select,
-            maxSelect: g.max_select,
-            displayBehavior: g.display_behavior,
-            importance: g.importance as RenderImportance,
-            sortOrder: g.sort_order,
-            items: (g.combo_group_items || []).map((gi: Record<string, any>) => ({
+            minSelect: g.min_select !== undefined ? g.min_select : g.minSelect,
+            maxSelect: g.max_select !== undefined ? g.max_select : g.maxSelect,
+            displayBehavior: g.display_behavior || g.displayBehavior,
+            importance: (g.importance || g.render_importance) as RenderImportance,
+            sortOrder: g.sort_order !== undefined ? g.sort_order : g.sortOrder,
+            items: (g.items || g.combo_group_items || []).map((gi: Record<string, any>) => ({
               id: gi.id,
-              groupId: gi.group_id,
-              childProductId: gi.child_product_id,
-              customName: gi.custom_name,
-              priceDelta: parseFloat(gi.price_delta || 0),
-              defaultSelected: gi.default_selected,
-              displayBehavior: gi.display_behavior,
-              importance: gi.importance as RenderImportance,
-              sortOrder: gi.sort_order,
-              childProduct: gi.child_product ? {
-                id: gi.child_product.id,
-                name: gi.child_product.name,
-                basePrice: parseFloat(gi.child_product.base_price || 0),
-                productType: gi.child_product.product_type
+              groupId: gi.group_id || gi.groupId,
+              childProductId: gi.child_product_id || gi.childProductId,
+              customName: gi.custom_name || gi.customName,
+              priceDelta: parseFloat(gi.price_delta || gi.priceDelta || 0),
+              defaultSelected: gi.default_selected !== undefined ? gi.default_selected : gi.defaultSelected,
+              displayBehavior: gi.display_behavior || gi.displayBehavior,
+              importance: (gi.importance || gi.render_importance) as RenderImportance,
+              sortOrder: gi.sort_order !== undefined ? gi.sort_order : gi.sortOrder,
+              childProduct: (gi.child_product || gi.childProduct) ? {
+                id: (gi.child_product || gi.childProduct).id,
+                name: (gi.child_product || gi.childProduct).name,
+                basePrice: parseFloat((gi.child_product || gi.childProduct).base_price || (gi.child_product || gi.childProduct).basePrice || (gi.child_product || gi.childProduct).price || 0),
+                productType: (gi.child_product || gi.childProduct).product_type || (gi.child_product || gi.childProduct).productType
               } : undefined
             }))
           })),
