@@ -56,7 +56,7 @@ billingRoutes.post("/api/billing/create-checkout-session", authenticate, async (
   }
 
   const email = user.email || "client@jomorder.com";
-  let origin = c.req.header('origin');
+  let origin = body.origin || c.req.header('origin');
   if (!origin) {
     const referer = c.req.header('referer');
     if (referer) {
@@ -97,7 +97,7 @@ billingRoutes.post("/api/billing/create-portal-session", authenticate, async (c)
     return c.json({ error: "No active restaurant workspace." }, 400);
   }
 
-  let origin = c.req.header('origin');
+  let origin = body.origin || c.req.header('origin');
   if (!origin) {
     const referer = c.req.header('referer');
     if (referer) {

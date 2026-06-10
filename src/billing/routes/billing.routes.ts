@@ -53,7 +53,7 @@ router.post("/billing/create-checkout-session", authenticateJWT, async (req: Aut
 
   const email = user.email || "client@jomorder.com";
   // The frontend billing panel URL to return back to once stripe checkout completes 
-  let origin = req.headers.origin;
+  let origin = req.body.origin || req.headers.origin;
   if (!origin) {
     const referer = req.headers.referer;
     if (referer) {
@@ -92,7 +92,7 @@ router.post("/billing/create-portal-session", authenticateJWT, async (req: Authe
     return res.status(400).json({ error: "No active restaurant workspace." });
   }
 
-  let origin = req.headers.origin;
+  let origin = req.body.origin || req.headers.origin;
   if (!origin) {
     const referer = req.headers.referer;
     if (referer) {

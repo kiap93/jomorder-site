@@ -41,7 +41,7 @@ export const billingService = {
     const res = await fetch(getApiUrl("/api/billing/create-checkout-session"), {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ restaurantId: restId, plan })
+      body: JSON.stringify({ restaurantId: restId, plan, origin: window.location.origin })
     });
 
     if (!res.ok) {
@@ -59,7 +59,7 @@ export const billingService = {
     const res = await fetch(getApiUrl("/api/billing/create-portal-session"), {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ restaurantId: restId })
+      body: JSON.stringify({ restaurantId: restId, origin: window.location.origin })
     });
 
     if (!res.ok) {

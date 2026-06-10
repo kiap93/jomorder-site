@@ -8386,7 +8386,7 @@ router13.post("/billing/create-checkout-session", authenticateJWT, async (req, r
     return res.status(400).json({ error: "You must specify a target subscription plan." });
   }
   const email = user.email || "client@jomorder.com";
-  let origin = req.headers.origin;
+  let origin = req.body.origin || req.headers.origin;
   if (!origin) {
     const referer = req.headers.referer;
     if (referer) {
@@ -8418,7 +8418,7 @@ router13.post("/billing/create-portal-session", authenticateJWT, async (req, res
   if (!tenantId) {
     return res.status(400).json({ error: "No active restaurant workspace." });
   }
-  let origin = req.headers.origin;
+  let origin = req.body.origin || req.headers.origin;
   if (!origin) {
     const referer = req.headers.referer;
     if (referer) {
