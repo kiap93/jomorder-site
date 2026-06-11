@@ -531,27 +531,7 @@ export function OrderTracker() {
                                    itemStatus === 'completed' ? 'Completed' : itemStatus}
                                 </span>
                                 
-                                {canCustomerCancelItem && (
-                                  <button
-                                    onClick={() => {
-                                      setCancellingItem({
-                                        orderId: o.id,
-                                        itemId: item.orderItemId || item.id || '',
-                                        name: item.name,
-                                        quantity: item.quantity,
-                                        status: itemStatus,
-                                        sessionToken: o.session_token || currentOrder.session_token || ''
-                                      });
-                                      setCancelQty(item.quantity);
-                                      setCancelReason('Change of mind');
-                                      setCancelError(null);
-                                      setCancelSuccess(null);
-                                    }}
-                                    className="text-[9px] font-black uppercase tracking-wider hover:underline text-red-600 hover:text-red-700 transition"
-                                  >
-                                    [Cancel Item]
-                                  </button>
-                                )}
+
                               </div>
 
                               {item.smartRenderedLines?.customer && (

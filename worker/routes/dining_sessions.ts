@@ -53,6 +53,13 @@ diningSessionRoutes.post("/api/dining-sessions/:id/settle", authenticate, async 
     
     if (orderError) throw orderError;
 
+    // Graduating 'pending' orders to 'confirmed' status
+    await supabase
+      .from('orders')
+      .update({ status: 'confirmed' })
+      .in('id', orderIds)
+      .eq('status', 'pending');
+
     const { error: sessionError } = await supabase
       .from('dining_sessions')
       .update({

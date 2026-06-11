@@ -61,6 +61,7 @@ interface ApisDiningSession {
 interface ProcessedTable extends ApisTable {
   session: ApisDiningSession | null;
   unpaidTotal: number;
+  sessionTotal: number;
   hasUnpaid: boolean;
   mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null;
 }
@@ -114,13 +115,14 @@ export function PosPayments() {
           const processedTables: ProcessedTable[] = (tablesData as ApisTable[]).map((t) => {
             const activeSession = (sessionsData as ApisDiningSession[]).find((s) => s.table_id === t.id) || null;
             let unpaidTotal = 0;
+            let sessionTotal = 0;
             let mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null = null;
 
             if (activeSession) {
               const allOrders = activeSession.orders || [];
               const unpaidOrders = allOrders.filter((o) => !o.paid_at && o.status !== 'cancelled');
               unpaidTotal = unpaidOrders.reduce((sum: number, o) => sum + parseFloat(o.total_price), 0);
-              const sessionTotal = allOrders.reduce((sum: number, o) => sum + parseFloat(o.total_price), 0);
+              sessionTotal = allOrders.reduce((sum: number, o) => sum + parseFloat(o.total_price), 0);
               
               const mOrder = allOrders[0];
               if (mOrder) {
@@ -132,6 +134,8 @@ export function PosPayments() {
                   status: mOrder.status,
                   paymentMethod: 'counter',
                   totalPrice: parseFloat(mOrder.total_price),
+                  sessionId: activeSession.id,
+                  session_id: activeSession.id,
                   sessionTotal,
                   sessionUnpaid: unpaidTotal,
                   createdAt: mOrder.created_at || new Date().toISOString(),
@@ -145,6 +149,7 @@ export function PosPayments() {
                ...t,
                session: activeSession,
                unpaidTotal,
+               sessionTotal,
                hasUnpaid: unpaidTotal > 0,
                mainOrder
             };
@@ -234,18 +239,38 @@ export function PosPayments() {
             layout
             key={table.id}
             className={`bg-white rounded-lg border transition-all overflow-hidden flex flex-col ${
-              table.hasUnpaid ? 'border-orange-200 shadow-md ring-1 ring-orange-500/5' : 'border-gray-100 opacity-60'
+              table.hasUnpaid 
+                ? 'border-orange-200 shadow-md ring-1 ring-orange-500/5' 
+                : (table.session 
+                    ? 'border-emerald-200 shadow-md ring-1 ring-emerald-500/5 bg-emerald-50/5' 
+                    : 'border-gray-100 opacity-60')
             }`}
           >
             <div className={`p-2 border-b flex justify-between items-center ${
-              table.hasUnpaid ? 'bg-orange-50/50 border-orange-50' : 'bg-gray-50/50 border-gray-50'
+              table.hasUnpaid 
+                ? 'bg-orange-50/50 border-orange-50' 
+                : (table.session 
+                    ? 'bg-emerald-50/30 border-emerald-50' 
+                    : 'bg-gray-50/50 border-gray-50')
             }`}>
               <div className="flex items-center gap-2">
-                 <div className={`w-7 h-7 ${table.hasUnpaid ? 'bg-orange-600' : 'bg-gray-900'} text-white rounded flex items-center justify-center font-black text-[11px]`}>
+                 <div className={`w-7 h-7 ${
+                   table.hasUnpaid 
+                     ? 'bg-orange-600' 
+                     : (table.session 
+                         ? 'bg-emerald-600' 
+                         : 'bg-gray-900')
+                 } text-white rounded flex items-center justify-center font-black text-[11px]`}>
                     {table.name}
                  </div>
                  <div className="flex flex-col">
-                    <p className={`text-[9px] font-black uppercase tracking-tighter ${table.session ? 'text-gray-900' : 'text-gray-400'}`}>
+                    <p className={`text-[9px] font-black uppercase tracking-tighter ${
+                      table.session 
+                        ? (table.hasUnpaid 
+                            ? 'text-orange-600 font-extrabold' 
+                            : 'text-emerald-600 font-extrabold') 
+                        : 'text-gray-400'
+                    }`}>
                        {table.session ? (table.hasUnpaid ? 'Billed' : 'Paid') : 'Vacant'}
                     </p>
                  </div>
@@ -254,9 +279,17 @@ export function PosPayments() {
 
             <div className="p-3 flex-1 flex flex-col gap-2">
               <div className="flex justify-between items-center">
-                 <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Unpaid</span>
-                 <span className={`text-base font-black tracking-tighter tabular-nums ${table.hasUnpaid ? 'text-orange-600' : 'text-gray-900'}`}>
-                   RM {(table.unpaidTotal || 0).toFixed(2)}
+                 <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">
+                   {table.session ? (table.hasUnpaid ? 'Unpaid' : 'Paid') : 'Unpaid'}
+                 </span>
+                 <span className={`text-base font-black tracking-tighter tabular-nums ${
+                   table.hasUnpaid 
+                     ? 'text-orange-600' 
+                     : (table.session 
+                         ? 'text-emerald-600' 
+                         : 'text-gray-900')
+                 }`}>
+                   RM {(table.session ? (table.hasUnpaid ? table.unpaidTotal : table.sessionTotal) : 0).toFixed(2)}
                  </span>
               </div>
               

@@ -6058,6 +6058,7 @@ router10.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsola
       payment_method: "counter"
     }).in("id", orderIds);
     if (orderError) throw orderError;
+    await supabaseAdmin.from("orders").update({ status: "confirmed" }).in("id", orderIds).eq("status", "pending");
     const { error: sessionError } = await supabaseAdmin.from("dining_sessions").update({
       status: "paid",
       paid_amount: paidAmount

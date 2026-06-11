@@ -47,6 +47,13 @@ router.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsolati
     
     if (orderError) throw orderError;
 
+    // Graduating 'pending' orders to 'confirmed' status
+    await supabaseAdmin
+      .from('orders')
+      .update({ status: 'confirmed' })
+      .in('id', orderIds)
+      .eq('status', 'pending');
+
     const { error: sessionError } = await supabaseAdmin
       .from('dining_sessions')
       .update({
