@@ -16,7 +16,7 @@ export function getStripeClient(): Stripe {
       throw new Error("Missing STRIPE_SECRET_KEY");
     }
     stripeInstance = new Stripe(secretKey, {
-      apiVersion: "2025-02-11.accredited" as any,
+      apiVersion: "2022-11-15" as any,
     });
   }
   return stripeInstance;

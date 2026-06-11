@@ -8091,7 +8091,7 @@ function getStripeClient() {
       throw new Error("Missing STRIPE_SECRET_KEY");
     }
     stripeInstance = new import_stripe3.default(secretKey, {
-      apiVersion: "2025-02-11.accredited"
+      apiVersion: "2022-11-15"
     });
   }
   return stripeInstance;
