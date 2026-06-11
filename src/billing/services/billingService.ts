@@ -188,23 +188,61 @@ export class BillingService {
    */
   async createPortalSession(tenantId: string, returnUrl: string) {
     const stripe = getStripeClient();
-    const customerMap = await this.repo.getBillingCustomer(tenantId);
+    let customerMap = await this.repo.getBillingCustomer(tenantId);
 
-    if (!customerMap) {
-      throw new Error("No subscription or customer details mapped to this tenant in Stripe.");
+    const ensureCustomer = async (): Promise<any> => {
+      let email = "business@jomorder.com";
+      try {
+        const { data } = await supabaseAdmin
+          .from("organizations")
+          .select("name")
+          .eq("id", tenantId)
+          .maybeSingle();
+        if (data?.name) {
+          email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+        }
+      } catch (_) {}
+
+      const customer = await stripe.customers.create({
+        email,
+        metadata: { tenant_id: tenantId }
+      });
+      return await this.repo.upsertBillingCustomer({
+        tenant_id: tenantId,
+        stripe_customer_id: customer.id,
+        email
+      });
+    };
+
+    if (!customerMap || customerMap.stripe_customer_id.includes("mock") || customerMap.stripe_customer_id.includes("fallback")) {
+      customerMap = await ensureCustomer();
     }
 
     try {
       const session = await stripe.billingPortal.sessions.create({
-        customer: customerMap.stripe_customer_id,
+        customer: customerMap!.stripe_customer_id,
         return_url: returnUrl
       });
       return { url: session.url };
     } catch (err: any) {
-      console.error("[BillingService] Stripe Client Portal Exception:", err.message);
+      console.warn("[BillingService] Stripe Client Portal Exception first attempt:", err.message);
       
-      // Sandbox Portal simulation for developers
-      return { url: `${returnUrl}?portal_status=simulated` };
+      // If the customer didn't exist in stripe (e.g. invalid template ID or deleted), reconstruct and retry
+      if (err.message?.includes("No such customer") || err.message?.includes("customer_invalid")) {
+        try {
+          console.log("[BillingService] Customer stale in Stripe. Re-creating...");
+          customerMap = await ensureCustomer();
+          const session = await stripe.billingPortal.sessions.create({
+            customer: customerMap!.stripe_customer_id,
+            return_url: returnUrl
+          });
+          return { url: session.url };
+        } catch (retryErr: any) {
+          throw new Error(`Stripe Portal activation failed: ${retryErr.message}`);
+        }
+      }
+      
+      throw err;
     }
   }
 

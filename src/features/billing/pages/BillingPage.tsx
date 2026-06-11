@@ -101,7 +101,7 @@ export function BillingPage() {
         window.location.href = result.url;
       }
     } catch (err: any) {
-      setError("Stripe self-service dashboard unavailable. Ensure Stripe customer is active.");
+      setError(err.message || "Stripe self-service dashboard unavailable. Ensure Stripe customer is active.");
     } finally {
       setActionLoading(null);
     }
