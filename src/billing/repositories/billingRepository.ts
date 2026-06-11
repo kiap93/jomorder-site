@@ -211,7 +211,7 @@ export class BillingRepository {
     }
 
     // Force synchronize the organization settings and local files for standard application capabilities
-    await this.syncCapabilitiesAndRegistry(sub.tenant_id, sub.plan_code, sub.status);
+    await this.syncCapabilitiesAndRegistry(sub.tenant_id, sub.plan_code, sub.status, sub);
 
     return {
       ...payload,
@@ -223,7 +223,12 @@ export class BillingRepository {
   /**
    * Private helper translating Stripe Sub status to basic capabilities plan attributes
    */
-  private async syncCapabilitiesAndRegistry(tenantId: string, planCode: PlanCode, status: SubscriptionStatus) {
+  private async syncCapabilitiesAndRegistry(
+    tenantId: string,
+    planCode: PlanCode,
+    status: SubscriptionStatus,
+    subFields?: Partial<TenantSubscription>
+  ) {
     const isSuspended = status === 'unpaid' || status === 'canceled';
     const activePlanId = planCode === 'pro' ? 'enterprise' : planCode === 'growth' ? 'pro' : 'free';
     
@@ -272,18 +277,18 @@ export class BillingRepository {
 
     // Store rich metadata schema
     const subDetails: TenantSubscription = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: subFields?.id || Math.random().toString(36).substr(2, 9),
       tenant_id: tenantId,
-      stripe_customer_id: 'cus_fallback',
-      stripe_subscription_id: 'sub_fallback',
-      stripe_price_id: 'price_fallback',
+      stripe_customer_id: subFields?.stripe_customer_id || 'cus_fallback',
+      stripe_subscription_id: subFields?.stripe_subscription_id || 'sub_fallback',
+      stripe_price_id: subFields?.stripe_price_id || 'price_fallback',
       plan_code: planCode,
       status: status,
-      current_period_start: new Date().toISOString(),
-      current_period_end: new Date().toISOString(),
-      trial_end: null,
-      cancel_at_period_end: false,
-      created_at: new Date().toISOString(),
+      current_period_start: subFields?.current_period_start || new Date().toISOString(),
+      current_period_end: subFields?.current_period_end || new Date().toISOString(),
+      trial_end: subFields?.trial_end !== undefined ? subFields.trial_end : null,
+      cancel_at_period_end: subFields?.cancel_at_period_end || false,
+      created_at: subFields?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
     (registry[tenantId] as any).subscription_details = subDetails;

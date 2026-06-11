@@ -22,6 +22,27 @@ export class BillingService {
     // Auto-bootstrap a 14-day trial if no subscription at all exists
     if (!subscription) {
       subscription = await this.bootstrapTrial(tenantId);
+    } else if (subscription.status === "trialing" && (subscription.stripe_customer_id?.startsWith("cus_mock") || subscription.stripe_customer_id === "cus_fallback")) {
+      // Align existing mock trial subscriptions with the organization registration date to ensure accurate countdown
+      try {
+        const { data } = await this.supabaseClient
+          .from("organizations")
+          .select("created_at")
+          .eq("id", tenantId)
+          .maybeSingle();
+        if (data?.created_at) {
+          const regDate = new Date(data.created_at);
+          const alignedTrialEnd = new Date(regDate.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+          if (subscription.trial_end !== alignedTrialEnd) {
+            subscription.trial_end = alignedTrialEnd;
+            subscription.current_period_end = alignedTrialEnd;
+            // Persist the corrected trial dates
+            await this.repo.upsertSubscription(subscription);
+          }
+        }
+      } catch (err) {
+        console.warn("[BillingService] Error aligning existing trial dates:", err);
+      }
     }
 
     const plan = await this.repo.getPlanFeature(subscription.plan_code);
@@ -72,24 +93,28 @@ export class BillingService {
    */
   async bootstrapTrial(tenantId: string): Promise<TenantSubscription> {
     const trialDays = 14;
-    const trialEnd = new Date();
-    trialEnd.setDate(trialEnd.getDate() + trialDays);
-
-    // Fetch tenant email if possible
+    let registrationDate = new Date();
+    
+    // Fetch tenant email and created_at if possible
     let email = "business@jomorder.com";
     try {
-      const { data } = await supabaseAdmin
+      const { data } = await this.supabaseClient
         .from("organizations")
-        .select("name")
+        .select("name, created_at")
         .eq("id", tenantId)
         .maybeSingle();
       if (data?.name) {
         // Construct simulated email or retrieve from contact
         email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
       }
+      if (data?.created_at) {
+        registrationDate = new Date(data.created_at);
+      }
     } catch (_) {}
 
-    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}`);
+    const trialEnd = new Date(registrationDate.getTime() + trialDays * 24 * 60 * 60 * 1000);
+
+    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}, starting from registration: ${registrationDate.toISOString()}`);
 
     return await this.repo.upsertSubscription({
       tenant_id: tenantId,
@@ -98,7 +123,7 @@ export class BillingService {
       stripe_price_id: null,
       plan_code: "starter",
       status: "trialing",
-      current_period_start: new Date().toISOString(),
+      current_period_start: registrationDate.toISOString(),
       current_period_end: trialEnd.toISOString(),
       trial_end: trialEnd.toISOString(),
       cancel_at_period_end: false

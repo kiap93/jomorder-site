@@ -7949,7 +7949,7 @@ var BillingRepository = class _BillingRepository {
     } catch (err) {
       console.warn("[BillingRepository] DB Upsert error:", err);
     }
-    await this.syncCapabilitiesAndRegistry(sub.tenant_id, sub.plan_code, sub.status);
+    await this.syncCapabilitiesAndRegistry(sub.tenant_id, sub.plan_code, sub.status, sub);
     return {
       ...payload,
       created_at: timestamp,
@@ -7959,7 +7959,7 @@ var BillingRepository = class _BillingRepository {
   /**
    * Private helper translating Stripe Sub status to basic capabilities plan attributes
    */
-  async syncCapabilitiesAndRegistry(tenantId, planCode, status) {
+  async syncCapabilitiesAndRegistry(tenantId, planCode, status, subFields) {
     const isSuspended = status === "unpaid" || status === "canceled";
     const activePlanId = planCode === "pro" ? "enterprise" : planCode === "growth" ? "pro" : "free";
     const features = {
@@ -8000,18 +8000,18 @@ var BillingRepository = class _BillingRepository {
       registry[tenantId].features = features;
     }
     const subDetails = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: subFields?.id || Math.random().toString(36).substr(2, 9),
       tenant_id: tenantId,
-      stripe_customer_id: "cus_fallback",
-      stripe_subscription_id: "sub_fallback",
-      stripe_price_id: "price_fallback",
+      stripe_customer_id: subFields?.stripe_customer_id || "cus_fallback",
+      stripe_subscription_id: subFields?.stripe_subscription_id || "sub_fallback",
+      stripe_price_id: subFields?.stripe_price_id || "price_fallback",
       plan_code: planCode,
       status,
-      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
-      current_period_end: (/* @__PURE__ */ new Date()).toISOString(),
-      trial_end: null,
-      cancel_at_period_end: false,
-      created_at: (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_start: subFields?.current_period_start || (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_end: subFields?.current_period_end || (/* @__PURE__ */ new Date()).toISOString(),
+      trial_end: subFields?.trial_end !== void 0 ? subFields.trial_end : null,
+      cancel_at_period_end: subFields?.cancel_at_period_end || false,
+      created_at: subFields?.created_at || (/* @__PURE__ */ new Date()).toISOString(),
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
     };
     registry[tenantId].subscription_details = subDetails;
@@ -8136,6 +8136,21 @@ var BillingService = class {
     let subscription = await this.repo.getSubscription(tenantId);
     if (!subscription) {
       subscription = await this.bootstrapTrial(tenantId);
+    } else if (subscription.status === "trialing" && (subscription.stripe_customer_id?.startsWith("cus_mock") || subscription.stripe_customer_id === "cus_fallback")) {
+      try {
+        const { data } = await this.supabaseClient.from("organizations").select("created_at").eq("id", tenantId).maybeSingle();
+        if (data?.created_at) {
+          const regDate = new Date(data.created_at);
+          const alignedTrialEnd = new Date(regDate.getTime() + 14 * 24 * 60 * 60 * 1e3).toISOString();
+          if (subscription.trial_end !== alignedTrialEnd) {
+            subscription.trial_end = alignedTrialEnd;
+            subscription.current_period_end = alignedTrialEnd;
+            await this.repo.upsertSubscription(subscription);
+          }
+        }
+      } catch (err) {
+        console.warn("[BillingService] Error aligning existing trial dates:", err);
+      }
     }
     const plan = await this.repo.getPlanFeature(subscription.plan_code);
     const outletsUsage = await this.repo.getUsage(tenantId, "outlets_count");
@@ -8178,17 +8193,20 @@ var BillingService = class {
    */
   async bootstrapTrial(tenantId) {
     const trialDays = 14;
-    const trialEnd = /* @__PURE__ */ new Date();
-    trialEnd.setDate(trialEnd.getDate() + trialDays);
+    let registrationDate = /* @__PURE__ */ new Date();
     let email = "business@jomorder.com";
     try {
-      const { data } = await supabaseAdmin.from("organizations").select("name").eq("id", tenantId).maybeSingle();
+      const { data } = await this.supabaseClient.from("organizations").select("name, created_at").eq("id", tenantId).maybeSingle();
       if (data?.name) {
         email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
       }
+      if (data?.created_at) {
+        registrationDate = new Date(data.created_at);
+      }
     } catch (_) {
     }
-    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}`);
+    const trialEnd = new Date(registrationDate.getTime() + trialDays * 24 * 60 * 60 * 1e3);
+    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}, starting from registration: ${registrationDate.toISOString()}`);
     return await this.repo.upsertSubscription({
       tenant_id: tenantId,
       stripe_customer_id: "cus_mock_" + Math.random().toString(36).substr(2, 6),
@@ -8196,7 +8214,7 @@ var BillingService = class {
       stripe_price_id: null,
       plan_code: "starter",
       status: "trialing",
-      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
+      current_period_start: registrationDate.toISOString(),
       current_period_end: trialEnd.toISOString(),
       trial_end: trialEnd.toISOString(),
       cancel_at_period_end: false
