@@ -1,10 +1,17 @@
+import { SupabaseClient } from "@supabase/supabase-js";
 import { BillingRepository } from "../repositories/billingRepository";
 import { getStripeClient, PLAN_PRICES, getPlanCodeFromPriceId } from "./stripe";
 import { TenantSubscription, PlanCode, SubscriptionStatus } from "../types";
 import { supabaseAdmin } from "../../server/services/dbService";
 
 export class BillingService {
-  private repo = new BillingRepository();
+  private repo: BillingRepository;
+  private supabaseClient: SupabaseClient;
+
+  constructor(supabaseClient?: SupabaseClient) {
+    this.supabaseClient = supabaseClient || supabaseAdmin;
+    this.repo = new BillingRepository(this.supabaseClient);
+  }
 
   /**
    * Safe retrieval of active subscription and features overview for a tenant
@@ -193,7 +200,7 @@ export class BillingService {
     const ensureCustomer = async (): Promise<any> => {
       let email = "business@jomorder.com";
       try {
-        const { data } = await supabaseAdmin
+        const { data } = await this.supabaseClient
           .from("organizations")
           .select("name")
           .eq("id", tenantId)

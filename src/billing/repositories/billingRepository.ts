@@ -3,7 +3,11 @@ import { supabaseAdmin, readRegistry, writeRegistry, getOrganizationSettings, sa
 import { TenantSubscription, BillingCustomer, UsageTracking, SubscriptionEvent, PlanCode, SubscriptionStatus, PlanFeature } from "../types";
 
 export class BillingRepository {
-  private supabase: SupabaseClient = supabaseAdmin;
+  private supabase: SupabaseClient;
+
+  constructor(supabase?: SupabaseClient) {
+    this.supabase = supabase || supabaseAdmin;
+  }
 
   // Plan capabilities registry dictionary
   static DEFAULT_PLAN_FEATURES: Record<PlanCode, Omit<PlanFeature, 'created_at'>> = {

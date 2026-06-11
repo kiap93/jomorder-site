@@ -46,7 +46,8 @@ export const billingService = {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || "Failed to initialize checkout.");
+      const detailedMsg = errorData.details ? `${errorData.error} (${errorData.details})` : (errorData.error || "Failed to initialize checkout.");
+      throw new Error(detailedMsg);
     }
 
     return await res.json();
@@ -64,7 +65,8 @@ export const billingService = {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || "Failed to open Stripe Portal.");
+      const detailedMsg = errorData.details ? `${errorData.error} (${errorData.details})` : (errorData.error || "Failed to open Stripe Portal.");
+      throw new Error(detailedMsg);
     }
 
     return await res.json();
@@ -82,7 +84,8 @@ export const billingService = {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || "Cancellation transaction failed.");
+      const detailedMsg = errorData.details ? `${errorData.error} (${errorData.details})` : (errorData.error || "Cancellation transaction failed.");
+      throw new Error(detailedMsg);
     }
   }
 };

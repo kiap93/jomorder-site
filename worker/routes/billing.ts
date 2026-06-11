@@ -1,13 +1,11 @@
 import { Hono } from 'hono';
 import { Bindings, Variables } from '../types';
 import { authenticate } from '../middleware/auth';
+import { getSupabase } from '../services/db_service';
 import { BillingService } from '../../src/billing/services/billingService';
-import { BillingRepository } from '../../src/billing/repositories/billingRepository';
 import { PlanCode } from '../../src/billing/types';
 
 const billingRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-const service = new BillingService();
-const repo = new BillingRepository();
 
 /**
  * GET /api/billing/overview
@@ -26,6 +24,8 @@ billingRoutes.get("/api/billing/overview", authenticate, async (c) => {
   }
 
   try {
+    const supabaseClient = getSupabase(c.env);
+    const service = new BillingService(supabaseClient);
     const overview = await service.getTenantBillingOverview(tenantId);
     return c.json(overview);
   } catch (err: any) {
@@ -73,6 +73,8 @@ billingRoutes.post("/api/billing/create-checkout-session", authenticate, async (
   const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
 
   try {
+    const supabaseClient = getSupabase(c.env);
+    const service = new BillingService(supabaseClient);
     const result = await service.createCheckoutSession(tenantId, plan as PlanCode, email, returnUrl);
     return c.json(result);
   } catch (err: any) {
@@ -114,6 +116,8 @@ billingRoutes.post("/api/billing/create-portal-session", authenticate, async (c)
   const returnUrl = `${origin}/restaurant/${tenantId}/billing`;
 
   try {
+    const supabaseClient = getSupabase(c.env);
+    const service = new BillingService(supabaseClient);
     const result = await service.createPortalSession(tenantId, returnUrl);
     return c.json(result);
   } catch (err: any) {
@@ -139,6 +143,8 @@ billingRoutes.post("/api/billing/upgrade", authenticate, async (c) => {
   if (!plan) return c.json({ error: "Target plan required." }, 400);
 
   try {
+    const supabaseClient = getSupabase(c.env);
+    const service = new BillingService(supabaseClient);
     const updated = await service.upgradeSubscription(tenantId, plan as PlanCode);
     return c.json({ success: true, subscription: updated });
   } catch (err: any) {
@@ -162,6 +168,8 @@ billingRoutes.post("/api/billing/cancel", authenticate, async (c) => {
   if (!tenantId) return c.json({ error: "Workspace context ID missing." }, 400);
 
   try {
+    const supabaseClient = getSupabase(c.env);
+    const service = new BillingService(supabaseClient);
     const cancelled = await service.cancelSubscription(tenantId);
     return c.json({ success: true, subscription: cancelled });
   } catch (err: any) {

@@ -7784,8 +7784,8 @@ var import_express13 = require("express");
 // src/billing/repositories/billingRepository.ts
 init_dbService();
 var BillingRepository = class _BillingRepository {
-  constructor() {
-    this.supabase = supabaseAdmin;
+  constructor(supabase) {
+    this.supabase = supabase || supabaseAdmin;
   }
   static {
     // Plan capabilities registry dictionary
@@ -8125,8 +8125,9 @@ function getPlanCodeFromPriceId(priceId) {
 // src/billing/services/billingService.ts
 init_dbService();
 var BillingService = class {
-  constructor() {
-    this.repo = new BillingRepository();
+  constructor(supabaseClient) {
+    this.supabaseClient = supabaseClient || supabaseAdmin;
+    this.repo = new BillingRepository(this.supabaseClient);
   }
   /**
    * Safe retrieval of active subscription and features overview for a tenant
@@ -8281,7 +8282,7 @@ var BillingService = class {
     const ensureCustomer = async () => {
       let email = "business@jomorder.com";
       try {
-        const { data } = await supabaseAdmin.from("organizations").select("name").eq("id", tenantId).maybeSingle();
+        const { data } = await this.supabaseClient.from("organizations").select("name").eq("id", tenantId).maybeSingle();
         if (data?.name) {
           email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
         }

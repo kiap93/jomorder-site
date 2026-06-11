@@ -4,3 +4,8 @@ console.log("JWT_SECRET length:", process.env.JWT_SECRET ? process.env.JWT_SECRE
 console.log("Has SUPABASE_SERVICE_ROLE_KEY:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
 console.log("Has VITE_SUPABASE_URL:", !!process.env.VITE_SUPABASE_URL);
 console.log("Has VITE_SUPABASE_ANON_KEY:", !!process.env.VITE_SUPABASE_ANON_KEY);
+console.log("Has STRIPE_SECRET_KEY:", !!process.env.STRIPE_SECRET_KEY);
+console.log("STRIPE_SECRET_KEY length:", process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.length : 0);
+console.log("STRIPE_PRICE_STARTER:", process.env.STRIPE_PRICE_STARTER);
+console.log("STRIPE_PRICE_GROWTH:", process.env.STRIPE_PRICE_GROWTH);
+console.log("STRIPE_PRICE_PRO:", process.env.STRIPE_PRICE_PRO);
