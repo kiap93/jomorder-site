@@ -24,19 +24,13 @@ export function BillingPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const simulatePlan = params.get("simulate_plan") as PlanCode | null;
     const billingStatus = params.get("billing_status");
 
     const syncRedirectParams = async () => {
       if (!restId) return;
       try {
         setLoading(true);
-        if (simulatePlan && ["starter", "growth", "pro"].includes(simulatePlan)) {
-          await billingService.simulateSandboxPlan(simulatePlan);
-          setSuccessMsg(`Stripe Sandbox Simulated: Successfully synced ${simulatePlan.toUpperCase()} tier!`);
-          const newUrl = window.location.pathname;
-          window.history.replaceState({}, document.title, newUrl);
-        } else if (billingStatus === "success") {
+        if (billingStatus === "success") {
           setSuccessMsg("Payment completed successfully! Your JomOrder subscription has been updated.");
           const newUrl = window.location.pathname;
           window.history.replaceState({}, document.title, newUrl);
@@ -54,7 +48,7 @@ export function BillingPage() {
     };
 
     if (restId) {
-      if (simulatePlan || billingStatus) {
+      if (billingStatus) {
         syncRedirectParams();
       } else {
         loadOverview();
@@ -130,21 +124,7 @@ export function BillingPage() {
     }
   };
 
-  const handleSimulatePlan = async (plan: PlanCode) => {
-    if (!restId) return;
-    setActionLoading(`simulate-${plan}`);
-    setError(null);
-    setSuccessMsg(null);
-    try {
-      await billingService.simulateSandboxPlan(plan);
-      setSuccessMsg(`Simulated ${plan.toUpperCase()} tier sync succeeded! Limits and options are active immediately.`);
-      await loadOverview();
-    } catch (err: any) {
-      setError(err.message || "Simulated plan sync failed.");
-    } finally {
-      setActionLoading(null);
-    }
-  };
+
 
   if (!restId) {
     return (
@@ -387,43 +367,7 @@ export function BillingPage() {
             </div>
           </div>
 
-          {/* Sandbox simulated fast testing model */}
-          <div className="bg-zinc-50 dark:bg-zinc-900 border border-dashed border-zinc-250 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="text-amber-500" size={18} />
-              <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-50 uppercase tracking-wider font-mono">
-                Interactive SaaS Sandbox Plan Swapper
-              </h3>
-            </div>
-            <p className="text-xs text-zinc-500">
-              ⚡ Since Stripe card transactions require secret credentials, utilize this fast-swapper to instantly transition this active tenant boundary into <strong>Starter</strong>, <strong>Growth</strong>, or <strong>Pro</strong>. This forces update commands in Supabase PostgreSQL and updates the live authorization middleware immediately.
-            </p>
 
-            <div className="grid grid-cols-3 gap-3 pt-2">
-              {(["starter", "growth", "pro"] as PlanCode[]).map((pCode) => {
-                const isLoader = actionLoading === `simulate-${pCode}`;
-                const isActiveSel = currentPlan === pCode;
-                return (
-                  <button
-                    key={pCode}
-                    onClick={() => handleSimulatePlan(pCode)}
-                    disabled={actionLoading !== null}
-                    type="button"
-                    className={`flex flex-col items-center justify-center p-3.5 border rounded-xl transition font-sans text-center active:scale-95 ${
-                      isActiveSel 
-                        ? 'border-indigo-500 bg-indigo-50/50 text-indigo-750 dark:bg-indigo-950/20 dark:text-indigo-400 font-bold' 
-                        : 'border-zinc-200 dark:border-zinc-800 text-zinc-650 hover:bg-zinc-200/50 dark:hover:bg-zinc-850'
-                    }`}
-                  >
-                    <span className="text-xs uppercase font-mono tracking-widest">{pCode}</span>
-                    <span className="text-sm font-black mt-1">
-                      {isLoader ? "Syncing..." : isActiveSel ? "Active" : "Simulate Sync"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
         </div>
       </div>

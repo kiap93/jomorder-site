@@ -84,21 +84,5 @@ export const billingService = {
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.error || "Cancellation transaction failed.");
     }
-  },
-
-  /**
-   * Test controller allowing instant preview of packages in sandbox limits
-   */
-  async simulateSandboxPlan(plan: PlanCode): Promise<void> {
-    const res = await fetch(getApiUrl("/api/billing/sandbox-simulate"), {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({ plan })
-    });
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || "Sandbox simulation failed.");
-    }
   }
 };

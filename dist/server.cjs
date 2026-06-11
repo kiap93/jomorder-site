@@ -8472,34 +8472,7 @@ router13.post("/billing/cancel", authenticateJWT, async (req, res) => {
   }
 });
 router13.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({ error: "Unauthorized: Active session missing." });
-  }
-  const tenantId = user.restaurantId || user.restaurant_id;
-  const { plan } = req.body;
-  if (!tenantId) {
-    return res.status(400).json({ error: "Workspace context missing." });
-  }
-  const targetPlan = plan || "starter";
-  try {
-    const trialEnd = new Date(Date.now() + 10 * 24 * 60 * 60 * 1e3);
-    const result = await repo.upsertSubscription({
-      tenant_id: tenantId,
-      stripe_customer_id: "cus_simulated_preview",
-      stripe_subscription_id: "sub_simulated_preview_" + Math.random().toString(36).substr(2, 6),
-      stripe_price_id: "price_simulated_" + targetPlan,
-      plan_code: targetPlan,
-      status: "active",
-      current_period_start: (/* @__PURE__ */ new Date()).toISOString(),
-      current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3).toISOString(),
-      trial_end: null,
-      cancel_at_period_end: false
-    });
-    res.json({ success: true, subscription: result });
-  } catch (err) {
-    res.status(500).json({ error: "Sandbox synchronization exception", details: err.message });
-  }
+  res.status(403).json({ error: "Sandbox simulation is disabled in production." });
 });
 var billing_routes_default = router13;
 

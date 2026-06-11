@@ -162,42 +162,10 @@ router.post("/billing/cancel", authenticateJWT, async (req: AuthenticatedRequest
 
 /**
  * POST /api/billing/sandbox-simulate
- * Simulation bridge enabling interactive testing of starter, growth, and pro packages in preview tabs
+ * Simulation bridge disabled in production mode.
  */
 router.post("/billing/sandbox-simulate", authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({ error: "Unauthorized: Active session missing." });
-  }
-  const tenantId = user.restaurantId || (user as any).restaurant_id;
-  const { plan } = req.body;
-
-  if (!tenantId) {
-    return res.status(400).json({ error: "Workspace context missing." });
-  }
-
-  const targetPlan = (plan || "starter") as PlanCode;
-
-  try {
-    // Generate simulated subscription
-    const trialEnd = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
-    const result = await repo.upsertSubscription({
-      tenant_id: tenantId,
-      stripe_customer_id: "cus_simulated_preview",
-      stripe_subscription_id: "sub_simulated_preview_" + Math.random().toString(36).substr(2, 6),
-      stripe_price_id: "price_simulated_" + targetPlan,
-      plan_code: targetPlan,
-      status: "active",
-      current_period_start: new Date().toISOString(),
-      current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      trial_end: null,
-      cancel_at_period_end: false
-    });
-
-    res.json({ success: true, subscription: result });
-  } catch (err: any) {
-    res.status(500).json({ error: "Sandbox synchronization exception", details: err.message });
-  }
+  res.status(403).json({ error: "Sandbox simulation is disabled in production." });
 });
 
 export default router;

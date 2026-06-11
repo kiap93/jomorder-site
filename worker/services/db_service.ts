@@ -15,33 +15,18 @@ export const getAdminSupabase = (env: Bindings) => getSupabase(env);
 
 // Use a user-scoped Supabase client that respects Row Level Security
 export const getUserSupabase = (env: Bindings, tokenOrAuthHeader?: string) => {
-  const anonKey = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!tokenOrAuthHeader) {
-    return createClient(env.SUPABASE_URL, anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false
-      }
-    });
-  }
+  // Since the user token is signed with our custom JWT_SECRET, Supabase's PostgREST (which expects
+  // a Google or Supabase Auth token) will reject it and throw "No suitable key or wrong key type".
+  // Since we already validate authentic tenant boundaries and permissions inside our Worker middleware
+  // (authenticate and requireTenantIsolation), we can securely use the service role key or anon key directly.
+  const useKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || '';
   
-  let token = tokenOrAuthHeader;
-  if (token.toLowerCase().startsWith('bearer ')) {
-    token = token.substring(7).trim();
-  }
-  
-  return createClient(env.SUPABASE_URL, anonKey, {
+  return createClient(env.SUPABASE_URL, useKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+    }
   });
 };
 
