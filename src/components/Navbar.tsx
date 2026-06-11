@@ -74,10 +74,6 @@ export function Navbar() {
   useEffect(() => {
     if (!user || !restId) return;
 
-    // Check if the current user is on a customer path (then don't listen to staff calls)
-    const isCustomerPath = location.pathname.includes('/table/') || location.pathname.includes('/order/');
-    if (isCustomerPath) return;
-
     const channel = supabase.channel(`assistance-${restId}`);
 
     channel
@@ -131,7 +127,7 @@ export function Navbar() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, restId, location.pathname]);
+  }, [user, restId]);
 
   const handleResolveAssistance = async (id: string) => {
     // Optimistically update local active calls state
@@ -147,7 +143,9 @@ export function Navbar() {
             event: 'assistance_resolved',
             payload: { id }
           });
-          supabase.removeChannel(channel);
+          setTimeout(() => {
+            supabase.removeChannel(channel);
+          }, 3000);
         }
       });
     } catch (err) {
@@ -274,24 +272,22 @@ export function Navbar() {
               </Link>
             )}
             
-            {!isCustomerPath && (
-              <button
-                onClick={() => setIsAssistanceOpen(!isAssistanceOpen)}
-                className={`p-2 rounded relative transition-all active:scale-90 ${
-                  isAssistanceOpen 
-                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30 font-extrabold' 
-                    : 'text-zinc-400 hover:text-amber-500'
-                }`}
-                title="Active Table Calls"
-              >
-                <Bell size={20} className={assistanceRequests.length > 0 ? 'animate-bounce text-amber-500' : ''} />
-                {assistanceRequests.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-zinc-950 animate-pulse">
-                    {assistanceRequests.length}
-                  </span>
-                )}
-              </button>
-            )}
+            <button
+              onClick={() => setIsAssistanceOpen(!isAssistanceOpen)}
+              className={`p-2 rounded relative transition-all active:scale-90 ${
+                isAssistanceOpen 
+                  ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30 font-extrabold' 
+                  : 'text-zinc-400 hover:text-amber-500'
+              }`}
+              title="Active Table Calls"
+            >
+              <Bell size={20} className={assistanceRequests.length > 0 ? 'animate-bounce text-amber-500' : ''} />
+              {assistanceRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-zinc-950 animate-pulse">
+                  {assistanceRequests.length}
+                </span>
+              )}
+            </button>
           </>
         )}
         
@@ -493,7 +489,7 @@ export function Navbar() {
       )}
 
       {/* Real-time Waiter Assistance Overlay Panel */}
-      {isAssistanceOpen && user && !isCustomerPath && (
+      {isAssistanceOpen && user && (
         <>
           <div 
             className="fixed inset-0 z-[45] bg-zinc-950/20 backdrop-blur-xs" 

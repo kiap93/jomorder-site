@@ -287,7 +287,7 @@ orderRoutes.get('/api/public/orders/:id', async (c) => {
 
   let query = supabase
     .from('orders')
-    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at,tables(name)')
     .eq('id', c.req.param('id'));
 
   if (isUuid) {
@@ -304,7 +304,7 @@ orderRoutes.get('/api/public/dining-sessions/:sessionId/orders', async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('orders')
-    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at')
+    .select('id,restaurant_id,table_id,session_id,order_type,status,total_price,payment_method,payment_id,paid_at,idempotency_key,session_token,items,created_at,updated_at,tables(name)')
     .eq('session_id', c.req.param('sessionId'))
     .neq('status', 'cancelled');
   

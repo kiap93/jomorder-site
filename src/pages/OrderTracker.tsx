@@ -102,15 +102,22 @@ export function OrderTracker() {
           console.error('[OrderTracker] Fetch payment settings failed:', settingsErr);
         }
 
-        // Resolve table UUID if tableId is a slug
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tableId || '');
+        // Resolve table details and actualTableId, retrieving custom tableName (e.g. t1)
         let actualTableId = tableId;
+        let tableNameFromApi = '';
 
-        if (!isUuid && tableId) {
-          const tRes = await fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`));
-          if (tRes.ok) {
-            const tData = await tRes.json();
-            if (tData) actualTableId = tData.id;
+        if (tableId) {
+          try {
+            const tRes = await fetch(getApiUrl(`/api/public/tables/${tableId}?restId=${restId}`));
+            if (tRes.ok) {
+              const tData = await tRes.json();
+              if (tData) {
+                actualTableId = tData.id;
+                tableNameFromApi = tData.name;
+              }
+            }
+          } catch (tErr) {
+            console.error('[OrderTracker] Fetch table details failed:', tErr);
           }
         }
 
@@ -139,7 +146,7 @@ export function OrderTracker() {
         setOrders(allOrders.map(o => ({
           id: o.id,
           tableId: o.table_id,
-          tableName: (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
+          tableName: tableNameFromApi || (o as any).tables?.name || o.table_id.slice(-4).toUpperCase(),
           orderType: o.order_type === 'dine_in' ? 'dine_in' : (o.order_type || 'dine_in'),
           status: o.status as OrderStatus,
           totalPrice: parseFloat(o.total_price),
@@ -282,7 +289,9 @@ export function OrderTracker() {
               timestamp: new Date().toISOString()
             }
           });
-          supabase.removeChannel(channel);
+          setTimeout(() => {
+            supabase.removeChannel(channel);
+          }, 3000);
         }
       });
     } catch (err) {
