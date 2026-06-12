@@ -158,6 +158,7 @@ export function AdminPanel() {
   
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [setupCompleted, setSetupCompleted] = useState<boolean>(true);
   const [editingItem, setEditingItem] = useState<Partial<MenuItem & { newCategoryName?: string }> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -528,12 +529,13 @@ export function AdminPanel() {
         headers: { 'Authorization': `Bearer ${token}` }
       };
       
-      const [restData, catsData, itemsData, tablesData, ordersData] = await Promise.all([
+      const [restData, catsData, itemsData, tablesData, ordersData, setupData] = await Promise.all([
         fetch(getApiUrl(`/api/restaurants/${restId}`), fetchOptions).then(r => r.json()),
         fetch(getApiUrl(`/api/restaurants/${restId}/categories`), fetchOptions).then(r => r.json()),
         fetch(getApiUrl(`/api/restaurants/${restId}/menu-items`), fetchOptions).then(r => r.json()),
         fetch(getApiUrl(`/api/restaurants/${restId}/tables`), fetchOptions).then(r => r.json()),
-        fetch(getApiUrl(`/api/restaurants/${restId}/orders?limit=100`), fetchOptions).then(r => r.json())
+        fetch(getApiUrl(`/api/restaurants/${restId}/orders?limit=100`), fetchOptions).then(r => r.json()),
+        fetch(getApiUrl(`/api/setup/progress/${restId}`), fetchOptions).then(r => r.json()).catch(() => ({ completed: true }))
       ]);
 
       const duration = Date.now() - startTime;
@@ -546,6 +548,10 @@ export function AdminPanel() {
       if (itemsData.error) throw new Error(itemsData.error);
       if (tablesData.error) throw new Error(tablesData.error);
       if (ordersData.error) throw new Error(ordersData.error);
+      
+      if (setupData && setupData.completed !== undefined) {
+        setSetupCompleted(!!setupData.completed);
+      }
       
       if (restData) {
         setRestaurant({
@@ -1495,7 +1501,26 @@ export function AdminPanel() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 pb-12 p-3 sm:p-5 md:p-6">
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+      {!setupCompleted && (
+        <div className="bg-gradient-to-r from-orange-500/5 via-orange-500/10 to-orange-500/5 p-4 sm:p-5 rounded-2xl border border-orange-500/25 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
+          <div className="flex gap-3 items-center">
+            <div className="w-2 h-2 bg-orange-600 rounded-full animate-ping shrink-0" />
+            <div>
+              <p className="text-xs font-black uppercase text-orange-600 tracking-wider">Setup Incomplete</p>
+              <h3 className="text-sm font-extrabold text-gray-950 font-sans mt-0.5 tracking-tight">Complete your setup to start accepting orders</h3>
+              <p className="text-[11px] text-gray-400 mt-0.5 font-bold leading-none">Required steps: Business Information, Localization settings & Order payment settings</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate(`/business/setup?restaurantId=${restId}`)}
+            className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white font-black text-[11px] px-5 py-2.5 rounded-xl uppercase shadow-md shadow-orange-600/10 active:scale-95 transition-all text-center cursor-pointer"
+          >
+            Launch Setup Wizard
+          </button>
+        </div>
+      )}
+
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center text-center sm:text-left">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">{t('admin.management')}</h1>
           <p className="text-xs text-gray-500 font-medium">{t('admin.controlCenter').replace('{name}', restaurant?.name || 'Branch')}</p>

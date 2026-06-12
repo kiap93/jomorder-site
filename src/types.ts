@@ -14,6 +14,17 @@ export interface WorkspaceRestaurant {
   role?: string;
 }
 
+export interface BusinessSettings {
+  country: string;
+  currency: string;
+  timezone: string;
+  language: string;
+  tax_type: string;
+  tax_rate: number;
+  date_format: string;
+  payment_mode: "pay_first" | "pay_later" | "both";
+}
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -23,6 +34,7 @@ export interface Restaurant {
   franchiseId?: string;
   payment_mode?: 'pay_first' | 'pay_later' | 'both';
   show_voided_on_receipt?: boolean;
+  business_settings?: BusinessSettings;
 }
 
 export interface Table {

@@ -308,13 +308,196 @@ export function SettingsTab({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.currency')}</label>
-                <input
-                  value={restaurant.currency}
-                  onChange={e => setRestaurant({ ...restaurant, currency: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 border border-gray-100 focus:bg-white focus:border-orange-500 focus:ring-0 font-bold font-mono"
-                />
+              {/* --- Multi-Country & Localization Section --- */}
+              <div className="p-4 bg-orange-50/15 border border-orange-500/10 rounded-2xl space-y-4">
+                <div className="flex items-start gap-2.5">
+                  <Globe className="text-orange-500 shrink-0 mt-0.5" size={16} />
+                  <div>
+                    <h4 className="text-xs font-black text-gray-900">Multi-Country Global Architecture</h4>
+                    <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                      JomOrder SaaS is configured for worldwide operations. Changing the Country Profile below automatically pre-configures currency codes, tax systems (SST/GST/VAT), date guidelines, timezones, and system languages.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Country Profile</label>
+                    <select
+                      value={restaurant.business_settings?.country || 'MY'}
+                      onChange={e => {
+                        const countryCode = e.target.value;
+                        const presets: Record<string, any> = {
+                          MY: { currency: 'MYR', timezone: 'Asia/Kuala_Lumpur', language: 'ms', tax_type: 'SST', tax_rate: 6.0, date_format: 'DD/MM/YYYY' },
+                          SG: { currency: 'SGD', timezone: 'Asia/Singapore', language: 'en', tax_type: 'GST', tax_rate: 9.0, date_format: 'DD/MM/YYYY' },
+                          TH: { currency: 'THB', timezone: 'Asia/Bangkok', language: 'en', tax_type: 'VAT', tax_rate: 7.0, date_format: 'DD/MM/YYYY' },
+                          ID: { currency: 'IDR', timezone: 'Asia/Jakarta', language: 'en', tax_type: 'VAT', tax_rate: 11.0, date_format: 'DD/MM/YYYY' },
+                          PH: { currency: 'PHP', timezone: 'Asia/Manila', language: 'en', tax_type: 'VAT', tax_rate: 12.0, date_format: 'DD/MM/YYYY' },
+                          US: { currency: 'USD', timezone: 'America/New_York', language: 'en', tax_type: 'Sales Tax', tax_rate: 8.0, date_format: 'MM/DD/YYYY' },
+                          GB: { currency: 'GBP', timezone: 'Europe/London', language: 'en', tax_type: 'VAT', tax_rate: 20.0, date_format: 'DD/MM/YYYY' },
+                          AU: { currency: 'AUD', timezone: 'Australia/Sydney', language: 'en', tax_type: 'GST', tax_rate: 10.0, date_format: 'DD/MM/YYYY' }
+                        };
+                        const pst = presets[countryCode] || presets.MY;
+                        setRestaurant({
+                          ...restaurant,
+                          currency: pst.currency,
+                          sst: pst.tax_rate / 100,
+                          business_settings: {
+                            country: countryCode,
+                            currency: pst.currency,
+                            timezone: pst.timezone,
+                            language: pst.language,
+                            tax_type: pst.tax_type,
+                            tax_rate: pst.tax_rate,
+                            date_format: pst.date_format,
+                            payment_mode: restaurant.payment_mode || 'both'
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold"
+                    >
+                      <option value="MY">Malaysia (MY)</option>
+                      <option value="SG">Singapore (SG)</option>
+                      <option value="TH">Thailand (TH)</option>
+                      <option value="ID">Indonesia (ID)</option>
+                      <option value="PH">Philippines (PH)</option>
+                      <option value="US">United States (US)</option>
+                      <option value="GB">United Kingdom (GB)</option>
+                      <option value="AU">Australia (AU)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Base Currency ISO</label>
+                    <input
+                      value={restaurant.business_settings?.currency || restaurant.currency || 'MYR'}
+                      onChange={e => {
+                        const val = e.target.value.toUpperCase();
+                        setRestaurant({
+                          ...restaurant,
+                          currency: val,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', timezone: 'Asia/Kuala_Lumpur', language: 'en', tax_type: 'SST', tax_rate: 6.0, date_format: 'DD/MM/YYYY', payment_mode: 'both'
+                            }),
+                            currency: val
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold font-mono"
+                      placeholder="e.g. SGD, USD, MYR"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Local Timezone</label>
+                    <input
+                      value={restaurant.business_settings?.timezone || 'Asia/Kuala_Lumpur'}
+                      onChange={e => {
+                        setRestaurant({
+                          ...restaurant,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', currency: 'MYR', language: 'en', tax_type: 'SST', tax_rate: 6.0, date_format: 'DD/MM/YYYY', payment_mode: 'both'
+                            }),
+                            timezone: e.target.value
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold"
+                      placeholder="e.g. Asia/Singapore"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">System Language</label>
+                    <select
+                      value={restaurant.business_settings?.language || 'en'}
+                      onChange={e => {
+                        setRestaurant({
+                          ...restaurant,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', currency: 'MYR', timezone: 'Asia/Kuala_Lumpur', tax_type: 'SST', tax_rate: 6.0, date_format: 'DD/MM/YYYY', payment_mode: 'both'
+                            }),
+                            language: e.target.value
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold"
+                    >
+                      <option value="en">English</option>
+                      <option value="ms">Bahasa Melayu</option>
+                      <option value="zh">Simplified Chinese</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Tax Type Name</label>
+                    <input
+                      value={restaurant.business_settings?.tax_type || 'SST'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setRestaurant({
+                          ...restaurant,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', currency: 'MYR', timezone: 'Asia/Kuala_Lumpur', language: 'en', tax_rate: 6.0, date_format: 'DD/MM/YYYY', payment_mode: 'both'
+                            }),
+                            tax_type: val
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold"
+                      placeholder="e.g. GST, VAT, SST"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Tax Percentage (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={restaurant.business_settings?.tax_rate !== undefined ? restaurant.business_settings.tax_rate : (restaurant.sst * 100)}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setRestaurant({
+                          ...restaurant,
+                          sst: val / 100,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', currency: 'MYR', timezone: 'Asia/Kuala_Lumpur', language: 'en', tax_type: 'SST', date_format: 'DD/MM/YYYY', payment_mode: 'both'
+                            }),
+                            tax_rate: val
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Local Date Format</label>
+                    <select
+                      value={restaurant.business_settings?.date_format || 'DD/MM/YYYY'}
+                      onChange={e => {
+                        setRestaurant({
+                          ...restaurant,
+                          business_settings: {
+                            ...(restaurant.business_settings || {
+                              country: 'MY', currency: 'MYR', timezone: 'Asia/Kuala_Lumpur', language: 'en', tax_type: 'SST', tax_rate: 6.0, payment_mode: 'both'
+                            }),
+                            date_format: e.target.value
+                          }
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-gray-150 focus:border-orange-500 focus:ring-0 font-bold"
+                    >
+                      <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 31/12/2026)</option>
+                      <option value="MM/DD/YYYY">MM/DD/YYYY (e.g. 12/31/2026)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div>

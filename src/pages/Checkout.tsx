@@ -4,6 +4,7 @@ import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { guestSupabase as supabase } from '../lib/supabase';
 import { paymentEngine, PaymentIntentResponse } from '../lib/paymentEngine';
 import { Restaurant, Order, Payment, ProductSelection, Product, OrderStatus } from '../types';
+import { formatCurrency } from '../lib/localization';
 import { motion, AnimatePresence } from 'motion/react';
 import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { 
@@ -540,10 +541,8 @@ export function Checkout() {
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500 mb-1">
                       {order?.sessionId ? 'Open Session Balance' : 'Order Amount'}
                     </p>
-                    <div className="text-4xl font-black tabular-nums tracking-tighter">
-                      RM <span className="text-white">
-                        {(payTarget === 'session' && sessionUnpaidTotal !== null ? sessionUnpaidTotal : (order?.totalPrice || 0)).toFixed(2)}
-                      </span>
+                    <div className="text-4xl font-black tabular-nums tracking-tighter text-white">
+                      {formatCurrency((payTarget === 'session' && sessionUnpaidTotal !== null ? sessionUnpaidTotal : (order?.totalPrice || 0)), restaurant?.currency)}
                     </div>
                   </div>
                   <div className="bg-zinc-800/50 p-2.5 rounded-2xl border border-zinc-700/50">
@@ -565,7 +564,7 @@ export function Checkout() {
                             </div>
                           </div>
                           <span className={`font-black ${o.paid_at ? 'text-zinc-600 line-through' : 'text-white'}`}>
-                            RM {o.totalPrice.toFixed(2)}
+                            {formatCurrency(o.totalPrice, restaurant?.currency)}
                           </span>
                         </div>
                       ))}
@@ -579,23 +578,23 @@ export function Checkout() {
                 <div className="space-y-2.5 mb-6 bg-zinc-900/30 p-4 rounded-2xl border border-zinc-800/50 text-[11px]">
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-500 font-medium">Subtotal</span>
-                    <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSubtotal.toFixed(2)}</span>
+                    <span className="text-zinc-400 font-bold tabular-nums">{formatCurrency(calculatedSubtotal, restaurant?.currency)}</span>
                   </div>
                   {calculatedSC > 0 && (
                     <div className="flex justify-between items-center">
                       <span className="text-zinc-500 font-medium">Service Charge ({(scRate * 100).toFixed(0)}%)</span>
-                      <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSC.toFixed(2)}</span>
+                      <span className="text-zinc-400 font-bold tabular-nums">{formatCurrency(calculatedSC, restaurant?.currency)}</span>
                     </div>
                   )}
                   {calculatedSST > 0 && (
                     <div className="flex justify-between items-center">
-                      <span className="text-zinc-500 font-medium">Government SST ({(sstRate * 100).toFixed(0)}%)</span>
-                      <span className="text-zinc-400 font-bold tabular-nums">RM {calculatedSST.toFixed(2)}</span>
+                      <span className="text-zinc-500 font-medium">{restaurant?.business_settings?.tax_type || 'SST'} ({(sstRate * 100).toFixed(0)}%)</span>
+                      <span className="text-zinc-400 font-bold tabular-nums">{formatCurrency(calculatedSST, restaurant?.currency)}</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center text-xs pt-2.5 border-t border-zinc-800/50">
                     <span className="text-zinc-300 font-bold">Total Payable</span>
-                    <span className="text-orange-500 font-black tabular-nums">RM {amountToPay.toFixed(2)}</span>
+                    <span className="text-orange-500 font-black tabular-nums">{formatCurrency(amountToPay, restaurant?.currency)}</span>
                   </div>
                 </div>
 
@@ -694,7 +693,7 @@ export function Checkout() {
                   <div className="space-y-2 mb-8 max-w-sm">
                     <h2 className="text-xl font-bold">Redirecting...</h2>
                     <p className="text-zinc-500 text-sm font-medium leading-relaxed">
-                      We are securely redirecting you to our billing provider to finalize your session payment of <span className="text-white font-bold">RM {amountToPay.toFixed(2)}</span>.
+                      We are securely redirecting you to our billing provider to finalize your session payment of <span className="text-white font-bold">{formatCurrency(amountToPay, restaurant?.currency)}</span>.
                     </p>
                   </div>
 

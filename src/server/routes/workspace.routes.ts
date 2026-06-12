@@ -530,11 +530,26 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
     return res.status(401).json({ error: "Unauthorized" });
   }
   const dbUserId = user.id;
-  const { orgName, workspaceName, orgId: reqOrgId } = req.body;
+  const { orgName, workspaceName, orgId: reqOrgId, country } = req.body;
 
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
   }
+
+  // Country Profile Preset definitions
+  const presets: Record<string, { currency: string; taxType: string; taxRate: number; timezone: string; dateFormat: string }> = {
+    MY: { currency: "MYR", taxType: "SST", taxRate: 6.0, timezone: "Asia/Kuala_Lumpur", dateFormat: "DD/MM/YYYY" },
+    SG: { currency: "SGD", taxType: "GST", taxRate: 9.0, timezone: "Asia/Singapore", dateFormat: "DD/MM/YYYY" },
+    TH: { currency: "THB", taxType: "VAT", taxRate: 7.0, timezone: "Asia/Bangkok", dateFormat: "DD/MM/YYYY" },
+    ID: { currency: "IDR", taxType: "VAT", taxRate: 11.0, timezone: "Asia/Jakarta", dateFormat: "DD/MM/YYYY" },
+    PH: { currency: "PHP", taxType: "VAT", taxRate: 12.0, timezone: "Asia/Manila", dateFormat: "DD/MM/YYYY" },
+    US: { currency: "USD", taxType: "Sales Tax", taxRate: 8.0, timezone: "America/New_York", dateFormat: "MM/DD/YYYY" },
+    GB: { currency: "GBP", taxType: "VAT", taxRate: 20.0, timezone: "Europe/London", dateFormat: "DD/MM/YYYY" },
+    AU: { currency: "AUD", taxType: "GST", taxRate: 10.0, timezone: "Australia/Sydney", dateFormat: "DD/MM/YYYY" }
+  };
+
+  const selectedCountry = (country || 'MY').toUpperCase();
+  const preset = presets[selectedCountry] || presets.MY;
 
   try {
     let orgId = reqOrgId || null;
@@ -585,9 +600,9 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
 
     let insertData: any = {
       name: workspaceName.trim(),
-      currency: 'MYR',
+      currency: preset.currency,
       service_charge: 6.0,
-      sst: 10.0,
+      sst: preset.taxRate,
       owner_id: dbUserId,
       payment_mode: 'both'
     };
@@ -635,13 +650,31 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
       restaurant = {
         id: `rest_${Date.now()}`,
         name: workspaceName.trim(),
-        currency: 'MYR',
+        currency: preset.currency,
         service_charge: 6.0,
-        sst: 10.0,
+        sst: preset.taxRate,
         owner_id: user.id,
         organization_id: orgId,
         payment_mode: 'both'
       };
+    }
+
+    // Now insert matched business_settings!
+    try {
+      await supabaseAdmin.from('business_settings').insert([{
+        business_id: restaurant.id,
+        restaurant_id: restaurant.id,
+        country_code: selectedCountry,
+        currency_code: preset.currency,
+        timezone: preset.timezone,
+        language: 'en',
+        tax_type: preset.taxType,
+        tax_rate: preset.taxRate,
+        date_format: preset.dateFormat,
+        payment_mode: 'both'
+      }]);
+    } catch (bsErr: any) {
+      console.warn("Failed to write initial business_settings, falling back:", bsErr.message);
     }
 
     const db2 = loadFallbackDB();
@@ -738,40 +771,174 @@ router.post('/onboarding/create-org-workspace', authenticateJWT, async (req, res
 
 // Restaurants (Generic)
 router.get("/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .select('*')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  if (data) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('restaurants')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
+
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+
+    // Fetch or initialize business_settings
+    let { data: bSettings, error: bsError } = await supabaseAdmin
+      .from('business_settings')
+      .select('*')
+      .eq('restaurant_id', req.params.id)
+      .maybeSingle();
+
+    if (!bSettings || bsError) {
+      // Auto-migrate standard Malaysia or fallback values
+      const initialTaxRate = data.sst !== undefined ? Number(data.sst) : 6;
+      const initialCurrency = data.currency || 'MYR';
+      const initialPaymentMode = data.payment_mode || 'both';
+
+      const preset = {
+        business_id: req.params.id,
+        restaurant_id: req.params.id,
+        country_code: initialCurrency === 'MYR' ? 'MY' : (initialCurrency === 'SGD' ? 'SG' : (initialCurrency === 'THB' ? 'TH' : 'US')),
+        currency_code: initialCurrency,
+        timezone: initialCurrency === 'MYR' ? 'Asia/Kuala_Lumpur' : (initialCurrency === 'SGD' ? 'Asia/Singapore' : (initialCurrency === 'THB' ? 'Asia/Bangkok' : 'America/New_York')),
+        language: 'en',
+        tax_type: initialCurrency === 'MYR' ? 'SST' : (initialCurrency === 'SGD' ? 'GST' : (initialCurrency === 'THB' ? 'VAT' : 'Sales Tax')),
+        tax_rate: initialTaxRate,
+        date_format: initialCurrency === 'USD' ? 'MM/DD/YYYY' : 'DD/MM/YYYY',
+        payment_mode: initialPaymentMode
+      };
+
+      const { data: newBS } = await supabaseAdmin
+        .from('business_settings')
+        .insert([preset])
+        .select()
+        .maybeSingle();
+      
+      bSettings = newBS || preset;
+    }
+
+    // Attach business_settings to restaurant payload
+    data.business_settings = {
+      country: bSettings.country_code || 'MY',
+      currency: bSettings.currency_code || 'MYR',
+      timezone: bSettings.timezone || 'Asia/Kuala_Lumpur',
+      language: bSettings.language || 'en',
+      tax_type: bSettings.tax_type || 'SST',
+      tax_rate: Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : 10),
+      date_format: bSettings.date_format || 'DD/MM/YYYY',
+      payment_mode: bSettings.payment_mode || 'both'
+    };
+
+    // Flatten for absolute backward compatibility
+    data.currency = bSettings.currency_code || data.currency || 'MYR';
+    data.sst = Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : data.sst);
+    data.payment_mode = bSettings.payment_mode || data.payment_mode || 'both';
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(data);
 });
 
 router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { show_voided_on_receipt, ...dbBody } = req.body;
+  try {
+    const { show_voided_on_receipt, business_settings, ...dbBody } = req.body;
 
-  if (show_voided_on_receipt !== undefined) {
-    extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
-  }
+    if (show_voided_on_receipt !== undefined) {
+      extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
+    }
 
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .update(dbBody)
-    .eq('id', req.params.id)
-    .select()
-    .maybeSingle();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  if (data) {
+    // Update business_settings first if passed
+    if (business_settings) {
+      const bsPayload: any = {
+        country_code: business_settings.country,
+        currency_code: business_settings.currency,
+        timezone: business_settings.timezone,
+        language: business_settings.language,
+        tax_type: business_settings.tax_type,
+        tax_rate: business_settings.tax_rate,
+        date_format: business_settings.date_format,
+        payment_mode: business_settings.payment_mode,
+        updated_at: new Date().toISOString()
+      };
+
+      // Check if row exists
+      const { data: existingBS } = await supabaseAdmin
+        .from('business_settings')
+        .select('id')
+        .eq('restaurant_id', req.params.id)
+        .maybeSingle();
+
+      if (existingBS) {
+        await supabaseAdmin
+          .from('business_settings')
+          .update(bsPayload)
+          .eq('restaurant_id', req.params.id);
+      } else {
+        await supabaseAdmin
+          .from('business_settings')
+          .insert([{
+            business_id: req.params.id,
+            restaurant_id: req.params.id,
+            ...bsPayload
+          }]);
+      }
+
+      // Sync key backward-compatible fields in restaurants table
+      if (business_settings.currency) {
+        dbBody.currency = business_settings.currency;
+      }
+      if (business_settings.tax_rate !== undefined) {
+        dbBody.sst = business_settings.tax_rate;
+      }
+      if (business_settings.payment_mode) {
+        dbBody.payment_mode = business_settings.payment_mode;
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('restaurants')
+      .update(dbBody)
+      .eq('id', req.params.id)
+      .select()
+      .maybeSingle();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
+
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+
+    // Fetch updated business settings to include in response
+    const { data: finalBS } = await supabaseAdmin
+      .from('business_settings')
+      .select('*')
+      .eq('restaurant_id', req.params.id)
+      .maybeSingle();
+
+    if (finalBS) {
+      data.business_settings = {
+        country: finalBS.country_code,
+        currency: finalBS.currency_code,
+        timezone: finalBS.timezone,
+        language: finalBS.language,
+        tax_type: finalBS.tax_type,
+        tax_rate: Number(finalBS.tax_rate),
+        date_format: finalBS.date_format,
+        payment_mode: finalBS.payment_mode
+      };
+      
+      data.currency = finalBS.currency_code;
+      data.sst = Number(finalBS.tax_rate);
+      data.payment_mode = finalBS.payment_mode;
+    }
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(data);
 });
 
 export default router;

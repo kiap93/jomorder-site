@@ -108,6 +108,7 @@ export function WorkspaceSelect() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [newOrgName, setNewOrgName] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState('MY');
 
   // Auto-restore session overlay states
   const [isFromLogin, setIsFromLogin] = useState(false);
@@ -259,6 +260,29 @@ export function WorkspaceSelect() {
 
       // Default landing experiences
       const lowerRole = role ? role.toLowerCase() : '';
+      
+      let isCompleted = true;
+      if (lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin') {
+        try {
+          const checkRes = await fetch(getApiUrl(`/api/setup/progress/${workspaceId}`), {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData && checkData.completed === false) {
+              isCompleted = false;
+            }
+          }
+        } catch (e) {
+          console.warn("Could not check setup progress:", e);
+        }
+      }
+
+      if (!isCompleted) {
+        navigate(`/business/setup?restaurantId=${workspaceId}`);
+        return;
+      }
+
       if (lowerRole === 'kitchen' || lowerRole === 'runner') {
         navigate(`/restaurant/${workspaceId}/kitchen`);
       } else if (lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin') {
@@ -287,8 +311,9 @@ export function WorkspaceSelect() {
     setError(null);
     setSubmitting(true);
     try {
-      const payload: { workspaceName: string; orgId?: string; orgName?: string } = {
-        workspaceName: newWorkspaceName.trim()
+      const payload: { workspaceName: string; orgId?: string; orgName?: string; country: string } = {
+        workspaceName: newWorkspaceName.trim(),
+        country: selectedCountry
       };
 
       if (selectedOrgId) {
@@ -784,21 +809,41 @@ export function WorkspaceSelect() {
                   {!isFromLogin && (
                     <div className="pt-6 border-t border-zinc-800">
                       <h3 className="font-bold text-zinc-300 text-sm mb-3 ml-1">{t('workspace.establishExpansion')}</h3>
-                      <form onSubmit={handleCreateWorkspace} className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1">
-                          <input
-                            required
-                            type="text"
-                            value={newWorkspaceName}
-                            onChange={(e) => setNewWorkspaceName(e.target.value)}
-                            placeholder={t('workspace.uniqueBranchName')}
-                            className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-2xl focus:outline-none focus:border-orange-500 text-zinc-100 placeholder-zinc-500 text-xs font-bold"
-                          />
+                      <form onSubmit={handleCreateWorkspace} className="flex flex-col gap-3">
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="flex-1">
+                            <input
+                              required
+                              type="text"
+                              value={newWorkspaceName}
+                              onChange={(e) => setNewWorkspaceName(e.target.value)}
+                              placeholder={t('workspace.uniqueBranchName')}
+                              className="w-full px-4 py-3 h-12 bg-zinc-950 border border-zinc-800 rounded-2xl focus:outline-none focus:border-orange-500 text-zinc-100 placeholder-zinc-500 text-xs font-bold"
+                            />
+                          </div>
+                          
+                          <div className="w-full sm:w-64">
+                            <select
+                              value={selectedCountry}
+                              onChange={(e) => setSelectedCountry(e.target.value)}
+                              className="w-full px-4 py-3 h-12 bg-zinc-950 border border-zinc-800 rounded-2xl focus:outline-none focus:border-orange-500 text-zinc-100 text-xs font-bold cursor-pointer"
+                            >
+                              <option value="MY">Malaysia (MYR, SST)</option>
+                              <option value="SG">Singapore (SGD, GST)</option>
+                              <option value="TH">Thailand (THB, VAT)</option>
+                              <option value="ID">Indonesia (IDR, VAT)</option>
+                              <option value="PH">Philippines (PHP, VAT)</option>
+                              <option value="US">United States (USD, Sales Tax)</option>
+                              <option value="GB">United Kingdom (GBP, VAT)</option>
+                              <option value="AU">Australia (AUD, GST)</option>
+                            </select>
+                          </div>
                         </div>
+
                         <button
                           type="submit"
                           disabled={submitting}
-                          className="bg-zinc-100 hover:bg-white text-zinc-950 px-6 py-3 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shrink-0 active:scale-95 disabled:opacity-50"
+                          className="bg-zinc-100 hover:bg-white text-zinc-950 h-12 text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shrink-0 active:scale-95 disabled:opacity-50"
                         >
                           {submitting ? <Loader2 className="animate-spin" size={12} /> : <><Plus size={14} /> {t('workspace.addBranchOutlet')}</>}
                         </button>

@@ -23,6 +23,7 @@ import { Landing } from './pages/Landing';
 import { InternalReview } from './pages/InternalReview';
 import { SuperAdmin } from './pages/SuperAdmin';
 import { WorkspaceSelect } from './pages/WorkspaceSelect';
+import { BusinessSetup } from './pages/BusinessSetup';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 function ContextTracker() {
@@ -162,6 +163,11 @@ export default function App() {
             } />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/workspace-select" element={<WorkspaceSelect />} />
+            <Route path="/business/setup" element={
+              <ProtectedRoute permissions={['settings.manage']}>
+                <BusinessSetup />
+              </ProtectedRoute>
+            } />
             
             {/* Internal Audit */}
             <Route path="/internal/audit-hub" element={<InternalReview />} />

@@ -13,19 +13,73 @@ const router = Router();
 
 // Restaurants (Public details)
 router.get("/restaurants/:id", async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .select('*, franchise_id')
-    .eq('id', req.params.id)
-    .maybeSingle();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: "Restaurant not found" });
-  
-  const extra = extraSettingsService.getSettings(req.params.id);
-  data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('restaurants')
+      .select('*, franchise_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
+    
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
 
-  return res.json(data || {});
+    // Fetch or initialize business_settings
+    let { data: bSettings, error: bsError } = await supabaseAdmin
+      .from('business_settings')
+      .select('*')
+      .eq('restaurant_id', req.params.id)
+      .maybeSingle();
+
+    if (!bSettings || bsError) {
+      // Auto-migrate standard Malaysia or fallback values
+      const initialTaxRate = data.sst !== undefined ? Number(data.sst) : 6;
+      const initialCurrency = data.currency || 'MYR';
+      const initialPaymentMode = data.payment_mode || 'both';
+
+      const preset = {
+        business_id: req.params.id,
+        restaurant_id: req.params.id,
+        country_code: initialCurrency === 'MYR' ? 'MY' : (initialCurrency === 'SGD' ? 'SG' : (initialCurrency === 'THB' ? 'TH' : 'US')),
+        currency_code: initialCurrency,
+        timezone: initialCurrency === 'MYR' ? 'Asia/Kuala_Lumpur' : (initialCurrency === 'SGD' ? 'Asia/Singapore' : (initialCurrency === 'THB' ? 'Asia/Bangkok' : 'America/New_York')),
+        language: 'en',
+        tax_type: initialCurrency === 'MYR' ? 'SST' : (initialCurrency === 'SGD' ? 'GST' : (initialCurrency === 'THB' ? 'VAT' : 'Sales Tax')),
+        tax_rate: initialTaxRate,
+        date_format: initialCurrency === 'USD' ? 'MM/DD/YYYY' : 'DD/MM/YYYY',
+        payment_mode: initialPaymentMode
+      };
+
+      const { data: newBS } = await supabaseAdmin
+        .from('business_settings')
+        .insert([preset])
+        .select()
+        .maybeSingle();
+      
+      bSettings = newBS || preset;
+    }
+
+    data.business_settings = {
+      country: bSettings.country_code || 'MY',
+      currency: bSettings.currency_code || 'MYR',
+      timezone: bSettings.timezone || 'Asia/Kuala_Lumpur',
+      language: bSettings.language || 'en',
+      tax_type: bSettings.tax_type || 'SST',
+      tax_rate: Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : 10),
+      date_format: bSettings.date_format || 'DD/MM/YYYY',
+      payment_mode: bSettings.payment_mode || 'both'
+    };
+
+    data.currency = bSettings.currency_code || data.currency || 'MYR';
+    data.sst = Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : data.sst);
+    data.payment_mode = bSettings.payment_mode || data.payment_mode || 'both';
+
+    return res.json(data || {});
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // Categories (Public details)

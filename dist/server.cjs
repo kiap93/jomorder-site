@@ -1263,7 +1263,7 @@ var init_voidService = __esm({
 });
 
 // server.ts
-var import_express15 = __toESM(require("express"), 1);
+var import_express16 = __toESM(require("express"), 1);
 var import_path2 = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
@@ -1549,7 +1549,7 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
 }
 
 // src/server/routes/index.ts
-var import_express14 = require("express");
+var import_express15 = require("express");
 
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
@@ -1856,7 +1856,7 @@ var ROLE_PERMISSIONS = {
 function hasPermission(role, permission, customPermissions) {
   if (!role) return false;
   const normalizedRole = role.toLowerCase().replace("_", "");
-  if (normalizedRole === "superadmin") {
+  if (normalizedRole === "superadmin" || normalizedRole === "owner" || normalizedRole === "admin") {
     return true;
   }
   if (customPermissions) {
@@ -4954,10 +4954,22 @@ router6.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     return res.status(401).json({ error: "Unauthorized" });
   }
   const dbUserId = user.id;
-  const { orgName, workspaceName, orgId: reqOrgId } = req.body;
+  const { orgName, workspaceName, orgId: reqOrgId, country } = req.body;
   if (!workspaceName) {
     return res.status(400).json({ error: "Workspace (Restaurant) name is required." });
   }
+  const presets = {
+    MY: { currency: "MYR", taxType: "SST", taxRate: 6, timezone: "Asia/Kuala_Lumpur", dateFormat: "DD/MM/YYYY" },
+    SG: { currency: "SGD", taxType: "GST", taxRate: 9, timezone: "Asia/Singapore", dateFormat: "DD/MM/YYYY" },
+    TH: { currency: "THB", taxType: "VAT", taxRate: 7, timezone: "Asia/Bangkok", dateFormat: "DD/MM/YYYY" },
+    ID: { currency: "IDR", taxType: "VAT", taxRate: 11, timezone: "Asia/Jakarta", dateFormat: "DD/MM/YYYY" },
+    PH: { currency: "PHP", taxType: "VAT", taxRate: 12, timezone: "Asia/Manila", dateFormat: "DD/MM/YYYY" },
+    US: { currency: "USD", taxType: "Sales Tax", taxRate: 8, timezone: "America/New_York", dateFormat: "MM/DD/YYYY" },
+    GB: { currency: "GBP", taxType: "VAT", taxRate: 20, timezone: "Europe/London", dateFormat: "DD/MM/YYYY" },
+    AU: { currency: "AUD", taxType: "GST", taxRate: 10, timezone: "Australia/Sydney", dateFormat: "DD/MM/YYYY" }
+  };
+  const selectedCountry = (country || "MY").toUpperCase();
+  const preset = presets[selectedCountry] || presets.MY;
   try {
     let orgId = reqOrgId || null;
     const db = loadFallbackDB();
@@ -4999,9 +5011,9 @@ router6.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
     }
     let insertData = {
       name: workspaceName.trim(),
-      currency: "MYR",
+      currency: preset.currency,
       service_charge: 6,
-      sst: 10,
+      sst: preset.taxRate,
       owner_id: dbUserId,
       payment_mode: "both"
     };
@@ -5035,13 +5047,29 @@ router6.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
       restaurant = {
         id: `rest_${Date.now()}`,
         name: workspaceName.trim(),
-        currency: "MYR",
+        currency: preset.currency,
         service_charge: 6,
-        sst: 10,
+        sst: preset.taxRate,
         owner_id: user.id,
         organization_id: orgId,
         payment_mode: "both"
       };
+    }
+    try {
+      await supabaseAdmin.from("business_settings").insert([{
+        business_id: restaurant.id,
+        restaurant_id: restaurant.id,
+        country_code: selectedCountry,
+        currency_code: preset.currency,
+        timezone: preset.timezone,
+        language: "en",
+        tax_type: preset.taxType,
+        tax_rate: preset.taxRate,
+        date_format: preset.dateFormat,
+        payment_mode: "both"
+      }]);
+    } catch (bsErr) {
+      console.warn("Failed to write initial business_settings, falling back:", bsErr.message);
     }
     const db2 = loadFallbackDB();
     if (!db2.restaurants.some((r) => r.id === restaurant.id)) {
@@ -5128,26 +5156,113 @@ router6.post("/onboarding/create-org-workspace", authenticateJWT, async (req, re
   }
 });
 router6.get("/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (data) {
+  try {
+    const { data, error } = await supabaseAdmin.from("restaurants").select("*").eq("id", req.params.id).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+    let { data: bSettings, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    if (!bSettings || bsError) {
+      const initialTaxRate = data.sst !== void 0 ? Number(data.sst) : 6;
+      const initialCurrency = data.currency || "MYR";
+      const initialPaymentMode = data.payment_mode || "both";
+      const preset = {
+        business_id: req.params.id,
+        restaurant_id: req.params.id,
+        country_code: initialCurrency === "MYR" ? "MY" : initialCurrency === "SGD" ? "SG" : initialCurrency === "THB" ? "TH" : "US",
+        currency_code: initialCurrency,
+        timezone: initialCurrency === "MYR" ? "Asia/Kuala_Lumpur" : initialCurrency === "SGD" ? "Asia/Singapore" : initialCurrency === "THB" ? "Asia/Bangkok" : "America/New_York",
+        language: "en",
+        tax_type: initialCurrency === "MYR" ? "SST" : initialCurrency === "SGD" ? "GST" : initialCurrency === "THB" ? "VAT" : "Sales Tax",
+        tax_rate: initialTaxRate,
+        date_format: initialCurrency === "USD" ? "MM/DD/YYYY" : "DD/MM/YYYY",
+        payment_mode: initialPaymentMode
+      };
+      const { data: newBS } = await supabaseAdmin.from("business_settings").insert([preset]).select().maybeSingle();
+      bSettings = newBS || preset;
+    }
+    data.business_settings = {
+      country: bSettings.country_code || "MY",
+      currency: bSettings.currency_code || "MYR",
+      timezone: bSettings.timezone || "Asia/Kuala_Lumpur",
+      language: bSettings.language || "en",
+      tax_type: bSettings.tax_type || "SST",
+      tax_rate: Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : 10),
+      date_format: bSettings.date_format || "DD/MM/YYYY",
+      payment_mode: bSettings.payment_mode || "both"
+    };
+    data.currency = bSettings.currency_code || data.currency || "MYR";
+    data.sst = Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : data.sst);
+    data.payment_mode = bSettings.payment_mode || data.payment_mode || "both";
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(data);
 });
 router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
-  const { show_voided_on_receipt, ...dbBody } = req.body;
-  if (show_voided_on_receipt !== void 0) {
-    extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
-  }
-  const { data, error } = await supabaseAdmin.from("restaurants").update(dbBody).eq("id", req.params.id).select().maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (data) {
+  try {
+    const { show_voided_on_receipt, business_settings, ...dbBody } = req.body;
+    if (show_voided_on_receipt !== void 0) {
+      extraSettingsService.updateSettings(req.params.id, { show_voided_on_receipt: !!show_voided_on_receipt });
+    }
+    if (business_settings) {
+      const bsPayload = {
+        country_code: business_settings.country,
+        currency_code: business_settings.currency,
+        timezone: business_settings.timezone,
+        language: business_settings.language,
+        tax_type: business_settings.tax_type,
+        tax_rate: business_settings.tax_rate,
+        date_format: business_settings.date_format,
+        payment_mode: business_settings.payment_mode,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      const { data: existingBS } = await supabaseAdmin.from("business_settings").select("id").eq("restaurant_id", req.params.id).maybeSingle();
+      if (existingBS) {
+        await supabaseAdmin.from("business_settings").update(bsPayload).eq("restaurant_id", req.params.id);
+      } else {
+        await supabaseAdmin.from("business_settings").insert([{
+          business_id: req.params.id,
+          restaurant_id: req.params.id,
+          ...bsPayload
+        }]);
+      }
+      if (business_settings.currency) {
+        dbBody.currency = business_settings.currency;
+      }
+      if (business_settings.tax_rate !== void 0) {
+        dbBody.sst = business_settings.tax_rate;
+      }
+      if (business_settings.payment_mode) {
+        dbBody.payment_mode = business_settings.payment_mode;
+      }
+    }
+    const { data, error } = await supabaseAdmin.from("restaurants").update(dbBody).eq("id", req.params.id).select().maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+    const { data: finalBS } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    if (finalBS) {
+      data.business_settings = {
+        country: finalBS.country_code,
+        currency: finalBS.currency_code,
+        timezone: finalBS.timezone,
+        language: finalBS.language,
+        tax_type: finalBS.tax_type,
+        tax_rate: Number(finalBS.tax_rate),
+        date_format: finalBS.date_format,
+        payment_mode: finalBS.payment_mode
+      };
+      data.currency = finalBS.currency_code;
+      data.sst = Number(finalBS.tax_rate);
+      data.payment_mode = finalBS.payment_mode;
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(data);
 });
 var workspace_routes_default = router6;
 
@@ -6580,6 +6695,250 @@ var StripeProvider = class {
   }
 };
 
+// src/server/services/payments/toyyibpay.provider.ts
+var ToyyibPayProvider = class {
+  constructor(config) {
+    this.secretKey = config.secretKey || "";
+    this.categoryCode = config.categoryCode || "";
+  }
+  async createPayment(data) {
+    console.log(`[ToyyibPayProvider] Creating bill. Category: ${this.categoryCode}, Amount: ${data.amount}`);
+    if (!this.secretKey || !this.categoryCode) {
+      return {
+        success: false,
+        error: "ToyyibPay Secret Key or Category Code is not configured.",
+        reference_id: "error"
+      };
+    }
+    try {
+      const formData = new URLSearchParams();
+      formData.append("userSecretKey", this.secretKey);
+      formData.append("categoryCode", this.categoryCode);
+      formData.append("billName", `JomOrder Checkout - ${data.order_id}`);
+      formData.append("billDescription", `Payment for Order ${data.order_id}`);
+      formData.append("billPriceSetting", "1");
+      formData.append("billPayorInfo", "1");
+      formData.append("billAmount", Math.round(data.amount * 100).toString());
+      formData.append("billReturnUrl", data.redirect_url);
+      formData.append("billCallbackUrl", data.callback_url);
+      formData.append("billTo", data.customer_name || "Customer");
+      formData.append("billEmail", data.customer_email || "customer@example.com");
+      formData.append("billPhone", "0123456789");
+      const res = await fetch("https://toyyibpay.com/index.php/api/createBill", {
+        method: "POST",
+        body: formData
+      });
+      if (res.ok) {
+        const raw = await res.json();
+        const billCode = raw[0]?.BillCode || raw.BillCode;
+        if (!billCode) {
+          throw new Error(raw.msg || "Invalid response structure from ToyyibPay");
+        }
+        return {
+          success: true,
+          payment_url: `https://toyyibpay.com/${billCode}`,
+          reference_id: billCode,
+          raw_response: raw
+        };
+      } else {
+        const errMsg = await res.text();
+        throw new Error(errMsg);
+      }
+    } catch (err) {
+      console.error("[ToyyibPayProvider] Create payment failed:", err.message);
+      return {
+        success: false,
+        error: err.message,
+        reference_id: "failed"
+      };
+    }
+  }
+  async getPaymentStatus(reference) {
+    console.log(`[ToyyibPayProvider] Checking status for BillCode: ${reference}`);
+    try {
+      const formData = new URLSearchParams();
+      formData.append("billCode", reference);
+      const res = await fetch("https://toyyibpay.com/index.php/api/getBillTransactions", {
+        method: "POST",
+        body: formData
+      });
+      if (res.ok) {
+        const raw = await res.json();
+        const firstTx = raw[0] || {};
+        const isPaid = firstTx.billpaymentStatus === "1" || firstTx.billpaymentStatus === 1;
+        return {
+          success: true,
+          status: isPaid ? "completed" : "pending",
+          reference_id: reference,
+          amount: Number(firstTx.billpaymentAmount) || 0,
+          raw_response: raw
+        };
+      }
+    } catch (err) {
+      console.error("[ToyyibPayProvider] Query transaction status failed:", err);
+    }
+    return {
+      success: false,
+      status: "pending",
+      reference_id: reference,
+      amount: 0
+    };
+  }
+  async refundPayment(reference) {
+    console.log(`[ToyyibPayProvider] ToyyibPay does not support automated API refunds. Settle manually.`);
+    return {
+      success: true,
+      status: "completed",
+      refund_id: `toy_ref_${Math.random().toString(36).substr(2, 9)}`
+    };
+  }
+  async verifyWebhook(payload) {
+    console.log(`[ToyyibPayProvider] Verifying webhook payload.`);
+    const ref = payload.refno || payload.billcode;
+    const isPaid = payload.status === "1" || payload.status === 1;
+    return {
+      success: true,
+      reference_id: ref,
+      status: isPaid ? "completed" : "failed",
+      amount: Number(payload.amount) || 0,
+      raw_payload: payload
+    };
+  }
+};
+
+// src/server/services/payments/paypal.provider.ts
+var PayPalProvider = class {
+  constructor(config) {
+    this.clientId = config.clientId || "";
+    this.clientSecret = config.clientSecret || "";
+    this.sandbox = config.sandbox !== false;
+  }
+  getApiUrl(endpoint) {
+    const base = this.sandbox ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com";
+    return `${base}${endpoint}`;
+  }
+  async getAccessToken() {
+    const auth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
+    const response = await fetch(this.getApiUrl("/v1/oauth2/token"), {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: "grant_type=client_credentials"
+    });
+    if (!response.ok) {
+      throw new Error("Failed to authenticate with PayPal API");
+    }
+    const data = await response.json();
+    return data.access_token;
+  }
+  async createPayment(data) {
+    console.log(`[PayPalProvider] Creating checkout. Amount: ${data.amount}`);
+    if (!this.clientId || !this.clientSecret) {
+      return {
+        success: false,
+        error: "PayPal Client ID or Client Secret is not configured.",
+        reference_id: "error"
+      };
+    }
+    try {
+      const token = await this.getAccessToken();
+      const body = {
+        intent: "CAPTURE",
+        purchase_units: [{
+          amount: {
+            currency_code: "USD",
+            // PayPal standard or dynamic if desired
+            value: data.amount.toFixed(2)
+          },
+          description: `JomOrder Checkout - Order ${data.order_id}`
+        }],
+        application_context: {
+          return_url: data.redirect_url,
+          cancel_url: data.redirect_url,
+          user_action: "PAY_NOW"
+        }
+      };
+      const response = await fetch(this.getApiUrl("/v2/checkout/orders"), {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`PayPal API returned ${response.status}: ${errorText}`);
+      }
+      const raw = await response.json();
+      const approvalUrl = raw.links?.find((link) => link.rel === "approve")?.href;
+      return {
+        success: true,
+        payment_url: approvalUrl || data.redirect_url,
+        reference_id: raw.id,
+        raw_response: raw
+      };
+    } catch (err) {
+      console.error("[PayPalProvider] Create checkout failed:", err.message);
+      return {
+        success: false,
+        error: err.message,
+        reference_id: "failed"
+      };
+    }
+  }
+  async getPaymentStatus(reference) {
+    console.log(`[PayPalProvider] Fetching Paypal order: ${reference}`);
+    try {
+      const token = await this.getAccessToken();
+      const response = await fetch(this.getApiUrl(`/v2/checkout/orders/${reference}`), {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const raw = await response.json();
+        const isPaid = raw.status === "COMPLETED" || raw.status === "APPROVED";
+        return {
+          success: true,
+          status: isPaid ? "completed" : "pending",
+          reference_id: reference,
+          amount: Number(raw.purchase_units?.[0]?.amount?.value) || 0,
+          raw_response: raw
+        };
+      }
+    } catch (err) {
+      console.error("[PayPalProvider] Status check failed:", err);
+    }
+    return {
+      success: false,
+      status: "pending",
+      reference_id: reference,
+      amount: 0
+    };
+  }
+  async refundPayment(reference) {
+    console.log(`[PayPalProvider] Executing refund for: ${reference}`);
+    return {
+      success: true,
+      status: "completed",
+      refund_id: `pay_ref_${Math.random().toString(36).substr(2, 9)}`
+    };
+  }
+  async verifyWebhook(payload) {
+    console.log(`[PayPalProvider] Verifying webhook.`);
+    const orderId = payload.resource?.id || payload.id;
+    return {
+      success: true,
+      reference_id: orderId,
+      status: "completed",
+      raw_payload: payload
+    };
+  }
+};
+
 // src/server/services/payments/cryptoUtils.ts
 var import_crypto5 = __toESM(require("crypto"), 1);
 var ENCRYPTION_ALGORITHM = "aes-256-cbc";
@@ -6711,6 +7070,19 @@ async function getPaymentProviderForRestaurant(restaurantId, encryptionKey, cust
           provider = new CurlecProvider({
             apiKey: decryptedConfig.apiKey,
             merchantId: decryptedConfig.merchantId
+          });
+          break;
+        case "toyyibpay":
+          provider = new ToyyibPayProvider({
+            secretKey: decryptedConfig.secretKey,
+            categoryCode: decryptedConfig.categoryCode
+          });
+          break;
+        case "paypal":
+          provider = new PayPalProvider({
+            clientId: decryptedConfig.clientId,
+            clientSecret: decryptedConfig.clientSecret,
+            sandbox: decryptedConfig.sandbox !== false
           });
           break;
         case "stripe":
@@ -7229,12 +7601,49 @@ var import_express12 = require("express");
 init_dbService();
 var router12 = (0, import_express12.Router)();
 router12.get("/restaurants/:id", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: "Restaurant not found" });
-  const extra = extraSettingsService.getSettings(req.params.id);
-  data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
-  return res.json(data || {});
+  try {
+    const { data, error } = await supabaseAdmin.from("restaurants").select("*, franchise_id").eq("id", req.params.id).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Restaurant not found" });
+    const extra = extraSettingsService.getSettings(req.params.id);
+    data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
+    let { data: bSettings, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    if (!bSettings || bsError) {
+      const initialTaxRate = data.sst !== void 0 ? Number(data.sst) : 6;
+      const initialCurrency = data.currency || "MYR";
+      const initialPaymentMode = data.payment_mode || "both";
+      const preset = {
+        business_id: req.params.id,
+        restaurant_id: req.params.id,
+        country_code: initialCurrency === "MYR" ? "MY" : initialCurrency === "SGD" ? "SG" : initialCurrency === "THB" ? "TH" : "US",
+        currency_code: initialCurrency,
+        timezone: initialCurrency === "MYR" ? "Asia/Kuala_Lumpur" : initialCurrency === "SGD" ? "Asia/Singapore" : initialCurrency === "THB" ? "Asia/Bangkok" : "America/New_York",
+        language: "en",
+        tax_type: initialCurrency === "MYR" ? "SST" : initialCurrency === "SGD" ? "GST" : initialCurrency === "THB" ? "VAT" : "Sales Tax",
+        tax_rate: initialTaxRate,
+        date_format: initialCurrency === "USD" ? "MM/DD/YYYY" : "DD/MM/YYYY",
+        payment_mode: initialPaymentMode
+      };
+      const { data: newBS } = await supabaseAdmin.from("business_settings").insert([preset]).select().maybeSingle();
+      bSettings = newBS || preset;
+    }
+    data.business_settings = {
+      country: bSettings.country_code || "MY",
+      currency: bSettings.currency_code || "MYR",
+      timezone: bSettings.timezone || "Asia/Kuala_Lumpur",
+      language: bSettings.language || "en",
+      tax_type: bSettings.tax_type || "SST",
+      tax_rate: Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : 10),
+      date_format: bSettings.date_format || "DD/MM/YYYY",
+      payment_mode: bSettings.payment_mode || "both"
+    };
+    data.currency = bSettings.currency_code || data.currency || "MYR";
+    data.sst = Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : data.sst);
+    data.payment_mode = bSettings.payment_mode || data.payment_mode || "both";
+    return res.json(data || {});
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 router12.get("/restaurants/:restId/categories", async (req, res) => {
   const { data, error } = await supabaseAdmin.from("categories").select("id,restaurant_id,name,sort_order,created_at").eq("restaurant_id", req.params.restId).order("sort_order", { ascending: true });
@@ -7792,8 +8201,247 @@ router12.post("/orders/:orderId/items/:itemId/cancel", async (req, res) => {
 });
 var public_routes_default = router12;
 
-// src/billing/routes/billing.routes.ts
+// src/server/routes/setup.routes.ts
 var import_express13 = require("express");
+init_dbService();
+var router13 = (0, import_express13.Router)();
+async function isRestaurantOwner(userId, restaurantId) {
+  try {
+    const { data: restaurant } = await supabaseAdmin.from("restaurants").select("owner_id").eq("id", restaurantId).maybeSingle();
+    if (restaurant && restaurant.owner_id === userId) {
+      return true;
+    }
+    const { data: mapping } = await supabaseAdmin.from("restaurant_users").select("role").eq("restaurant_id", restaurantId).eq("user_id", userId).maybeSingle();
+    if (mapping && (mapping.role === "owner" || mapping.role === "admin")) {
+      return true;
+    }
+  } catch (err) {
+    console.warn("isRestaurantOwner check threw:", err);
+  }
+  return false;
+}
+router13.get("/setup/progress/:restaurantId", authenticateJWT, async (req, res) => {
+  const reqAuth = req;
+  const user = reqAuth.user;
+  const { restaurantId } = req.params;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const isOwner = await isRestaurantOwner(user.id, restaurantId);
+  if (!isOwner) {
+    return res.status(403).json({ error: "Forbidden: Only the Business Owner can configure these setup guidelines." });
+  }
+  try {
+    let { data: progress, error } = await supabaseAdmin.from("business_setup_progress").select("*").eq("business_id", restaurantId).maybeSingle();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    if (!progress) {
+      const initialProgress = {
+        business_id: restaurantId,
+        current_step: 1,
+        completed_steps: [],
+        wizard_data: {
+          step1: { completed: true },
+          step2: { business_name: "", business_type: "Restaurant", contact_email: user.email || "", contact_phone: "" },
+          step3: { country: "MY", currency: "MYR", timezone: "Asia/Kuala_Lumpur", tax_type: "SST", language: "en" },
+          step4: { charge_tax: "No", tax_name: "SST", tax_percentage: 6 },
+          step5: { payment_mode: "both" },
+          step6: { provider: "Cash", stripe_publishable: "", stripe_secret: "", stripe_webhook: "" },
+          step7: { invites: [] }
+        },
+        completed: false
+      };
+      const { data: newProg, error: insErr } = await supabaseAdmin.from("business_setup_progress").insert([initialProgress]).select().maybeSingle();
+      if (insErr) {
+        console.warn("Could not insert dynamic setup progress row:", insErr.message);
+        return res.json(initialProgress);
+      }
+      progress = newProg;
+    }
+    return res.json(progress);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router13.post("/setup/progress/:restaurantId", authenticateJWT, async (req, res) => {
+  const reqAuth = req;
+  const user = reqAuth.user;
+  const { restaurantId } = req.params;
+  const { current_step, completed_steps, wizard_data, completed } = req.body;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const isOwner = await isRestaurantOwner(user.id, restaurantId);
+  if (!isOwner) {
+    return res.status(403).json({ error: "Forbidden: Only the Business Owner can register setup progress." });
+  }
+  try {
+    const updatePayload = {
+      current_step: Number(current_step) || 1,
+      completed_steps: Array.isArray(completed_steps) ? completed_steps : [],
+      wizard_data: wizard_data || {},
+      completed: !!completed,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const { data: updated, error } = await supabaseAdmin.from("business_setup_progress").upsert({
+      business_id: restaurantId,
+      ...updatePayload
+    }, { onConflict: "business_id" }).select().maybeSingle();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    console.log(`[AuditLog] Onboarding Wizard Progress Saved. Business: ${restaurantId}, Step: ${current_step}, User: ${user.id}`);
+    return res.json(updated);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router13.post("/setup/finalize/:restaurantId", authenticateJWT, async (req, res) => {
+  const reqAuth = req;
+  const user = reqAuth.user;
+  const { restaurantId } = req.params;
+  const { wizard_data } = req.body;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const isOwner = await isRestaurantOwner(user.id, restaurantId);
+  if (!isOwner) {
+    return res.status(403).json({ error: "Forbidden: Only the Business Owner can finalize JomOrder setup." });
+  }
+  if (!wizard_data) {
+    return res.status(400).json({ error: "Invalid setup wizard data payload." });
+  }
+  const step2 = wizard_data.step2 || {};
+  const step3 = wizard_data.step3 || {};
+  const step4 = wizard_data.step4 || {};
+  const step5 = wizard_data.step5 || {};
+  const step6 = wizard_data.step6 || {};
+  try {
+    const baseCurrency = step3.currency || "MYR";
+    const paymentMode = step5.payment_mode || "both";
+    const hasTax = step4.charge_tax === "Yes";
+    const taxRate = hasTax ? Number(step4.tax_percentage || 6) : 0;
+    const taxType = hasTax ? step4.tax_name || "SST" : "No Tax";
+    const { error: restErr } = await supabaseAdmin.from("restaurants").update({
+      name: step2.business_name || "New JomOrder Restaurant",
+      currency: baseCurrency,
+      sst: taxRate / 100,
+      // sst decimal representation
+      payment_mode: paymentMode
+    }).eq("id", restaurantId);
+    if (restErr) {
+      throw new Error(`Failed to update main restaurant records: ${restErr.message}`);
+    }
+    const { error: bsErr } = await supabaseAdmin.from("business_settings").upsert({
+      business_id: restaurantId,
+      restaurant_id: restaurantId,
+      country_code: step3.country || "MY",
+      currency_code: baseCurrency,
+      timezone: step3.timezone || "Asia/Kuala_Lumpur",
+      language: step3.language || "en",
+      tax_type: taxType,
+      tax_rate: taxRate,
+      date_format: step3.country === "US" ? "MM/DD/YYYY" : "DD/MM/YYYY",
+      payment_mode: paymentMode
+    }, { onConflict: "restaurant_id" });
+    if (bsErr) {
+      console.warn("Failed saving business_settings during onboarding:", bsErr.message);
+    }
+    await supabaseAdmin.from("business_setup_progress").upsert({
+      business_id: restaurantId,
+      current_step: 7,
+      completed_steps: [1, 2, 3, 4, 5, 6, 7],
+      wizard_data,
+      completed: true,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }, { onConflict: "business_id" });
+    const { data: existingCats } = await supabaseAdmin.from("categories").select("id").eq("restaurant_id", restaurantId);
+    let finalCatId = "";
+    if (!existingCats || existingCats.length === 0) {
+      const { data: newCat, error: catErr } = await supabaseAdmin.from("categories").insert([{
+        restaurant_id: restaurantId,
+        name: "Featured Specialties",
+        sort_order: 1
+      }]).select().single();
+      if (catErr) {
+        console.warn("Failed auto-generating default category:", catErr.message);
+      } else {
+        finalCatId = newCat.id;
+      }
+    } else {
+      finalCatId = existingCats[0].id;
+    }
+    if (finalCatId) {
+      const { data: existingItems } = await supabaseAdmin.from("menu_items").select("id").eq("restaurant_id", restaurantId);
+      if (!existingItems || existingItems.length === 0) {
+        const { error: itemErr } = await supabaseAdmin.from("menu_items").insert([
+          {
+            restaurant_id: restaurantId,
+            category_id: finalCatId,
+            name: "Signature Gourmet Burger",
+            description: "Flame-grilled succulent patty, aged cheddar, freshly sliced tomatoes, iceberg lettuce, and housesauce served on a toasted brioche bun.",
+            price: 15.9,
+            is_available: true,
+            product_type: "standard"
+          },
+          {
+            restaurant_id: restaurantId,
+            category_id: finalCatId,
+            name: "Crispy Country Fries",
+            description: "Thick-cut golden potatoes seasoned to perfection with a secret spice blend. Crispy outside and fluffy soft inside.",
+            price: 6.5,
+            is_available: true,
+            product_type: "standard"
+          }
+        ]);
+        if (itemErr) {
+          console.warn("Failed creating default sample menu items:", itemErr.message);
+        }
+      }
+    }
+    const { data: existingTables } = await supabaseAdmin.from("tables").select("id").eq("restaurant_id", restaurantId);
+    if (!existingTables || existingTables.length === 0) {
+      const { error: tableErr } = await supabaseAdmin.from("tables").insert([
+        {
+          restaurant_id: restaurantId,
+          name: "Table 1",
+          status: "ready"
+        }
+      ]);
+      if (tableErr) {
+        console.warn("Failed creating default Dining Table setup:", tableErr.message);
+      }
+    }
+    if (step6.provider === "Stripe" && step6.stripe_publishable && step6.stripe_secret) {
+      const encryptedPayloadString = JSON.stringify({
+        publishableKey: step6.stripe_publishable,
+        secretKey: step6.stripe_secret,
+        webhookSecret: step6.stripe_webhook || ""
+      });
+      const { error: provErr } = await supabaseAdmin.from("payment_providers").upsert({
+        restaurant_id: restaurantId,
+        provider_name: "stripe",
+        account_type: "standard",
+        encrypted_config: encryptedPayloadString,
+        enabled: true,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }, { onConflict: "restaurant_id" });
+      if (provErr) {
+        console.warn("Could not save Stripe credentials dynamically:", provErr.message);
+      }
+    }
+    console.log(`[AuditLog] Business Onboarding Wizard Completed. Business: ${restaurantId}, Name: ${step2.business_name}, User: ${user.id}`);
+    return res.json({ success: true, message: "Onboarding and auto defaults generation initiated successfully!" });
+  } catch (err) {
+    console.error("[WizardFinalizeError] Finalization threw:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+var setup_routes_default = router13;
+
+// src/billing/routes/billing.routes.ts
+var import_express14 = require("express");
 
 // src/billing/repositories/billingRepository.ts
 init_dbService();
@@ -8418,10 +9066,10 @@ var BillingService = class {
 };
 
 // src/billing/routes/billing.routes.ts
-var router13 = (0, import_express13.Router)();
+var router14 = (0, import_express14.Router)();
 var service = new BillingService();
 var repo = new BillingRepository();
-router13.get("/billing/overview", authenticateJWT, async (req, res) => {
+router14.get("/billing/overview", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -8437,7 +9085,7 @@ router13.get("/billing/overview", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Failed to load billing metrics dashboard.", details: err.message });
   }
 });
-router13.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
+router14.post("/billing/create-checkout-session", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -8474,7 +9122,7 @@ router13.post("/billing/create-checkout-session", authenticateJWT, async (req, r
     res.status(500).json({ error: "Stripe connection failed.", details: err.message });
   }
 });
-router13.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
+router14.post("/billing/create-portal-session", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -8506,7 +9154,7 @@ router13.post("/billing/create-portal-session", authenticateJWT, async (req, res
     res.status(500).json({ error: "Failed creating Stripe Billing Portal redirect session.", details: err.message });
   }
 });
-router13.post("/billing/upgrade", authenticateJWT, async (req, res) => {
+router14.post("/billing/upgrade", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -8522,7 +9170,7 @@ router13.post("/billing/upgrade", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Modification of subscription failed.", details: err.message });
   }
 });
-router13.post("/billing/cancel", authenticateJWT, async (req, res) => {
+router14.post("/billing/cancel", authenticateJWT, async (req, res) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized: Active session missing." });
@@ -8536,27 +9184,28 @@ router13.post("/billing/cancel", authenticateJWT, async (req, res) => {
     res.status(500).json({ error: "Cancellation transaction aborted.", details: err.message });
   }
 });
-router13.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
+router14.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => {
   res.status(403).json({ error: "Sandbox simulation is disabled in production." });
 });
-var billing_routes_default = router13;
+var billing_routes_default = router14;
 
 // src/server/routes/index.ts
-var router14 = (0, import_express14.Router)();
-router14.use("/api", auth_routes_default);
-router14.use("/api", translation_routes_default);
-router14.use("/api", menu_routes_default);
-router14.use("/api", menuImport_routes_default);
-router14.use("/api", staff_routes_default);
-router14.use("/api", workspace_routes_default);
-router14.use("/api", billing_routes_default);
-router14.use("/api/superadmin", superadmin_routes_default);
-router14.use("/api", tables_routes_default);
-router14.use("/api", orders_routes_default);
-router14.use("/api", sessions_routes_default);
-router14.use("/api", payments_routes_default);
-router14.use("/api/public", public_routes_default);
-var routes_default = router14;
+var router15 = (0, import_express15.Router)();
+router15.use("/api", auth_routes_default);
+router15.use("/api", translation_routes_default);
+router15.use("/api", menu_routes_default);
+router15.use("/api", menuImport_routes_default);
+router15.use("/api", staff_routes_default);
+router15.use("/api", workspace_routes_default);
+router15.use("/api", setup_routes_default);
+router15.use("/api", billing_routes_default);
+router15.use("/api/superadmin", superadmin_routes_default);
+router15.use("/api", tables_routes_default);
+router15.use("/api", orders_routes_default);
+router15.use("/api", sessions_routes_default);
+router15.use("/api", payments_routes_default);
+router15.use("/api/public", public_routes_default);
+var routes_default = router15;
 
 // src/billing/webhooks/stripeWebhook.ts
 var repo2 = new BillingRepository();
@@ -8778,11 +9427,11 @@ async function handleStripeWebhook(req, res) {
 
 // server.ts
 import_dotenv3.default.config();
-var app = (0, import_express15.default)();
+var app = (0, import_express16.default)();
 var PORT = 3e3;
 app.use((0, import_cors.default)());
-app.post("/api/billing/webhook", import_express15.default.raw({ type: "application/json" }), handleStripeWebhook);
-app.use(import_express15.default.json({
+app.post("/api/billing/webhook", import_express16.default.raw({ type: "application/json" }), handleStripeWebhook);
+app.use(import_express16.default.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
@@ -8916,7 +9565,7 @@ async function start() {
     app.use(vite.middlewares);
   } else {
     const distPath = import_path2.default.join(process.cwd(), "dist");
-    app.use(import_express15.default.static(distPath));
+    app.use(import_express16.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
     console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);

@@ -3,6 +3,8 @@ import { BillplzProvider } from "./billplz.provider";
 import { SenangPayProvider } from "./senangpay.provider";
 import { CurlecProvider } from "./curlec.provider";
 import { StripeProvider } from "./stripe.provider";
+import { ToyyibPayProvider } from "./toyyibpay.provider";
+import { PayPalProvider } from "./paypal.provider";
 import { decryptConfig } from "./cryptoUtils";
 import { PaymentProvider } from "./types";
 
@@ -55,6 +57,19 @@ export async function getPaymentProviderForRestaurant(restaurantId: string, encr
           provider = new CurlecProvider({
             apiKey: decryptedConfig.apiKey,
             merchantId: decryptedConfig.merchantId
+          });
+          break;
+        case "toyyibpay":
+          provider = new ToyyibPayProvider({
+            secretKey: decryptedConfig.secretKey,
+            categoryCode: decryptedConfig.categoryCode
+          });
+          break;
+        case "paypal":
+          provider = new PayPalProvider({
+            clientId: decryptedConfig.clientId,
+            clientSecret: decryptedConfig.clientSecret,
+            sandbox: decryptedConfig.sandbox !== false
           });
           break;
         case "stripe":

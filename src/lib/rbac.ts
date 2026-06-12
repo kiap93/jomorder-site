@@ -118,8 +118,8 @@ export function hasPermission(
 
   const normalizedRole = role.toLowerCase().replace('_', '') as string;
   
-  // Platform Super Admins have absolute global bypass
-  if (normalizedRole === 'superadmin') {
+  // Platform Super Admins, Owners, and Restaurant Admins have absolute global bypass
+  if (normalizedRole === 'superadmin' || normalizedRole === 'owner' || normalizedRole === 'admin') {
     return true;
   }
 

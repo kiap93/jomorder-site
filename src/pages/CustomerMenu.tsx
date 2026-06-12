@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, ChevronRight, Minus, Plus, Search, Info, X, Camera, QrCode, AlertCircle, Clock, Check, Globe, ChefHat } from 'lucide-react';
 import { resolveMenuTranslations, resolveCategoryTranslations, TranslationContext, getKitchenCanonical } from '../lib/translationEngine';
 import { calculateSelectionPrice, validateSelection, flattenSelections } from '../lib/configEngine';
+import { formatCurrency } from '../lib/localization';
 import { ProductConfigurator } from '../components/ProductConfigurator';
 import { getVisibleModifiers } from '../lib/modifierEngine';
 import { offlineService } from '../lib/offlineService';
@@ -1536,7 +1537,7 @@ export function CustomerMenu() {
                 </div>
                 <p className="text-[11px] text-zinc-500 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
                 <div className="mt-2.5 flex justify-between items-center">
-                  <span className="text-sm font-bold text-orange-600">RM {item.price.toFixed(2)}</span>
+                  <span className="text-sm font-bold text-orange-600">{formatCurrency(item.price, restaurant?.currency)}</span>
                   
                   {isUnavailable ? (
                     <span className="text-[10px] font-bold text-zinc-400">Sold Out</span>
@@ -1757,7 +1758,7 @@ export function CustomerMenu() {
                 </div>
                 <div className="text-left">
                   <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">View basket</p>
-                  <p className="text-sm font-bold">RM {subtotal.toFixed(2)}</p>
+                  <p className="text-sm font-bold">{formatCurrency(subtotal, restaurant?.currency)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-1 py-1 pl-4 border-l border-zinc-800">
@@ -1824,7 +1825,7 @@ export function CustomerMenu() {
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start gap-2">
                           <h4 className="text-sm font-semibold text-zinc-900 leading-tight truncate">{item.name}</h4>
-                          <span className="text-sm font-bold text-zinc-900 shrink-0">RM {(item.price * item.quantity).toFixed(2)}</span>
+                          <span className="text-sm font-bold text-zinc-900 shrink-0">{formatCurrency(item.price * item.quantity, restaurant?.currency)}</span>
                         </div>
                         {item.smartRenderedLines?.customer ? (
                           <div className="mt-1 space-y-0.5">
@@ -1864,23 +1865,23 @@ export function CustomerMenu() {
               <div className="bg-white rounded-2xl border border-zinc-100 p-4 space-y-3">
                 <div className="flex justify-between text-xs font-medium text-zinc-500">
                   <span>Subtotal</span>
-                  <span className="text-zinc-900">RM {subtotal.toFixed(2)}</span>
+                  <span className="text-zinc-900">{formatCurrency(subtotal, restaurant?.currency)}</span>
                 </div>
                 {serviceCharge > 0 && (
                   <div className="flex justify-between text-xs font-medium text-zinc-500">
                     <span>Service Charge ({(restaurant?.serviceCharge || 0) * 100}%)</span>
-                    <span className="text-zinc-900">RM {serviceCharge.toFixed(2)}</span>
+                    <span className="text-zinc-900">{formatCurrency(serviceCharge, restaurant?.currency)}</span>
                   </div>
                 )}
                 {sst > 0 && (
                   <div className="flex justify-between text-xs font-medium text-zinc-500">
-                    <span>SST ({(restaurant?.sst || 0) * 100}%)</span>
-                    <span className="text-zinc-900">RM {sst.toFixed(2)}</span>
+                    <span>{restaurant?.business_settings?.tax_type || 'SST'} ({(restaurant?.sst || 0) * 100}%)</span>
+                    <span className="text-zinc-900">{formatCurrency(sst, restaurant?.currency)}</span>
                   </div>
                 )}
                 <div className="pt-3 border-t border-zinc-100 flex justify-between items-center">
                   <span className="text-sm font-bold text-zinc-900">Order Total</span>
-                  <span className="text-lg font-bold text-orange-600">RM {total.toFixed(2)}</span>
+                  <span className="text-lg font-bold text-orange-600">{formatCurrency(total, restaurant?.currency)}</span>
                 </div>
               </div>
               
