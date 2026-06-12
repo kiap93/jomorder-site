@@ -14,6 +14,7 @@ import superadminRoutes from './worker/routes/superadmin';
 import diningSessionRoutes from './worker/routes/dining_sessions';
 import billingRoutes from './worker/routes/billing';
 import menuImportRoutes from './worker/routes/menuImport';
+import setupRoutes from './worker/routes/setup';
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -92,5 +93,6 @@ app.route('/', superadminRoutes);
 app.route('/', diningSessionRoutes);
 app.route('/', billingRoutes);
 app.route('/', menuImportRoutes);
+app.route('/', setupRoutes);
 
 export default app;
