@@ -113,7 +113,11 @@ export function PosPayments() {
         
         if (tablesData && sessionsData && !tablesData.error && !sessionsData.error) {
           const processedTables: ProcessedTable[] = (tablesData as ApisTable[]).map((t) => {
-            const activeSession = (sessionsData as ApisDiningSession[]).find((s) => s.table_id === t.id) || null;
+            const tableSessions = (sessionsData as ApisDiningSession[])
+              .filter((s) => s.table_id === t.id)
+              .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+            
+            const activeSession = tableSessions.find((s) => s.status === 'active') || tableSessions[0] || null;
             let unpaidTotal = 0;
             let sessionTotal = 0;
             let mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null = null;

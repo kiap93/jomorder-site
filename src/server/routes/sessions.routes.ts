@@ -13,7 +13,8 @@ router.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTenan
     .eq('restaurant_id', req.params.restId);
   
   if (status === 'active') {
-    query = query.neq('status', 'paid').neq('status', 'expired');
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    query = query.in('status', ['active', 'paid']).gt('created_at', yesterday);
   }
 
   const { data, error } = await query;

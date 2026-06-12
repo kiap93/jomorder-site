@@ -606,7 +606,8 @@ orderRoutes.get("/api/restaurants/:restId/dining-sessions", authenticate, async 
     .eq('restaurant_id', c.req.param('restId'));
   
   if (status === 'active') {
-    query = query.neq('status', 'paid').neq('status', 'expired');
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    query = query.in('status', ['active', 'paid']).gt('created_at', yesterday);
   }
 
   const { data, error } = await query;

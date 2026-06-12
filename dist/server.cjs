@@ -170,9 +170,21 @@ function writeStaffRegistry(data) {
 }
 function getStaffSettings(userId, role) {
   const registry = readStaffRegistry();
+  const lowerRole = role ? role.toLowerCase() : "";
+  const isOwner = lowerRole === "owner" || lowerRole === "admin" || lowerRole === "superadmin";
+  if (isOwner) {
+    return {
+      status: "active",
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+  }
   if (!registry[userId]) {
-    const lowerRole = role ? role.toLowerCase() : "";
-    const isOwner = lowerRole === "owner" || lowerRole === "admin";
     const isManager = lowerRole === "manager";
     const isCashier = lowerRole === "cashier";
     registry[userId] = {
@@ -6039,7 +6051,8 @@ router10.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTen
   const status = req.query.status;
   let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
   if (status === "active") {
-    query = query.neq("status", "paid").neq("status", "expired");
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1e3).toISOString();
+    query = query.in("status", ["active", "paid"]).gt("created_at", yesterday);
   }
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });

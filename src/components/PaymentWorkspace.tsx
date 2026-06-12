@@ -97,14 +97,15 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
   const sessionId = order.sessionId || order.session_id;
+  const hasValidSessionId = !!(sessionId && sessionId !== 'undefined' && sessionId !== 'null');
 
   useEffect(() => {
-    if (sessionId) {
+    if (hasValidSessionId) {
       fetchSessionOrders();
     } else {
       setSessionOrders([order]);
     }
-  }, [order.id, sessionId]);
+  }, [order.id, hasValidSessionId]);
 
   const fetchSessionOrders = async () => {
     const token = useAuthStore.getState().token;
@@ -348,7 +349,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
   useEffect(() => {
     fetchPaymentHistory();
-  }, [order.id, sessionId, sessionOrders.length]);
+  }, [order.id, hasValidSessionId, sessionOrders.length]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -620,7 +621,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
           return;
       }
 
-      const response = await fetch(getApiUrl(`/api/orders/${orderIds[0]}/payments?sessionId=${sessionId || ''}`), {
+      const response = await fetch(getApiUrl(`/api/orders/${orderIds[0]}/payments?sessionId=${hasValidSessionId ? sessionId : ''}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error("Failed to fetch payment history");
@@ -647,15 +648,35 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
     const orderIds = sessionOrders.map(o => o.id);
     if (orderIds.length > 0) {
-      // API call to batch update orders and session status
-      await fetch(getApiUrl(`/api/dining-sessions/${sessionId}/settle`), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ orderIds, paidAmount: paidAmountValue })
-      });
+      if (hasValidSessionId) {
+        // API call to batch update orders and session status
+        await fetch(getApiUrl(`/api/dining-sessions/${sessionId}/settle`), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ orderIds, paidAmount: paidAmountValue })
+        });
+      } else {
+        // Settle single orders individually if there's no dining session (takeaways, deliveries, etc.)
+        await Promise.all(
+          orderIds.map(orderId =>
+            fetch(getApiUrl(`/api/orders/${orderId}`), {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                paid_at: new Date().toISOString(),
+                payment_method: 'counter',
+                status: 'confirmed'
+              })
+            })
+          )
+        );
+      }
     }
     onPaymentSuccess();
   };

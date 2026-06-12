@@ -232,9 +232,24 @@ export function writeStaffRegistry(data: Record<string, StaffSettings>) {
 
 export function getStaffSettings(userId: string, role: string): StaffSettings {
   const registry = readStaffRegistry();
+  const lowerRole = role ? role.toLowerCase() : '';
+  const isOwner = lowerRole === 'owner' || lowerRole === 'admin' || lowerRole === 'superadmin';
+
+  if (isOwner) {
+    // Owners/admins should ALWAYS have absolute permissions, bypassing stale in-memory caches or partial settings
+    return {
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+  }
+
   if (!registry[userId]) {
-    const lowerRole = role ? role.toLowerCase() : '';
-    const isOwner = lowerRole === 'owner' || lowerRole === 'admin';
     const isManager = lowerRole === 'manager';
     const isCashier = lowerRole === 'cashier';
 
