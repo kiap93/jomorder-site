@@ -1,8 +1,12 @@
-import { ReactNode } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { ReactNode, useState, useEffect } from 'react';
+import { Navigate, useParams, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { hasPermission, PermissionCode } from '../lib/rbac';
 import { ShieldAlert, LogOut } from 'lucide-react';
+import { getApiUrl } from '../lib/api';
+
+// Simple global cache for completed restaurant IDs to avoid redundant fetch requests
+const completedRestaurantsCache = new Set<string>();
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -10,10 +14,78 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, permissions }: ProtectedRouteProps) {
-  const { user, profile, loading, signOut } = useAuthStore();
+  const { user, profile, loading, signOut, token } = useAuthStore();
   const { restId } = useParams<{ restId?: string }>();
+  const location = useLocation();
+  const [checkingSetup, setCheckingSetup] = useState(false);
+  const [setupIncomplete, setSetupIncomplete] = useState(false);
 
-  if (loading) {
+  const currentRestaurantId = restId || profile?.restaurantId;
+  const isSetupPage = location.pathname.startsWith('/business/setup');
+
+  useEffect(() => {
+    // We only need to check if:
+    // 1. User and token exist
+    // 2. We have a restaurant ID
+    // 3. User is an Owner, Manager, or Admin
+    // 4. We are NOT already on the setup page
+    // 5. This restaurant is NOT already confirmed completed in our memory cache
+    if (!user || !token || !currentRestaurantId || isSetupPage) {
+      return;
+    }
+
+    const lowerRole = profile?.role?.toLowerCase() || '';
+    const needsSetupCheck = lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin';
+
+    if (!needsSetupCheck) {
+      return;
+    }
+
+    if (completedRestaurantsCache.has(currentRestaurantId)) {
+      setSetupIncomplete(false);
+      return;
+    }
+
+    let isMounted = true;
+    const checkSetupStatus = async () => {
+      setCheckingSetup(true);
+      try {
+        const checkRes = await fetch(getApiUrl(`/api/setup/progress/${currentRestaurantId}`), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!isMounted) return;
+
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData && checkData.completed === false) {
+            setSetupIncomplete(true);
+          } else {
+            completedRestaurantsCache.add(currentRestaurantId);
+            setSetupIncomplete(false);
+          }
+        } else if (checkRes.status === 403) {
+          // If 403 Forbidden, they aren't authorized to view or configure setup anyway, so they shouldn't be blocked!
+          completedRestaurantsCache.add(currentRestaurantId);
+          setSetupIncomplete(false);
+        }
+      } catch (e) {
+        console.warn("Could not check setup progress in route guard:", e);
+      } finally {
+        if (isMounted) {
+          setCheckingSetup(false);
+        }
+      }
+    };
+
+    checkSetupStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user, token, currentRestaurantId, profile?.role, isSetupPage]);
+
+  if (loading || checkingSetup) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-zinc-950 font-sans">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
@@ -26,8 +98,13 @@ export function ProtectedRoute({ children, permissions }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  // 2. Cross-tenant workspace validation
-  const currentRestaurantId = restId || profile.restaurantId;
+  // 2. Redirect to setup wizard if setup is incomplete and not on setup page
+  if (setupIncomplete && !isSetupPage) {
+    return <Navigate to={`/business/setup?restaurantId=${currentRestaurantId}`} replace />;
+  }
+
+  // 3. Cross-tenant workspace validation
+  const currentRestaurantIdOrProfile = restId || profile.restaurantId;
   if (restId && profile.restaurantId && restId !== profile.restaurantId) {
     console.warn(`[Security Guard] Tenant mismatch. User restricted to: ${profile.restaurantId}, requested: ${restId}`);
     return (

@@ -44,7 +44,7 @@ export function Onboarding() {
         if (lowerRole === 'kitchen' || lowerRole === 'runner') {
           navigate(`/restaurant/${restId}/kitchen`);
         } else if (lowerRole === 'owner' || lowerRole === 'manager' || lowerRole === 'admin') {
-          navigate(`/restaurant/${restId}/admin`);
+          navigate(`/business/setup?restaurantId=${restId}`);
         } else {
           navigate(`/restaurant/${restId}/orders`);
         }

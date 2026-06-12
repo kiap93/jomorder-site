@@ -252,13 +252,7 @@ export function WorkspaceSelect() {
         await recordEntryAsync(user.id, workspaceId);
       }
       
-      const targetPath = !forceDefaultLanding && (directPath || (lastModulePath && lastModulePath.startsWith(`/restaurant/${workspaceId}`) ? lastModulePath : ''));
-      if (targetPath) {
-        navigate(targetPath);
-        return;
-      }
-
-      // Default landing experiences
+      // Check design completion FIRST
       const lowerRole = role ? role.toLowerCase() : '';
       
       let isCompleted = true;
@@ -282,6 +276,14 @@ export function WorkspaceSelect() {
         navigate(`/business/setup?restaurantId=${workspaceId}`);
         return;
       }
+
+      const targetPath = !forceDefaultLanding && (directPath || (lastModulePath && lastModulePath.startsWith(`/restaurant/${workspaceId}`) ? lastModulePath : ''));
+      if (targetPath) {
+        navigate(targetPath);
+        return;
+      }
+
+      // Default landing experiences
 
       if (lowerRole === 'kitchen' || lowerRole === 'runner') {
         navigate(`/restaurant/${workspaceId}/kitchen`);
