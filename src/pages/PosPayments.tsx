@@ -117,7 +117,7 @@ export function PosPayments() {
               .filter((s) => s.table_id === t.id)
               .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
             
-            const activeSession = tableSessions.find((s) => s.status === 'active') || tableSessions[0] || null;
+            const activeSession = tableSessions.find((s) => s.status === 'active' || s.status === 'awaiting_payment') || tableSessions[0] || null;
             let unpaidTotal = 0;
             let sessionTotal = 0;
             let mainOrder: (Order & { sessionTotal: number; sessionUnpaid: number; tableName: string }) | null = null;
