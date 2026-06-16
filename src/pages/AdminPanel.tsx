@@ -570,6 +570,10 @@ export function AdminPanel() {
           show_voided_on_receipt: restData.show_voided_on_receipt !== false,
           business_settings: restData.business_settings
         });
+
+        if (restData.business_settings?.language) {
+          useLanguageStore.getState().setLanguage(restData.business_settings.language);
+        }
       }
 
       if (catsData) {
@@ -728,6 +732,10 @@ export function AdminPanel() {
           show_voided_on_receipt: updatedVal.show_voided_on_receipt !== false,
           business_settings: updatedVal.business_settings
         });
+
+        if (updatedVal.business_settings?.language) {
+          useLanguageStore.getState().setLanguage(updatedVal.business_settings.language);
+        }
       }
 
       setShowSuccessToast(true);
@@ -1791,7 +1799,9 @@ export function AdminPanel() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.priceMyr')}</label>
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">
+                      {t('admin.priceMyr').replace('MYR', restaurant?.currency || 'MYR')}
+                    </label>
                     <input
                       type="number"
                       value={editingItem.price || ''}

@@ -8431,16 +8431,24 @@ router13.get("/setup/progress/:restaurantId", authenticateJWT, async (req, res) 
       return res.status(500).json({ error: error.message });
     }
     if (!progress) {
+      const { data: rest } = await supabaseAdmin.from("restaurants").select("*").eq("id", restaurantId).maybeSingle();
+      const { data: bSettings } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", restaurantId).maybeSingle();
+      const initialCountry = bSettings?.country_code || (rest?.currency === "SGD" ? "SG" : rest?.currency === "THB" ? "TH" : rest?.currency === "USD" ? "US" : rest?.currency === "GBP" ? "UK" : "MY");
+      const initialCurrency = rest?.currency || bSettings?.currency_code || "MYR";
+      const initialTimezone = bSettings?.timezone || (initialCurrency === "SGD" ? "Asia/Singapore" : initialCurrency === "THB" ? "Asia/Bangkok" : initialCurrency === "USD" ? "America/New_York" : initialCurrency === "GBP" ? "Europe/London" : "Asia/Kuala_Lumpur");
+      const initialTaxType = bSettings?.tax_type || (initialCurrency === "SGD" ? "GST" : initialCurrency === "THB" ? "VAT" : initialCurrency === "USD" ? "Sales Tax" : initialCurrency === "GBP" ? "VAT" : "SST");
+      const initialTaxRate = bSettings?.tax_rate !== void 0 ? Number(bSettings.tax_rate) : rest?.sst !== void 0 ? Number(rest.sst) * 100 : 6;
+      const initialLanguage = bSettings?.language || "en";
       const initialProgress = {
         business_id: restaurantId,
         current_step: 1,
         completed_steps: [],
         wizard_data: {
           step1: { completed: true },
-          step2: { business_name: "", business_type: "Restaurant", contact_email: user.email || "", contact_phone: "" },
-          step3: { country: "MY", currency: "MYR", timezone: "Asia/Kuala_Lumpur", tax_type: "SST", language: "en" },
-          step4: { charge_tax: "No", tax_name: "SST", tax_percentage: 6 },
-          step5: { payment_mode: "both" },
+          step2: { business_name: rest?.name || "", business_type: "Restaurant", contact_email: user.email || "", contact_phone: "" },
+          step3: { country: initialCountry, currency: initialCurrency, timezone: initialTimezone, tax_type: initialTaxType, language: initialLanguage },
+          step4: { charge_tax: initialTaxRate > 0 ? "Yes" : "No", tax_name: initialTaxType, tax_percentage: initialTaxRate },
+          step5: { payment_mode: rest?.payment_mode || "both" },
           step6: { provider: "Cash", stripe_publishable: "", stripe_secret: "", stripe_webhook: "" },
           step7: { invites: [] }
         },
@@ -8527,7 +8535,9 @@ router13.post("/setup/finalize/:restaurantId", authenticateJWT, async (req, res)
     if (restErr) {
       throw new Error(`Failed to update main restaurant records: ${restErr.message}`);
     }
-    const { error: bsErr } = await supabaseAdmin.from("business_settings").upsert({
+    const { data: existingBSList, error: checkBSErr } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", restaurantId).limit(1);
+    const existingBS = existingBSList && existingBSList[0] ? existingBSList[0] : null;
+    const bsPayload = {
       business_id: restaurantId,
       restaurant_id: restaurantId,
       country_code: step3.country || "MY",
@@ -8537,8 +8547,17 @@ router13.post("/setup/finalize/:restaurantId", authenticateJWT, async (req, res)
       tax_type: taxType,
       tax_rate: taxRate,
       date_format: step3.country === "US" ? "MM/DD/YYYY" : "DD/MM/YYYY",
-      payment_mode: paymentMode
-    }, { onConflict: "restaurant_id" });
+      payment_mode: paymentMode,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    let bsErr = null;
+    if (existingBS) {
+      const { error } = await supabaseAdmin.from("business_settings").update(bsPayload).eq("id", existingBS.id);
+      bsErr = error;
+    } else {
+      const { error } = await supabaseAdmin.from("business_settings").insert([bsPayload]);
+      bsErr = error;
+    }
     if (bsErr) {
       console.warn("Failed saving business_settings during onboarding:", bsErr.message);
     }

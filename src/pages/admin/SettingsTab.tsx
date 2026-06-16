@@ -294,7 +294,9 @@ export function SettingsTab({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">{t('admin.sst')}</label>
+                  <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">
+                    {(restaurant.business_settings?.tax_type || 'SST').toUpperCase()} (%)
+                  </label>
                   <div className="relative">
                     <input
                       type="number"
