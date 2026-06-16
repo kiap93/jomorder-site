@@ -1629,6 +1629,39 @@ init_dbService();
 // worker/services/db_service.ts
 var import_supabase_js2 = require("@supabase/supabase-js");
 async function getStaffSettingsFromDb(supabase, userId, role, restaurantId) {
+  const normRole = (role || "").toLowerCase();
+  const isDirectOwnerRole = normRole === "owner" || normRole === "admin" || normRole === "superadmin";
+  if (isDirectOwnerRole) {
+    return {
+      status: "active",
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+  }
+  if (restaurantId) {
+    try {
+      const { data: restaurant } = await supabase.from("restaurants").select("owner_id").eq("id", restaurantId).maybeSingle();
+      if (restaurant && restaurant.owner_id === userId) {
+        return {
+          status: "active",
+          permissions: {
+            can_refund: true,
+            can_edit_menu: true,
+            can_cancel_order: true,
+            can_view_analytics: true,
+            can_manage_staff: true
+          }
+        };
+      }
+    } catch (e) {
+      console.warn("Could not check backup direct owner_id in getStaffSettingsFromDb:", e);
+    }
+  }
   try {
     if (restaurantId) {
       const { data: ruMapping, error: ruError } = await supabase.from("restaurant_users").select("role, status, custom_permissions").eq("user_id", userId).eq("restaurant_id", restaurantId).maybeSingle();
@@ -4105,8 +4138,15 @@ router5.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
   }
   try {
     const db = loadFallbackDB();
-    const { data: profiles, error } = await supabaseAdmin.from("profiles").select("*").eq("restaurant_id", restId);
-    if (error) throw error;
+    let ownerId = "";
+    try {
+      const { data: restaurant } = await supabaseAdmin.from("restaurants").select("owner_id").eq("id", restId).maybeSingle();
+      if (restaurant) {
+        ownerId = restaurant.owner_id;
+      }
+    } catch (e) {
+      console.warn("Could not query restaurant details in server staff GET:", e);
+    }
     let rUsers = [];
     try {
       const { data } = await supabaseAdmin.from("restaurant_users").select("*").eq("restaurant_id", restId);
@@ -4114,12 +4154,20 @@ router5.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
     } catch (e) {
       console.warn("Could not query restaurant_users in server staff GET:", e);
     }
-    let extraProfiles = [];
-    const rUserIds = rUsers.map((ru) => ru.user_id).filter(Boolean);
-    if (rUserIds.length > 0) {
+    const liveUserIds = /* @__PURE__ */ new Set();
+    if (ownerId) {
+      liveUserIds.add(ownerId);
+    }
+    for (const ru of rUsers) {
+      if (ru.user_id) {
+        liveUserIds.add(ru.user_id);
+      }
+    }
+    let profiles = [];
+    if (liveUserIds.size > 0) {
       try {
-        const { data } = await supabaseAdmin.from("profiles").select("*").in("id", rUserIds);
-        extraProfiles = data || [];
+        const { data } = await supabaseAdmin.from("profiles").select("*").in("id", Array.from(liveUserIds));
+        profiles = data || [];
       } catch (e) {
         console.warn("Could not load associated profiles:", e);
       }
@@ -4140,33 +4188,38 @@ router5.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
         });
       }
     }
-    const localPrimaryProfs = db.profiles.filter((p) => p.restaurant_id === restId);
-    for (const lp of localPrimaryProfs) {
-      const settings = getStaffSettings(lp.id, lp.role);
-      staffMap.set(lp.id, {
-        id: lp.id,
-        email: lp.email,
-        role: lp.role,
-        restaurant_id: restId,
-        status: settings.status,
-        permissions: settings.permissions
-      });
-    }
-    if (profiles) {
-      for (const p of profiles) {
-        const settings = getStaffSettings(p.id, p.role);
-        staffMap.set(p.id, {
-          id: p.id,
-          email: p.email,
-          role: p.role,
-          restaurant_id: p.restaurant_id,
+    const localRest = db.restaurants?.find((r) => r.id === restId);
+    const localOwnerId = localRest?.owner_id;
+    if (localOwnerId) {
+      const lp = db.profiles.find((p) => p.id === localOwnerId);
+      if (lp) {
+        const settings = getStaffSettings(localOwnerId, "owner");
+        staffMap.set(localOwnerId, {
+          id: localOwnerId,
+          email: lp.email,
+          role: "owner",
+          restaurant_id: restId,
           status: settings.status,
           permissions: settings.permissions
         });
       }
     }
+    if (ownerId) {
+      const ownerProfile = profiles.find((p) => p.id === ownerId);
+      if (ownerProfile) {
+        const settings = getStaffSettings(ownerId, "owner");
+        staffMap.set(ownerId, {
+          id: ownerId,
+          email: ownerProfile.email,
+          role: "owner",
+          restaurant_id: restId,
+          status: "active",
+          permissions: settings.permissions
+        });
+      }
+    }
     for (const ru of rUsers) {
-      const prof = extraProfiles.find((p) => p.id === ru.user_id);
+      const prof = profiles.find((p) => p.id === ru.user_id);
       if (prof) {
         const settings = getStaffSettings(ru.user_id, ru.role || prof.role);
         staffMap.set(ru.user_id, {
@@ -4202,7 +4255,11 @@ router5.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
     return res.status(400).json({ error: "Email, password, and role are required." });
   }
   try {
+    if (email?.toLowerCase() === caller.email?.toLowerCase()) {
+      return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
+    }
     let existingProfile = null;
+    let isNewMappingFromAuth = false;
     const { data: matchedProf } = await supabaseAdmin.from("profiles").select("*").ilike("email", email).maybeSingle();
     if (matchedProf) {
       existingProfile = matchedProf;
@@ -4218,6 +4275,7 @@ router5.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
         const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
         const existingAuthUser = usersList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
         if (existingAuthUser) {
+          isNewMappingFromAuth = true;
           existingProfile = {
             id: existingAuthUser.id,
             email: existingAuthUser.email,
@@ -4246,7 +4304,6 @@ router5.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
     if (existingProfile) {
       const userId = existingProfile.id;
       const db2 = loadFallbackDB();
-      const inFallbackPrimary = existingProfile.restaurant_id === restId;
       const inFallbackRU = db2.restaurant_users.some((ru) => ru.user_id === userId && ru.restaurant_id === restId);
       let inLiveRU = false;
       try {
@@ -4257,10 +4314,7 @@ router5.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolati
       } catch (err) {
         console.warn("Error querying restaurant_users:", err);
       }
-      if (inFallbackPrimary || inFallbackRU || inLiveRU) {
-        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
-          return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
-        }
+      if (!isNewMappingFromAuth && (inFallbackRU || inLiveRU)) {
         return res.status(400).json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` });
       }
       const defaultPerms2 = getStaffSettings(userId, role).permissions;

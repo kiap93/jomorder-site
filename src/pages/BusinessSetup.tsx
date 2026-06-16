@@ -1073,7 +1073,7 @@ export function BusinessSetup() {
                     <Sparkles size={11} className="shrink-0" /> AUTO-PROVISIONED DEFAULTS ON DEPLOYMENT
                   </h4>
                   <ul className="text-[10px] font-bold text-gray-600 space-y-1 list-disc pl-4 font-sans">
-                    <li>Create "Featured Specialties" Default Category</li>
+                    <li>Create "s" Default Category</li>
                     <li>Provision Sample Menu Food & Side dishes</li>
                     <li>Generate Default Dining Table "Table 1"</li>
                     <li>Initialize QR Code templates</li>

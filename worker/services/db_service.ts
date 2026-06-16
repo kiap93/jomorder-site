@@ -38,6 +38,49 @@ export function getUserSupabaseClient(c: any) {
 
 // Helper for finding/restoring staff settings
 export async function getStaffSettingsFromDb(supabase: any, userId: string, role: string, restaurantId?: string) {
+  // 0. Immediate short-circuit bypass for any owner/admin/superadmin role
+  const normRole = (role || '').toLowerCase();
+  const isDirectOwnerRole = normRole === 'owner' || normRole === 'admin' || normRole === 'superadmin';
+  
+  if (isDirectOwnerRole) {
+    return {
+      status: 'active',
+      permissions: {
+        can_refund: true,
+        can_edit_menu: true,
+        can_cancel_order: true,
+        can_view_analytics: true,
+        can_manage_staff: true
+      }
+    };
+  }
+
+  // 0b. Double-check if the user is the direct owner_id of the restaurant in matching table
+  if (restaurantId) {
+    try {
+      const { data: restaurant } = await supabase
+        .from('restaurants')
+        .select('owner_id')
+        .eq('id', restaurantId)
+        .maybeSingle();
+
+      if (restaurant && restaurant.owner_id === userId) {
+        return {
+          status: 'active',
+          permissions: {
+            can_refund: true,
+            can_edit_menu: true,
+            can_cancel_order: true,
+            can_view_analytics: true,
+            can_manage_staff: true
+          }
+        };
+      }
+    } catch (e) {
+      console.warn("Could not check backup direct owner_id in getStaffSettingsFromDb:", e);
+    }
+  }
+
   try {
     // 1. If restaurantId is provided, look in restaurant_users first
     if (restaurantId) {

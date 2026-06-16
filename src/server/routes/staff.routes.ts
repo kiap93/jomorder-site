@@ -28,13 +28,20 @@ router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation
   try {
     const db = loadFallbackDB();
 
-    // 1. Get profiles directly mapped
-    const { data: profiles, error } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('restaurant_id', restId);
-
-    if (error) throw error;
+    // 1. Get the restaurant details to find the owner_id
+    let ownerId = "";
+    try {
+      const { data: restaurant } = await supabaseAdmin
+        .from('restaurants')
+        .select('owner_id')
+        .eq('id', restId)
+        .maybeSingle();
+      if (restaurant) {
+        ownerId = restaurant.owner_id;
+      }
+    } catch (e) {
+      console.warn("Could not query restaurant details in server staff GET:", e);
+    }
 
     // 2. Get restaurant_users mapping
     let rUsers: any[] = [];
@@ -48,16 +55,26 @@ router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation
       console.warn("Could not query restaurant_users in server staff GET:", e);
     }
 
-    // Get any profiles from rUsers
-    let extraProfiles: any[] = [];
-    const rUserIds = rUsers.map(ru => ru.user_id).filter(Boolean);
-    if (rUserIds.length > 0) {
+    // Combine all live user IDs
+    const liveUserIds = new Set<string>();
+    if (ownerId) {
+      liveUserIds.add(ownerId);
+    }
+    for (const ru of rUsers) {
+      if (ru.user_id) {
+        liveUserIds.add(ru.user_id);
+      }
+    }
+
+    // 3. Get profiles only for these specific user IDs in live DB
+    let profiles: any[] = [];
+    if (liveUserIds.size > 0) {
       try {
         const { data } = await supabaseAdmin
           .from('profiles')
           .select('*')
-          .in('id', rUserIds);
-        extraProfiles = data || [];
+          .in('id', Array.from(liveUserIds));
+        profiles = data || [];
       } catch (e) {
         console.warn("Could not load associated profiles:", e);
       }
@@ -82,36 +99,42 @@ router.get("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolation
       }
     }
 
-    const localPrimaryProfs = db.profiles.filter(p => p.restaurant_id === restId);
-    for (const lp of localPrimaryProfs) {
-      const settings = getStaffSettings(lp.id, lp.role);
-      staffMap.set(lp.id, {
-        id: lp.id,
-        email: lp.email,
-        role: lp.role,
-        restaurant_id: restId,
-        status: settings.status,
-        permissions: settings.permissions
-      });
-    }
-
-    // Overlay live data
-    if (profiles) {
-      for (const p of profiles) {
-        const settings = getStaffSettings(p.id, p.role);
-        staffMap.set(p.id, {
-          id: p.id,
-          email: p.email,
-          role: p.role,
-          restaurant_id: p.restaurant_id,
+    const localRest = db.restaurants?.find(r => r.id === restId);
+    const localOwnerId = localRest?.owner_id;
+    if (localOwnerId) {
+      const lp = db.profiles.find(p => p.id === localOwnerId);
+      if (lp) {
+        const settings = getStaffSettings(localOwnerId, 'owner');
+        staffMap.set(localOwnerId, {
+          id: localOwnerId,
+          email: lp.email,
+          role: 'owner',
+          restaurant_id: restId,
           status: settings.status,
           permissions: settings.permissions
         });
       }
     }
 
+    // Overlay live data - Add/Overlay live Owner
+    if (ownerId) {
+      const ownerProfile = profiles.find(p => p.id === ownerId);
+      if (ownerProfile) {
+        const settings = getStaffSettings(ownerId, 'owner');
+        staffMap.set(ownerId, {
+          id: ownerId,
+          email: ownerProfile.email,
+          role: 'owner',
+          restaurant_id: restId,
+          status: 'active',
+          permissions: settings.permissions
+        });
+      }
+    }
+
+    // Add/Overlay live restaurant_users
     for (const ru of rUsers) {
-      const prof = extraProfiles.find(p => p.id === ru.user_id);
+      const prof = profiles.find(p => p.id === ru.user_id);
       if (prof) {
         const settings = getStaffSettings(ru.user_id, ru.role || prof.role);
         staffMap.set(ru.user_id, {
@@ -155,8 +178,14 @@ router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
   }
 
   try {
+    // 0. Ensure caller/owner cannot self-invite
+    if (email?.toLowerCase() === caller.email?.toLowerCase()) {
+      return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
+    }
+
     // 1. Check if profile already exists with this email (case-insensitive check)
     let existingProfile: any = null;
+    let isNewMappingFromAuth = false;
     const { data: matchedProf } = await supabaseAdmin
       .from('profiles')
       .select('*')
@@ -178,6 +207,7 @@ router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
         const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
         const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
         if (existingAuthUser) {
+          isNewMappingFromAuth = true;
           existingProfile = {
             id: existingAuthUser.id,
             email: existingAuthUser.email,
@@ -213,7 +243,6 @@ router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
       const userId = existingProfile.id;
 
       const db = loadFallbackDB();
-      const inFallbackPrimary = existingProfile.restaurant_id === restId;
       const inFallbackRU = db.restaurant_users.some(ru => ru.user_id === userId && ru.restaurant_id === restId);
       
       let inLiveRU = false;
@@ -231,10 +260,7 @@ router.post("/restaurants/:restId/staff", authenticateJWT, requireTenantIsolatio
         console.warn("Error querying restaurant_users:", err);
       }
 
-      if (inFallbackPrimary || inFallbackRU || inLiveRU) {
-        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
-          return res.status(400).json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." });
-        }
+      if (!isNewMappingFromAuth && (inFallbackRU || inLiveRU)) {
         return res.status(400).json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` });
       }
 

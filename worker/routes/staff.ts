@@ -16,13 +16,20 @@ staffRoutes.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
   }
 
   try {
-    // 1. Get profiles directly mapped
-    const { data: profiles, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('restaurant_id', restId);
-
-    if (error) throw error;
+    // 1. Get the restaurant details to find the owner_id
+    let ownerId = "";
+    try {
+      const { data: restaurant } = await supabase
+        .from('restaurants')
+        .select('owner_id')
+        .eq('id', restId)
+        .maybeSingle();
+      if (restaurant) {
+        ownerId = restaurant.owner_id;
+      }
+    } catch (e) {
+      console.warn("Could not query restaurant details in worker staff GET:", e);
+    }
 
     // 2. Get restaurant_users mapping
     let rUsers: any[] = [];
@@ -36,16 +43,26 @@ staffRoutes.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
       console.warn("Could not query restaurant_users in worker staff GET:", e);
     }
 
-    // Get any profiles from rUsers
-    let extraProfiles: any[] = [];
-    const rUserIds = rUsers.map(ru => ru.user_id).filter(Boolean);
-    if (rUserIds.length > 0) {
+    // Combine all user IDs that are active members of this restaurant
+    const userIds = new Set<string>();
+    if (ownerId) {
+      userIds.add(ownerId);
+    }
+    for (const ru of rUsers) {
+      if (ru.user_id) {
+        userIds.add(ru.user_id);
+      }
+    }
+
+    // 3. Get profiles only for these specific user IDs
+    let profiles: any[] = [];
+    if (userIds.size > 0) {
       try {
         const { data } = await supabase
           .from('profiles')
           .select('*')
-          .in('id', rUserIds);
-        extraProfiles = data || [];
+          .in('id', Array.from(userIds));
+        profiles = data || [];
       } catch (e) {
         console.warn("Could not load associated profiles:", e);
       }
@@ -53,23 +70,25 @@ staffRoutes.get("/api/restaurants/:restId/staff", authenticate, async (c) => {
 
     const staffMap = new Map();
 
-    // Overlay profiles
-    if (profiles) {
-      for (const p of profiles) {
-        const settings = await getStaffSettingsFromDb(supabase, p.id, p.role, restId);
-        staffMap.set(p.id, {
-          id: p.id,
-          email: p.email,
-          role: p.role,
-          restaurant_id: p.restaurant_id,
-          status: settings.status,
+    // Add the owner to staff list
+    if (ownerId) {
+      const ownerProfile = profiles.find(p => p.id === ownerId);
+      if (ownerProfile) {
+        const settings = await getStaffSettingsFromDb(supabase, ownerId, 'owner', restId);
+        staffMap.set(ownerId, {
+          id: ownerId,
+          email: ownerProfile.email,
+          role: 'owner',
+          restaurant_id: restId,
+          status: 'active',
           permissions: settings.permissions
         });
       }
     }
 
+    // Add/Overlay restaurant_users mapped members
     for (const ru of rUsers) {
-      const prof = extraProfiles.find(p => p.id === ru.user_id);
+      const prof = profiles.find(p => p.id === ru.user_id);
       if (prof) {
         const settings = await getStaffSettingsFromDb(supabase, ru.user_id, ru.role || prof.role, restId);
         staffMap.set(ru.user_id, {
@@ -111,8 +130,14 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
   }
 
   try {
+    // 0. Ensure owner/administrator cannot add themselves as a staff member
+    if (email.toLowerCase() === caller.email?.toLowerCase()) {
+      return c.json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." }, 400);
+    }
+
     // 1. Check if profile already exists with this email (case-insensitive check)
     let existingProfile: any = null;
+    let isNewMappingFromAuth = false;
     const { data: matchedProf } = await supabase
       .from('profiles')
       .select('*')
@@ -129,6 +154,7 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
         const existingAuthUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
         if (existingAuthUser) {
           // Yes, the user is already registered in Auth but was missing a profile mapping
+          isNewMappingFromAuth = true;
           existingProfile = {
             id: existingAuthUser.id,
             email: existingAuthUser.email,
@@ -164,8 +190,7 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
     if (existingProfile) {
       const userId = existingProfile.id;
 
-      // Check if already mapped to this restaurant
-      const inPrimary = existingProfile.restaurant_id === restId;
+      // Check if already mapped to this restaurant in the restaurant_users table
       let inLiveRU = false;
       try {
         const { data: ruMap } = await supabase
@@ -181,10 +206,7 @@ staffRoutes.post("/api/restaurants/:restId/staff", authenticate, async (c) => {
         console.warn("Error querying restaurant_users:", err);
       }
 
-      if (inPrimary || inLiveRU) {
-        if (existingProfile.email?.toLowerCase() === caller.email?.toLowerCase()) {
-          return c.json({ error: "You cannot add yourself (the logged-in administrator/owner) as a staff member. You already have full access. Please use a distinct/separate email address for each of your staff members." }, 400);
-        }
+      if (!isNewMappingFromAuth && inLiveRU) {
         return c.json({ error: `The user with email "${email}" is already registered for this restaurant. If they are already listed below, you can edit their role or permissions directly using the Edit button.` }, 400);
       }
 

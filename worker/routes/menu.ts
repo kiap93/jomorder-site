@@ -141,7 +141,8 @@ menuRoutes.patch("/api/menu-items/:id", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.is_platform_admin !== true) {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
+    const checkRestId = body.restaurant_id || caller.restaurantId || caller.restaurant_id;
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, checkRestId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
@@ -250,7 +251,8 @@ menuRoutes.post("/api/menu-items", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.is_platform_admin !== true) {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
+    const checkRestId = body.restaurant_id || caller.restaurantId || caller.restaurant_id;
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, checkRestId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
@@ -357,7 +359,8 @@ menuRoutes.delete("/api/menu-items/:id", authenticate, async (c) => {
   const caller = c.get('user');
 
   if (caller && caller.is_platform_admin !== true) {
-    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, caller.restaurantId);
+    const checkRestId = caller.restaurantId || caller.restaurant_id;
+    const settings = await getStaffSettingsFromDb(supabase, caller.id, caller.role, checkRestId);
     if (!settings.permissions.can_edit_menu) {
       return c.json({ error: "Forbidden: You do not have permission to manage the menu." }, 403);
     }
