@@ -324,7 +324,7 @@ export function SettingsTab({
                   <div>
                     <label className="block text-[10px] font-black uppercase text-gray-400 mb-1 ml-1">Country Profile</label>
                     <select
-                      value={restaurant.business_settings?.country || 'MY'}
+                      value={['UK', 'GB'].includes(restaurant.business_settings?.country || '') ? 'UK' : (restaurant.business_settings?.country || 'MY')}
                       onChange={e => {
                         const countryCode = e.target.value;
                         const presets: Record<string, any> = {
@@ -334,6 +334,7 @@ export function SettingsTab({
                           ID: { currency: 'IDR', timezone: 'Asia/Jakarta', language: 'en', tax_type: 'VAT', tax_rate: 11.0, date_format: 'DD/MM/YYYY' },
                           PH: { currency: 'PHP', timezone: 'Asia/Manila', language: 'en', tax_type: 'VAT', tax_rate: 12.0, date_format: 'DD/MM/YYYY' },
                           US: { currency: 'USD', timezone: 'America/New_York', language: 'en', tax_type: 'Sales Tax', tax_rate: 8.0, date_format: 'MM/DD/YYYY' },
+                          UK: { currency: 'GBP', timezone: 'Europe/London', language: 'en', tax_type: 'VAT', tax_rate: 20.0, date_format: 'DD/MM/YYYY' },
                           GB: { currency: 'GBP', timezone: 'Europe/London', language: 'en', tax_type: 'VAT', tax_rate: 20.0, date_format: 'DD/MM/YYYY' },
                           AU: { currency: 'AUD', timezone: 'Australia/Sydney', language: 'en', tax_type: 'GST', tax_rate: 10.0, date_format: 'DD/MM/YYYY' }
                         };
@@ -362,7 +363,7 @@ export function SettingsTab({
                       <option value="ID">Indonesia (ID)</option>
                       <option value="PH">Philippines (PH)</option>
                       <option value="US">United States (US)</option>
-                      <option value="GB">United Kingdom (GB)</option>
+                      <option value="UK">United Kingdom (UK)</option>
                       <option value="AU">Australia (AU)</option>
                     </select>
                   </div>

@@ -660,7 +660,13 @@ async function cancelOrderItemQuantity(orderItemId, cancelQty, reason, cancelled
     });
     const restaurant = order.restaurants;
     const scRate = (restaurant?.service_charge || 0) / 100;
-    const sstRate = (restaurant?.sst || 0) / 100;
+    let sstRate = (restaurant?.sst || 0) / 100;
+    if (restaurant?.id) {
+      const { data: activeProfiles } = await supabaseAdmin.from("tax_profiles").select("tax_rate").eq("business_id", restaurant.id).eq("is_active", true);
+      if (activeProfiles && activeProfiles.length > 0) {
+        sstRate = Number(activeProfiles[0].tax_rate) / 100;
+      }
+    }
     let subtotal = 0;
     newItemsJson.forEach((it) => {
       if (it.status !== "cancelled" && !it.voided) {
@@ -797,7 +803,13 @@ async function recalculateOrderAndSync(orderId) {
   });
   const restaurant = order.restaurants;
   const scRate = (restaurant?.service_charge || 0) / 100;
-  const sstRate = (restaurant?.sst || 0) / 100;
+  let sstRate = (restaurant?.sst || 0) / 100;
+  if (restaurant?.id) {
+    const { data: activeProfiles } = await supabaseAdmin.from("tax_profiles").select("tax_rate").eq("business_id", restaurant.id).eq("is_active", true);
+    if (activeProfiles && activeProfiles.length > 0) {
+      sstRate = Number(activeProfiles[0].tax_rate) / 100;
+    }
+  }
   let subtotal = 0;
   itemsJson.forEach((it) => {
     if (it.status !== "voided" && it.status !== "cancelled") {
@@ -5216,7 +5228,8 @@ router6.get("/restaurants/:id", authenticateJWT, async (req, res) => {
     if (!data) return res.status(404).json({ error: "Restaurant not found" });
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
-    let { data: bSettings, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    let { data: bSettingsList, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).limit(1);
+    let bSettings = bSettingsList && bSettingsList[0] ? bSettingsList[0] : null;
     if (!bSettings || bsError) {
       const initialTaxRate = data.sst !== void 0 ? Number(data.sst) : 6;
       const initialCurrency = data.currency || "MYR";
@@ -5233,8 +5246,8 @@ router6.get("/restaurants/:id", authenticateJWT, async (req, res) => {
         date_format: initialCurrency === "USD" ? "MM/DD/YYYY" : "DD/MM/YYYY",
         payment_mode: initialPaymentMode
       };
-      const { data: newBS } = await supabaseAdmin.from("business_settings").insert([preset]).select().maybeSingle();
-      bSettings = newBS || preset;
+      const { data: newBSList } = await supabaseAdmin.from("business_settings").insert([preset]).select().limit(1);
+      bSettings = newBSList && newBSList[0] || preset;
     }
     data.business_settings = {
       country: bSettings.country_code || "MY",
@@ -5246,6 +5259,8 @@ router6.get("/restaurants/:id", authenticateJWT, async (req, res) => {
       date_format: bSettings.date_format || "DD/MM/YYYY",
       payment_mode: bSettings.payment_mode || "both"
     };
+    const { data: taxProfiles } = await supabaseAdmin.from("tax_profiles").select("*").eq("business_id", req.params.id);
+    data.tax_profiles = taxProfiles || [];
     data.currency = bSettings.currency_code || data.currency || "MYR";
     data.sst = Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : data.sst);
     data.payment_mode = bSettings.payment_mode || data.payment_mode || "both";
@@ -5272,14 +5287,37 @@ router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
         payment_mode: business_settings.payment_mode,
         updated_at: (/* @__PURE__ */ new Date()).toISOString()
       };
-      const { data: existingBS } = await supabaseAdmin.from("business_settings").select("id").eq("restaurant_id", req.params.id).maybeSingle();
+      const { data: existingBSList } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).limit(1);
+      const existingBS = existingBSList && existingBSList[0] ? existingBSList[0] : null;
       if (existingBS) {
-        await supabaseAdmin.from("business_settings").update(bsPayload).eq("restaurant_id", req.params.id);
+        await supabaseAdmin.from("business_settings").update(bsPayload).eq("id", existingBS.id);
       } else {
         await supabaseAdmin.from("business_settings").insert([{
           business_id: req.params.id,
           restaurant_id: req.params.id,
           ...bsPayload
+        }]);
+      }
+      const targetCountry = business_settings.country || "MY";
+      const targetRate = Number(business_settings.tax_rate !== void 0 ? business_settings.tax_rate : 6);
+      const targetType = business_settings.tax_type || "SST";
+      const { data: activeTPs } = await supabaseAdmin.from("tax_profiles").select("*").eq("business_id", req.params.id).eq("is_active", true);
+      if (activeTPs && activeTPs.length > 0) {
+        await supabaseAdmin.from("tax_profiles").update({
+          country_code: targetCountry,
+          tax_rate: targetRate,
+          tax_type: targetType,
+          name: `${targetCountry === "MY" ? "Malaysia" : targetCountry === "SG" ? "Singapore" : targetCountry === "AU" ? "Australia" : "UK"} ${targetType}`
+        }).eq("id", activeTPs[0].id);
+      } else {
+        await supabaseAdmin.from("tax_profiles").insert([{
+          business_id: req.params.id,
+          country_code: targetCountry,
+          tax_rate: targetRate,
+          tax_type: targetType,
+          name: `${targetCountry === "MY" ? "Malaysia" : targetCountry === "SG" ? "Singapore" : targetCountry === "AU" ? "Australia" : "UK"} ${targetType}`,
+          is_inclusive: false,
+          is_active: true
         }]);
       }
       if (business_settings.currency) {
@@ -5297,7 +5335,8 @@ router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
     if (!data) return res.status(404).json({ error: "Restaurant not found" });
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
-    const { data: finalBS } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    const { data: finalBSList } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).limit(1);
+    const finalBS = finalBSList && finalBSList[0] ? finalBSList[0] : null;
     if (finalBS) {
       data.business_settings = {
         country: finalBS.country_code,
@@ -5313,9 +5352,107 @@ router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
       data.sst = Number(finalBS.tax_rate);
       data.payment_mode = finalBS.payment_mode;
     }
+    const { data: taxProfiles } = await supabaseAdmin.from("tax_profiles").select("*").eq("business_id", req.params.id);
+    data.tax_profiles = taxProfiles || [];
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+router6.get("/countries", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from("countries").select("*").order("name", { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.get("/restaurants/:restId/tax-profiles", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from("tax_profiles").select("*").eq("business_id", req.params.restId).order("id", { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.post("/restaurants/:restId/tax-profiles", authenticateJWT, async (req, res) => {
+  try {
+    const { name, country_code, tax_type, tax_rate, is_inclusive, is_active } = req.body;
+    const { data, error } = await supabaseAdmin.from("tax_profiles").insert([{
+      business_id: req.params.restId,
+      name,
+      country_code,
+      tax_type,
+      tax_rate: Number(tax_rate),
+      is_inclusive: !!is_inclusive,
+      is_active: is_active !== false
+    }]).select().maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.patch("/tax-profiles/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { name, country_code, tax_type, tax_rate, is_inclusive, is_active } = req.body;
+    const updateBody = {};
+    if (name !== void 0) updateBody.name = name;
+    if (country_code !== void 0) updateBody.country_code = country_code;
+    if (tax_type !== void 0) updateBody.tax_type = tax_type;
+    if (tax_rate !== void 0) updateBody.tax_rate = Number(tax_rate);
+    if (is_inclusive !== void 0) updateBody.is_inclusive = !!is_inclusive;
+    if (is_active !== void 0) updateBody.is_active = !!is_active;
+    const { data, error } = await supabaseAdmin.from("tax_profiles").update(updateBody).eq("id", req.params.id).select().maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.delete("/tax-profiles/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin.from("tax_profiles").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.get("/tax-profiles/:profileId/rules", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from("tax_rules").select("*").eq("tax_profile_id", req.params.profileId);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.post("/tax-profiles/:profileId/rules", authenticateJWT, async (req, res) => {
+  try {
+    const { applies_to, product_category_id, product_id, priority } = req.body;
+    const { data, error } = await supabaseAdmin.from("tax_rules").insert([{
+      tax_profile_id: req.params.profileId,
+      applies_to,
+      product_category_id: product_category_id || null,
+      product_id: product_id || null,
+      priority: priority || 0
+    }]).select().maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+router6.delete("/tax-rules/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin.from("tax_rules").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 var workspace_routes_default = router6;
@@ -7661,7 +7798,8 @@ router12.get("/restaurants/:id", async (req, res) => {
     if (!data) return res.status(404).json({ error: "Restaurant not found" });
     const extra = extraSettingsService.getSettings(req.params.id);
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
-    let { data: bSettings, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).maybeSingle();
+    let { data: bSettingsList, error: bsError } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", req.params.id).limit(1);
+    let bSettings = bSettingsList && bSettingsList[0] ? bSettingsList[0] : null;
     if (!bSettings || bsError) {
       const initialTaxRate = data.sst !== void 0 ? Number(data.sst) : 6;
       const initialCurrency = data.currency || "MYR";
@@ -7678,8 +7816,8 @@ router12.get("/restaurants/:id", async (req, res) => {
         date_format: initialCurrency === "USD" ? "MM/DD/YYYY" : "DD/MM/YYYY",
         payment_mode: initialPaymentMode
       };
-      const { data: newBS } = await supabaseAdmin.from("business_settings").insert([preset]).select().maybeSingle();
-      bSettings = newBS || preset;
+      const { data: newBSList } = await supabaseAdmin.from("business_settings").insert([preset]).select().limit(1);
+      bSettings = newBSList && newBSList[0] || preset;
     }
     data.business_settings = {
       country: bSettings.country_code || "MY",
@@ -7691,6 +7829,8 @@ router12.get("/restaurants/:id", async (req, res) => {
       date_format: bSettings.date_format || "DD/MM/YYYY",
       payment_mode: bSettings.payment_mode || "both"
     };
+    const { data: taxProfiles } = await supabaseAdmin.from("tax_profiles").select("*").eq("business_id", req.params.id);
+    data.tax_profiles = taxProfiles || [];
     data.currency = bSettings.currency_code || data.currency || "MYR";
     data.sst = Number(bSettings.tax_rate !== void 0 ? bSettings.tax_rate : data.sst);
     data.payment_mode = bSettings.payment_mode || data.payment_mode || "both";

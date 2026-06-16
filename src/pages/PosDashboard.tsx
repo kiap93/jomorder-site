@@ -118,7 +118,13 @@ export function PosDashboard() {
             name: data.name,
             currency: data.currency,
             serviceCharge: parseFloat(data.service_charge) / 100,
-            sst: parseFloat(data.sst) / 100,
+            sst: (() => {
+              const activeProfile = data.tax_profiles?.find((tp: any) => tp.is_active);
+              if (activeProfile) {
+                return parseFloat(activeProfile.tax_rate || 0) / 100;
+              }
+              return parseFloat(data.sst || 0) / 100;
+            })(),
             franchiseId: data.franchise_id
           } as Restaurant);
         }

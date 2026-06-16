@@ -27,11 +27,13 @@ router.get("/restaurants/:id", async (req, res) => {
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
 
     // Fetch or initialize business_settings
-    let { data: bSettings, error: bsError } = await supabaseAdmin
+    let { data: bSettingsList, error: bsError } = await supabaseAdmin
       .from('business_settings')
       .select('*')
       .eq('restaurant_id', req.params.id)
-      .maybeSingle();
+      .limit(1);
+
+    let bSettings = bSettingsList && bSettingsList[0] ? bSettingsList[0] : null;
 
     if (!bSettings || bsError) {
       // Auto-migrate standard Malaysia or fallback values
@@ -52,13 +54,13 @@ router.get("/restaurants/:id", async (req, res) => {
         payment_mode: initialPaymentMode
       };
 
-      const { data: newBS } = await supabaseAdmin
+      const { data: newBSList } = await supabaseAdmin
         .from('business_settings')
         .insert([preset])
         .select()
-        .maybeSingle();
+        .limit(1);
       
-      bSettings = newBS || preset;
+      bSettings = (newBSList && newBSList[0]) || preset;
     }
 
     data.business_settings = {
@@ -71,6 +73,13 @@ router.get("/restaurants/:id", async (req, res) => {
       date_format: bSettings.date_format || 'DD/MM/YYYY',
       payment_mode: bSettings.payment_mode || 'both'
     };
+
+    // Attach custom database tax profiles & rules
+    const { data: taxProfiles } = await supabaseAdmin
+      .from('tax_profiles')
+      .select('*')
+      .eq('business_id', req.params.id);
+    data.tax_profiles = taxProfiles || [];
 
     data.currency = bSettings.currency_code || data.currency || 'MYR';
     data.sst = Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : data.sst);

@@ -53,29 +53,211 @@ menuRoutes.get('/api/public/restaurants/:restId/menu-items', async (c) => {
 // Admin View Restaurant Details
 menuRoutes.get("/api/restaurants/:id", authenticate, async (c) => {
   const supabase = getUserSupabaseClient(c);
+  const id = c.req.param('id');
   const { data, error } = await supabase
     .from('restaurants')
     .select('*')
-    .eq('id', c.req.param('id'))
+    .eq('id', id)
     .maybeSingle();
   
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: 'Restaurant not found' }, 404);
+
+  // Fetch or initialize business_settings
+  let { data: bSettingsList, error: bsError } = await supabase
+    .from('business_settings')
+    .select('*')
+    .eq('restaurant_id', id)
+    .limit(1);
+
+  let bSettings = bSettingsList && bSettingsList[0] ? bSettingsList[0] : null;
+
+  if (!bSettings || bsError) {
+    // Auto-migrate standard Malaysia or fallback values
+    const initialTaxRate = data.sst !== undefined ? Number(data.sst) : 6;
+    const initialCurrency = data.currency || 'MYR';
+    const initialPaymentMode = data.payment_mode || 'both';
+
+    const preset = {
+      business_id: id,
+      restaurant_id: id,
+      country_code: initialCurrency === 'MYR' ? 'MY' : (initialCurrency === 'SGD' ? 'SG' : (initialCurrency === 'THB' ? 'TH' : 'US')),
+      currency_code: initialCurrency,
+      timezone: initialCurrency === 'MYR' ? 'Asia/Kuala_Lumpur' : (initialCurrency === 'SGD' ? 'Asia/Singapore' : (initialCurrency === 'THB' ? 'Asia/Bangkok' : 'America/New_York')),
+      language: 'en',
+      tax_type: initialCurrency === 'MYR' ? 'SST' : (initialCurrency === 'SGD' ? 'GST' : (initialCurrency === 'THB' ? 'VAT' : 'Sales Tax')),
+      tax_rate: initialTaxRate,
+      date_format: initialCurrency === 'USD' ? 'MM/DD/YYYY' : 'DD/MM/YYYY',
+      payment_mode: initialPaymentMode
+    };
+
+    const { data: newBSList } = await supabase
+      .from('business_settings')
+      .insert([preset])
+      .select()
+      .limit(1);
+    
+    bSettings = (newBSList && newBSList[0]) || preset;
+  }
+
+  // Attach business_settings to restaurant payload
+  data.business_settings = {
+    country: bSettings.country_code || 'MY',
+    currency: bSettings.currency_code || 'MYR',
+    timezone: bSettings.timezone || 'Asia/Kuala_Lumpur',
+    language: bSettings.language || 'en',
+    tax_type: bSettings.tax_type || 'SST',
+    tax_rate: Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : 10),
+    date_format: bSettings.date_format || 'DD/MM/YYYY',
+    payment_mode: bSettings.payment_mode || 'both'
+  };
+
+  // Attach custom database-driven tax profiles
+  const { data: taxProfiles } = await supabase
+    .from('tax_profiles')
+    .select('*')
+    .eq('business_id', id);
+  data.tax_profiles = taxProfiles || [];
+
+  // Flatten for absolute backward compatibility
+  data.currency = bSettings.currency_code || data.currency || 'MYR';
+  data.sst = Number(bSettings.tax_rate !== undefined ? bSettings.tax_rate : data.sst);
+  data.payment_mode = bSettings.payment_mode || data.payment_mode || 'both';
+
   return c.json(data);
 });
 
 // Admin Update Restaurant Details
 menuRoutes.patch("/api/restaurants/:id", authenticate, async (c) => {
   const supabase = getUserSupabaseClient(c);
-  const body = await c.req.json();
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const { business_settings, ...dbBody } = body;
+
+  if (business_settings) {
+    const bsPayload: any = {
+      country_code: business_settings.country,
+      currency_code: business_settings.currency,
+      timezone: business_settings.timezone,
+      language: business_settings.language,
+      tax_type: business_settings.tax_type,
+      tax_rate: business_settings.tax_rate,
+      date_format: business_settings.date_format,
+      payment_mode: business_settings.payment_mode,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: existingBSList } = await supabase
+      .from('business_settings')
+      .select('*')
+      .eq('restaurant_id', id)
+      .limit(1);
+
+    const existingBS = existingBSList && existingBSList[0] ? existingBSList[0] : null;
+
+    if (existingBS) {
+      await supabase
+        .from('business_settings')
+        .update(bsPayload)
+        .eq('id', existingBS.id);
+    } else {
+      await supabase
+        .from('business_settings')
+        .insert([{
+          business_id: id,
+          restaurant_id: id,
+          ...bsPayload
+        }]);
+    }
+
+    // Synchronize with active tax profiles
+    const targetCountry = business_settings.country || 'MY';
+    const targetRate = Number(business_settings.tax_rate !== undefined ? business_settings.tax_rate : 6);
+    const targetType = business_settings.tax_type || 'SST';
+
+    const { data: activeTPs } = await supabase
+      .from('tax_profiles')
+      .select('*')
+      .eq('business_id', id)
+      .eq('is_active', true);
+
+    if (activeTPs && activeTPs.length > 0) {
+      await supabase
+        .from('tax_profiles')
+        .update({
+          country_code: targetCountry,
+          tax_rate: targetRate,
+          tax_type: targetType,
+          name: `${targetCountry === 'MY' ? 'Malaysia' : (targetCountry === 'SG' ? 'Singapore' : (targetCountry === 'AU' ? 'Australia' : 'UK'))} ${targetType}`
+        })
+        .eq('id', activeTPs[0].id);
+    } else {
+      await supabase
+        .from('tax_profiles')
+        .insert([{
+          business_id: id,
+          country_code: targetCountry,
+          tax_rate: targetRate,
+          tax_type: targetType,
+          name: `${targetCountry === 'MY' ? 'Malaysia' : (targetCountry === 'SG' ? 'Singapore' : (targetCountry === 'AU' ? 'Australia' : 'UK'))} ${targetType}`,
+          is_inclusive: false,
+          is_active: true
+        }]);
+    }
+
+    if (business_settings.currency) {
+      dbBody.currency = business_settings.currency;
+    }
+    if (business_settings.tax_rate !== undefined) {
+      dbBody.sst = business_settings.tax_rate;
+    }
+    if (business_settings.payment_mode) {
+      dbBody.payment_mode = business_settings.payment_mode;
+    }
+  }
+
   const { data, error } = await supabase
     .from('restaurants')
-    .update(body)
-    .eq('id', c.req.param('id'))
+    .update(dbBody)
+    .eq('id', id)
     .select()
     .maybeSingle();
   
   if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ error: 'Restaurant not found' }, 404);
+
+  // Fetch updated business settings to include in response
+  const { data: finalBSList } = await supabase
+    .from('business_settings')
+    .select('*')
+    .eq('restaurant_id', id)
+    .limit(1);
+
+  const finalBS = finalBSList && finalBSList[0] ? finalBSList[0] : null;
+
+  if (finalBS) {
+    data.business_settings = {
+      country: finalBS.country_code,
+      currency: finalBS.currency_code,
+      timezone: finalBS.timezone,
+      language: finalBS.language,
+      tax_type: finalBS.tax_type,
+      tax_rate: Number(finalBS.tax_rate),
+      date_format: finalBS.date_format,
+      payment_mode: finalBS.payment_mode
+    };
+    data.currency = finalBS.currency_code || data.currency || 'MYR';
+    data.sst = Number(finalBS.tax_rate !== undefined ? finalBS.tax_rate : data.sst);
+    data.payment_mode = finalBS.payment_mode || data.payment_mode || 'both';
+  }
+
+  // Attach custom database-driven tax profiles
+  const { data: taxProfiles } = await supabase
+    .from('tax_profiles')
+    .select('*')
+    .eq('business_id', id);
+  data.tax_profiles = taxProfiles || [];
+
   return c.json(data);
 });
 

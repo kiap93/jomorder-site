@@ -559,7 +559,16 @@ export function AdminPanel() {
           name: restData.name,
           currency: restData.currency,
           serviceCharge: parseFloat(restData.service_charge || 0) / 100,
-          sst: parseFloat(restData.sst || 0) / 100
+          sst: (() => {
+            const activeProfile = restData.tax_profiles?.find((tp: any) => tp.is_active);
+            if (activeProfile) {
+              return parseFloat(activeProfile.tax_rate || 0) / 100;
+            }
+            return parseFloat(restData.sst || 0) / 100;
+          })(),
+          payment_mode: restData.payment_mode || 'both',
+          show_voided_on_receipt: restData.show_voided_on_receipt !== false,
+          business_settings: restData.business_settings
         });
       }
 
@@ -691,13 +700,34 @@ export function AdminPanel() {
           sst: restaurant.sst * 100,
           currency: restaurant.currency,
           payment_mode: restaurant.payment_mode || 'pay_first',
-          show_voided_on_receipt: restaurant.show_voided_on_receipt !== false
+          show_voided_on_receipt: restaurant.show_voided_on_receipt !== false,
+          business_settings: restaurant.business_settings
         })
       });
 
       if (!response.ok) {
-        const err = await response.json();
+        const err = await response.json().catch(() => ({}));
         throw new Error(err.error || "Failed to save settings");
+      }
+
+      const updatedVal = await response.json();
+      if (updatedVal) {
+        setRestaurant({
+          id: updatedVal.id,
+          name: updatedVal.name,
+          currency: updatedVal.currency,
+          serviceCharge: parseFloat(updatedVal.service_charge || 0) / 100,
+          sst: (() => {
+            const activeProfile = updatedVal.tax_profiles?.find((tp: any) => tp.is_active);
+            if (activeProfile) {
+              return parseFloat(activeProfile.tax_rate || 0) / 100;
+            }
+            return parseFloat(updatedVal.sst || 0) / 100;
+          })(),
+          payment_mode: updatedVal.payment_mode || 'both',
+          show_voided_on_receipt: updatedVal.show_voided_on_receipt !== false,
+          business_settings: updatedVal.business_settings
+        });
       }
 
       setShowSuccessToast(true);

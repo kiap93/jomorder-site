@@ -542,7 +542,13 @@ export function CustomerMenu() {
             name: restRes.name, 
             currency: restRes.currency, 
             serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
-            sst: parseFloat(restRes.sst || 0) / 100,
+            sst: (() => {
+              const activeProfile = restRes.tax_profiles?.find((tp: any) => tp.is_active);
+              if (activeProfile) {
+                return parseFloat(activeProfile.tax_rate || 0) / 100;
+              }
+              return parseFloat(restRes.sst || 0) / 100;
+            })(),
             franchiseId: restRes.franchise_id,
             payment_mode: restRes.payment_mode || 'pay_first'
           };

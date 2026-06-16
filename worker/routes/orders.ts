@@ -1196,7 +1196,19 @@ orderRoutes.post("/api/orders/:orderId/items/:itemId/cancel", authenticate, asyn
       // 9. Recalculate bill
       const restaurant = order.restaurants;
       const scRate = (restaurant?.service_charge || 0) / 100;
-      const sstRate = (restaurant?.sst || 0) / 100;
+      
+      // Dynamically load active tax profiles from the backend structure
+      let sstRate = (restaurant?.sst || 0) / 100;
+      if (restaurant?.id) {
+        const { data: activeProfiles } = await supabase
+          .from('tax_profiles')
+          .select('tax_rate')
+          .eq('business_id', restaurant.id)
+          .eq('is_active', true);
+        if (activeProfiles && activeProfiles.length > 0) {
+          sstRate = Number(activeProfiles[0].tax_rate) / 100;
+        }
+      }
 
       let subtotal = 0;
       newItemsJson.forEach((it: any) => {

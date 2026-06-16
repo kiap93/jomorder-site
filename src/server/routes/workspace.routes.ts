@@ -785,11 +785,13 @@ router.get("/restaurants/:id", authenticateJWT, async (req, res) => {
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
 
     // Fetch or initialize business_settings
-    let { data: bSettings, error: bsError } = await supabaseAdmin
+    let { data: bSettingsList, error: bsError } = await supabaseAdmin
       .from('business_settings')
       .select('*')
       .eq('restaurant_id', req.params.id)
-      .maybeSingle();
+      .limit(1);
+
+    let bSettings = bSettingsList && bSettingsList[0] ? bSettingsList[0] : null;
 
     if (!bSettings || bsError) {
       // Auto-migrate standard Malaysia or fallback values
@@ -810,13 +812,13 @@ router.get("/restaurants/:id", authenticateJWT, async (req, res) => {
         payment_mode: initialPaymentMode
       };
 
-      const { data: newBS } = await supabaseAdmin
+      const { data: newBSList } = await supabaseAdmin
         .from('business_settings')
         .insert([preset])
         .select()
-        .maybeSingle();
+        .limit(1);
       
-      bSettings = newBS || preset;
+      bSettings = (newBSList && newBSList[0]) || preset;
     }
 
     // Attach business_settings to restaurant payload
@@ -830,6 +832,13 @@ router.get("/restaurants/:id", authenticateJWT, async (req, res) => {
       date_format: bSettings.date_format || 'DD/MM/YYYY',
       payment_mode: bSettings.payment_mode || 'both'
     };
+
+    // Attach custom database-driven tax profiles
+    const { data: taxProfiles } = await supabaseAdmin
+      .from('tax_profiles')
+      .select('*')
+      .eq('business_id', req.params.id);
+    data.tax_profiles = taxProfiles || [];
 
     // Flatten for absolute backward compatibility
     data.currency = bSettings.currency_code || data.currency || 'MYR';
@@ -865,17 +874,19 @@ router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
       };
 
       // Check if row exists
-      const { data: existingBS } = await supabaseAdmin
+      const { data: existingBSList } = await supabaseAdmin
         .from('business_settings')
-        .select('id')
+        .select('*')
         .eq('restaurant_id', req.params.id)
-        .maybeSingle();
+        .limit(1);
+
+      const existingBS = existingBSList && existingBSList[0] ? existingBSList[0] : null;
 
       if (existingBS) {
         await supabaseAdmin
           .from('business_settings')
           .update(bsPayload)
-          .eq('restaurant_id', req.params.id);
+          .eq('id', existingBS.id);
       } else {
         await supabaseAdmin
           .from('business_settings')
@@ -883,6 +894,41 @@ router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
             business_id: req.params.id,
             restaurant_id: req.params.id,
             ...bsPayload
+          }]);
+      }
+
+      // Synchronize with active tax profiles
+      const targetCountry = business_settings.country || 'MY';
+      const targetRate = Number(business_settings.tax_rate !== undefined ? business_settings.tax_rate : 6);
+      const targetType = business_settings.tax_type || 'SST';
+
+      const { data: activeTPs } = await supabaseAdmin
+        .from('tax_profiles')
+        .select('*')
+        .eq('business_id', req.params.id)
+        .eq('is_active', true);
+
+      if (activeTPs && activeTPs.length > 0) {
+        await supabaseAdmin
+          .from('tax_profiles')
+          .update({
+            country_code: targetCountry,
+            tax_rate: targetRate,
+            tax_type: targetType,
+            name: `${targetCountry === 'MY' ? 'Malaysia' : (targetCountry === 'SG' ? 'Singapore' : (targetCountry === 'AU' ? 'Australia' : 'UK'))} ${targetType}`
+          })
+          .eq('id', activeTPs[0].id);
+      } else {
+        await supabaseAdmin
+          .from('tax_profiles')
+          .insert([{
+            business_id: req.params.id,
+            country_code: targetCountry,
+            tax_rate: targetRate,
+            tax_type: targetType,
+            name: `${targetCountry === 'MY' ? 'Malaysia' : (targetCountry === 'SG' ? 'Singapore' : (targetCountry === 'AU' ? 'Australia' : 'UK'))} ${targetType}`,
+            is_inclusive: false,
+            is_active: true
           }]);
       }
 
@@ -912,11 +958,13 @@ router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
     data.show_voided_on_receipt = extra.show_voided_on_receipt !== false;
 
     // Fetch updated business settings to include in response
-    const { data: finalBS } = await supabaseAdmin
+    const { data: finalBSList } = await supabaseAdmin
       .from('business_settings')
       .select('*')
       .eq('restaurant_id', req.params.id)
-      .maybeSingle();
+      .limit(1);
+
+    const finalBS = finalBSList && finalBSList[0] ? finalBSList[0] : null;
 
     if (finalBS) {
       data.business_settings = {
@@ -935,9 +983,160 @@ router.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
       data.payment_mode = finalBS.payment_mode;
     }
 
+    // Attach custom database-driven tax profiles
+    const { data: taxProfiles } = await supabaseAdmin
+      .from('tax_profiles')
+      .select('*')
+      .eq('business_id', req.params.id);
+    data.tax_profiles = taxProfiles || [];
+
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Countries & dynamic Tax Profiles / Rules management endpoints
+router.get("/countries", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('countries')
+      .select('*')
+      .order('name', { ascending: true });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/restaurants/:restId/tax-profiles", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('tax_profiles')
+      .select('*')
+      .eq('business_id', req.params.restId)
+      .order('id', { ascending: true });
+    
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/restaurants/:restId/tax-profiles", authenticateJWT, async (req, res) => {
+  try {
+    const { name, country_code, tax_type, tax_rate, is_inclusive, is_active } = req.body;
+    const { data, error } = await supabaseAdmin
+      .from('tax_profiles')
+      .insert([{
+        business_id: req.params.restId,
+        name,
+        country_code,
+        tax_type,
+        tax_rate: Number(tax_rate),
+        is_inclusive: !!is_inclusive,
+        is_active: is_active !== false
+      }])
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch("/tax-profiles/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { name, country_code, tax_type, tax_rate, is_inclusive, is_active } = req.body;
+    const updateBody: any = {};
+    if (name !== undefined) updateBody.name = name;
+    if (country_code !== undefined) updateBody.country_code = country_code;
+    if (tax_type !== undefined) updateBody.tax_type = tax_type;
+    if (tax_rate !== undefined) updateBody.tax_rate = Number(tax_rate);
+    if (is_inclusive !== undefined) updateBody.is_inclusive = !!is_inclusive;
+    if (is_active !== undefined) updateBody.is_active = !!is_active;
+
+    const { data, error } = await supabaseAdmin
+      .from('tax_profiles')
+      .update(updateBody)
+      .eq('id', req.params.id)
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/tax-profiles/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('tax_profiles')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Tax Rules Endpoints
+router.get("/tax-profiles/:profileId/rules", authenticateJWT, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('tax_rules')
+      .select('*')
+      .eq('tax_profile_id', req.params.profileId);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/tax-profiles/:profileId/rules", authenticateJWT, async (req, res) => {
+  try {
+    const { applies_to, product_category_id, product_id, priority } = req.body;
+    const { data, error } = await supabaseAdmin
+      .from('tax_rules')
+      .insert([{
+        tax_profile_id: req.params.profileId,
+        applies_to,
+        product_category_id: product_category_id || null,
+        product_id: product_id || null,
+        priority: priority || 0
+      }])
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/tax-rules/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('tax_rules')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

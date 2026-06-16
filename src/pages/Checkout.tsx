@@ -196,7 +196,13 @@ export function Checkout() {
         setRestaurant({
           ...restRes,
           serviceCharge: parseFloat(restRes.service_charge || 0) / 100,
-          sst: parseFloat(restRes.sst || 0) / 100
+          sst: (() => {
+            const activeProfile = restRes.tax_profiles?.find((tp: any) => tp.is_active);
+            if (activeProfile) {
+              return parseFloat(activeProfile.tax_rate || 0) / 100;
+            }
+            return parseFloat(restRes.sst || 0) / 100;
+          })()
         } as Restaurant);
         const mapDbOrderToOrder = (db: DbOrder): Order => ({
           id: db.id,

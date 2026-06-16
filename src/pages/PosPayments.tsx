@@ -100,7 +100,13 @@ export function PosPayments() {
             name: restData.name,
             currency: restData.currency || 'RM',
             serviceCharge: parseFloat(restData.service_charge || 0) / 100,
-            sst: parseFloat(restData.sst || 0) / 100,
+            sst: (() => {
+              const activeProfile = restData.tax_profiles?.find((tp: any) => tp.is_active);
+              if (activeProfile) {
+                return parseFloat(activeProfile.tax_rate || 0) / 100;
+              }
+              return parseFloat(restData.sst || 0) / 100;
+            })(),
             franchiseId: restData.franchise_id
           });
         }
