@@ -137,8 +137,11 @@ export function PaymentSuccess() {
       `;
     }).join('');
 
-    const scRate = restaurant?.serviceCharge !== undefined ? restaurant.serviceCharge / 100 : 0.06;
-    const sstRate = restaurant?.sst !== undefined ? restaurant.sst / 100 : 0.10;
+    const rawSC = (restaurant as any)?.service_charge !== undefined ? parseFloat(String((restaurant as any).service_charge)) : (restaurant?.serviceCharge !== undefined ? parseFloat(String(restaurant.serviceCharge)) : 6.0);
+    const scRate = rawSC >= 1.0 ? rawSC / 100 : rawSC;
+
+    const rawSST = restaurant?.sst !== undefined ? parseFloat(String(restaurant.sst)) : 10.0;
+    const sstRate = rawSST >= 1.0 ? rawSST / 100 : rawSST;
 
     const netSubtotal = Math.max(0, itemsSubtotal - totalDiscounts);
     const serviceChargeTotal = netSubtotal * scRate;

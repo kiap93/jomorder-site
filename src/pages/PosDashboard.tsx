@@ -120,10 +120,8 @@ export function PosDashboard() {
             serviceCharge: parseFloat(data.service_charge) / 100,
             sst: (() => {
               const activeProfile = data.tax_profiles?.find((tp: any) => tp.is_active);
-              if (activeProfile) {
-                return parseFloat(activeProfile.tax_rate || 0) / 100;
-              }
-              return parseFloat(data.sst || 0) / 100;
+              const rawRate = activeProfile ? parseFloat(activeProfile.tax_rate || 0) : parseFloat(data.sst || 0);
+              return rawRate >= 1.0 ? rawRate / 100 : rawRate;
             })(),
             franchiseId: data.franchise_id
           } as Restaurant);

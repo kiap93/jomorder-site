@@ -102,10 +102,8 @@ export function PosPayments() {
             serviceCharge: parseFloat(restData.service_charge || 0) / 100,
             sst: (() => {
               const activeProfile = restData.tax_profiles?.find((tp: any) => tp.is_active);
-              if (activeProfile) {
-                return parseFloat(activeProfile.tax_rate || 0) / 100;
-              }
-              return parseFloat(restData.sst || 0) / 100;
+              const rawRate = activeProfile ? parseFloat(activeProfile.tax_rate || 0) : parseFloat(restData.sst || 0);
+              return rawRate >= 1.0 ? rawRate / 100 : rawRate;
             })(),
             franchiseId: restData.franchise_id
           });
