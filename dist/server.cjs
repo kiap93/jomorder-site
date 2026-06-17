@@ -5308,7 +5308,7 @@ router6.patch("/restaurants/:id", authenticateJWT, async (req, res) => {
           tax_rate: targetRate,
           tax_type: targetType,
           name: `${targetCountry === "MY" ? "Malaysia" : targetCountry === "SG" ? "Singapore" : targetCountry === "AU" ? "Australia" : "UK"} ${targetType}`
-        }).eq("id", activeTPs[0].id);
+        }).eq("business_id", req.params.id).eq("is_active", true);
       } else {
         await supabaseAdmin.from("tax_profiles").insert([{
           business_id: req.params.id,

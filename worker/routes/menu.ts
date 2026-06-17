@@ -190,7 +190,8 @@ menuRoutes.patch("/api/restaurants/:id", authenticate, async (c) => {
           tax_type: targetType,
           name: `${targetCountry === 'MY' ? 'Malaysia' : (targetCountry === 'SG' ? 'Singapore' : (targetCountry === 'AU' ? 'Australia' : 'UK'))} ${targetType}`
         })
-        .eq('id', activeTPs[0].id);
+        .eq('business_id', id)
+        .eq('is_active', true);
     } else {
       await supabase
         .from('tax_profiles')
