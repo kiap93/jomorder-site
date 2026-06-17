@@ -143,6 +143,9 @@ export function PaymentSuccess() {
     const rawSST = restaurant?.sst !== undefined ? parseFloat(String(restaurant.sst)) : 10.0;
     const sstRate = rawSST >= 1.0 ? rawSST / 100 : rawSST;
 
+    const activeTP = (restaurant as any)?.tax_profiles?.find((tp: any) => tp.is_active);
+    const taxLabel = activeTP?.tax_type || (restaurant as any)?.business_settings?.tax_type || 'SST';
+
     const netSubtotal = Math.max(0, itemsSubtotal - totalDiscounts);
     const serviceChargeTotal = netSubtotal * scRate;
     const sstTotal = (netSubtotal + serviceChargeTotal) * sstRate;
@@ -276,7 +279,7 @@ export function PaymentSuccess() {
           <span>RM ${serviceChargeTotal.toFixed(2)}</span>
         </div>
         <div class="totals-row">
-          <span>GOVT SST (${(sstRate * 100).toFixed(0)}%):</span>
+          <span>GOVT ${taxLabel.toUpperCase()} (${(sstRate * 100).toFixed(0)}%):</span>
           <span>RM ${sstTotal.toFixed(2)}</span>
         </div>
 

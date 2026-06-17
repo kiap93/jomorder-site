@@ -544,11 +544,17 @@ export function CustomerMenu() {
             serviceCharge: parseFloat(restRes.service_charge || 0) / 100, 
             sst: (() => {
               const activeProfile = restRes.tax_profiles?.find((tp: any) => tp.is_active);
-              const rawRate = activeProfile ? parseFloat(activeProfile.tax_rate || 0) : parseFloat(restRes.sst || 0);
+              const rawRate = activeProfile 
+                ? parseFloat(activeProfile.tax_rate || 0) 
+                : (restRes.business_settings?.tax_rate !== undefined 
+                    ? parseFloat(String(restRes.business_settings.tax_rate)) 
+                    : parseFloat(restRes.sst || 0));
               return rawRate >= 1.0 ? rawRate / 100 : rawRate;
             })(),
             franchiseId: restRes.franchise_id,
-            payment_mode: restRes.payment_mode || 'pay_first'
+            payment_mode: restRes.payment_mode || 'pay_first',
+            business_settings: restRes.business_settings,
+            tax_profiles: restRes.tax_profiles
           };
           return JSON.stringify(prev) === JSON.stringify(nr) ? prev : nr;
         });
@@ -1879,7 +1885,7 @@ export function CustomerMenu() {
                 )}
                 {sst > 0 && (
                   <div className="flex justify-between text-xs font-medium text-zinc-500">
-                    <span>{restaurant?.business_settings?.tax_type || 'SST'} ({(restaurant?.sst || 0) * 100}%)</span>
+                    <span>{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || 'SST'} ({(restaurant?.sst || 0) * 100}%)</span>
                     <span className="text-zinc-900">{formatCurrency(sst, restaurant?.currency)}</span>
                   </div>
                 )}

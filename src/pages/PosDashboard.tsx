@@ -120,10 +120,16 @@ export function PosDashboard() {
             serviceCharge: parseFloat(data.service_charge) / 100,
             sst: (() => {
               const activeProfile = data.tax_profiles?.find((tp: any) => tp.is_active);
-              const rawRate = activeProfile ? parseFloat(activeProfile.tax_rate || 0) : parseFloat(data.sst || 0);
+              const rawRate = activeProfile 
+                ? parseFloat(activeProfile.tax_rate || 0) 
+                : (data.business_settings?.tax_rate !== undefined 
+                    ? parseFloat(String(data.business_settings.tax_rate)) 
+                    : parseFloat(data.sst || 0));
               return rawRate >= 1.0 ? rawRate / 100 : rawRate;
             })(),
-            franchiseId: data.franchise_id
+            franchiseId: data.franchise_id,
+            business_settings: data.business_settings,
+            tax_profiles: data.tax_profiles
           } as Restaurant);
         }
       });

@@ -198,7 +198,11 @@ export function Checkout() {
           serviceCharge: parseFloat(restRes.service_charge || 0) / 100,
           sst: (() => {
             const activeProfile = restRes.tax_profiles?.find((tp: any) => tp.is_active);
-            const rawRate = activeProfile ? parseFloat(activeProfile.tax_rate || 0) : parseFloat(restRes.sst || 0);
+            const rawRate = activeProfile 
+              ? parseFloat(activeProfile.tax_rate || 0) 
+              : (restRes.business_settings?.tax_rate !== undefined 
+                  ? parseFloat(String(restRes.business_settings.tax_rate)) 
+                  : parseFloat(restRes.sst || 0));
             return rawRate >= 1.0 ? rawRate / 100 : rawRate;
           })()
         } as Restaurant);
@@ -592,7 +596,7 @@ export function Checkout() {
                   )}
                   {calculatedSST > 0 && (
                     <div className="flex justify-between items-center">
-                      <span className="text-zinc-500 font-medium">{restaurant?.business_settings?.tax_type || 'SST'} ({(sstRate * 100).toFixed(0)}%)</span>
+                      <span className="text-zinc-500 font-medium">{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || 'SST'} ({(sstRate * 100).toFixed(0)}%)</span>
                       <span className="text-zinc-400 font-bold tabular-nums">{formatCurrency(calculatedSST, restaurant?.currency)}</span>
                     </div>
                   )}

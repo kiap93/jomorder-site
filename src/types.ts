@@ -35,6 +35,7 @@ export interface Restaurant {
   payment_mode?: 'pay_first' | 'pay_later' | 'both';
   show_voided_on_receipt?: boolean;
   business_settings?: BusinessSettings;
+  tax_profiles?: any[];
 }
 
 export interface Table {
