@@ -6057,7 +6057,7 @@ router9.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireA
   const caller = req.user;
   const orderId = req.params.id;
   try {
-    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("restaurant_id, status").eq("id", orderId).maybeSingle();
+    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select("*, restaurants(*)").eq("id", orderId).maybeSingle();
     if (orderErr) throw orderErr;
     if (!order) return res.status(404).json({ error: "Order not found." });
     const restId = order.restaurant_id || caller?.restaurantId || "default";
@@ -6138,6 +6138,52 @@ router9.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireA
       if (allowedColumns.includes(dbColumn) && req.body[key] !== void 0) {
         updatePayload[dbColumn] = req.body[key];
       }
+    }
+    if (updatePayload["items"] !== void 0 || updatePayload["discount"] !== void 0) {
+      const items = updatePayload["items"] !== void 0 ? updatePayload["items"] : order.items;
+      const discount = updatePayload["discount"] !== void 0 ? updatePayload["discount"] : order.discount;
+      let rawSubtotal = 0;
+      if (Array.isArray(items)) {
+        items.forEach((item) => {
+          if (item.voided || item.status === "voided" || item.status === "cancelled") {
+            return;
+          }
+          const price = item.price || item.originalUnitPrice || 0;
+          const qty = item.quantity || 1;
+          const itemTotal = price * qty;
+          let itemDiscountAmt = 0;
+          if (item.discount) {
+            if (item.discount.type === "percentage") {
+              itemDiscountAmt = itemTotal * (item.discount.value / 100);
+            } else {
+              itemDiscountAmt = Math.min(itemTotal, item.discount.value * qty);
+            }
+          }
+          rawSubtotal += itemTotal - itemDiscountAmt;
+        });
+      }
+      let orderDiscAmt = 0;
+      if (discount) {
+        if (discount.type === "percentage") {
+          orderDiscAmt = rawSubtotal * (discount.value / 100);
+        } else {
+          orderDiscAmt = Math.min(rawSubtotal, discount.value);
+        }
+      }
+      const netSubtotal = Math.max(0, rawSubtotal - orderDiscAmt);
+      const restaurant = order.restaurants || {};
+      const scRate = (restaurant.service_charge || 0) / 100;
+      let sstRate = (restaurant.sst || 0) / 100;
+      if (restaurant.id) {
+        const { data: activeProfiles } = await supabaseAdmin.from("tax_profiles").select("tax_rate").eq("business_id", restaurant.id).eq("is_active", true);
+        if (activeProfiles && activeProfiles.length > 0) {
+          sstRate = Number(activeProfiles[0].tax_rate) / 100;
+        }
+      }
+      const scAmount = netSubtotal * scRate;
+      const sstAmount = (netSubtotal + scAmount) * sstRate;
+      const grandTotal = netSubtotal + scAmount + sstAmount;
+      updatePayload["total_price"] = Math.round(grandTotal * 100) / 100;
     }
     const { data, error } = await supabaseAdmin.from("orders").update(updatePayload).eq("id", orderId).select().single();
     if (error) return res.status(500).json({ error: error.message });

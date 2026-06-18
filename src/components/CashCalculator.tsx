@@ -46,6 +46,7 @@ interface CashCalculatorProps {
 
 export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDetails, onComplete, onCancel, inline = false }: CashCalculatorProps) {
   const { profile } = useAuthStore();
+  const currency = orderDetails?.currency || 'RM';
   const [cashReceived, setCashReceived] = useState<string>('');
   const [status, setStatus] = useState<CashCalculatorStatus>('calculating');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -183,19 +184,19 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                     <>
                       <div className="flex justify-between items-center text-[9px] font-bold text-zinc-600 uppercase tracking-widest leading-none">
                         <span>Subtotal</span>
-                        <span className="text-zinc-500">RM {(orderDetails.subtotal || 0).toFixed(2)}</span>
+                        <span className="text-zinc-500">{currency} {(orderDetails.subtotal || 0).toFixed(2)}</span>
                       </div>
                       {(orderDetails.serviceCharge || 0) > 0 && (
                         <div className="flex justify-between items-center text-[9px] font-bold text-zinc-700 uppercase tracking-widest leading-none">
                           <span>Tax/Fees</span>
-                          <span>RM {(orderDetails.serviceCharge + orderDetails.sst).toFixed(2)}</span>
+                          <span>{currency} {(orderDetails.serviceCharge + orderDetails.sst).toFixed(2)}</span>
                         </div>
                       )}
                     </>
                   ) : (
                     <div className="flex justify-between items-center text-[9px] font-bold text-zinc-600 uppercase tracking-widest leading-none">
                       <span>Order Total</span>
-                      <span className="text-zinc-500">RM {(initialAmountDue || 0).toFixed(2)}</span>
+                      <span className="text-zinc-500">{currency} {(initialAmountDue || 0).toFixed(2)}</span>
                     </div>
                   )}
                   
@@ -210,7 +211,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                 <div className="pt-1 md:pt-2 md:border-t md:border-zinc-800">
                   <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-0.5 leading-none">Required Net</p>
                   <div className="flex items-baseline gap-1.5 leading-none">
-                    <span className="text-zinc-600 font-black text-xs md:text-base italic leading-none">RM</span>
+                    <span className="text-zinc-600 font-black text-xs md:text-base italic leading-none">{currency}</span>
                     <span className="text-2xl md:text-3xl font-black text-white tabular-nums tracking-tighter leading-none">
                       {(finalAmountDue || 0).toFixed(2)}
                     </span>
@@ -234,7 +235,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                     <div className="space-y-3">
                       <div className="flex justify-between items-center leading-none">
                         <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600">Input</span>
-                        <span className="text-base font-black text-white tabular-nums tracking-tight">RM {cash.toFixed(2)}</span>
+                        <span className="text-base font-black text-white tabular-nums tracking-tight">{currency} {cash.toFixed(2)}</span>
                       </div>
                       <div className="h-px bg-zinc-800/50" />
                       <div className="flex justify-between items-end leading-none">
@@ -245,7 +246,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                           <span className={`text-2xl font-black tabular-nums tracking-tighter ${
                             isSufficient ? 'text-emerald-500' : 'text-orange-500'
                           }`}>
-                            RM {(isSufficient ? change : remaining).toFixed(2)}
+                            {currency} {(isSufficient ? change : remaining).toFixed(2)}
                           </span>
                         </div>
                         {isPartial && (
@@ -297,7 +298,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                     onClick={() => addIncrement(val)}
                     className="h-8 md:h-10 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 rounded transition-all active:scale-95 flex flex-col items-center justify-center shrink-0"
                   >
-                    <span className="text-[8px] font-black text-zinc-700 mb-0.5 leading-none">+RM</span>
+                    <span className="text-[8px] font-black text-zinc-700 mb-0.5 leading-none">+{currency}</span>
                     <span className="text-xs font-black text-zinc-300 leading-none">{val}</span>
                   </button>
                 ))}
@@ -337,7 +338,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
 
               <div className="relative">
                 <div className="absolute inset-y-0 left-3 md:left-4 flex items-center pointer-events-none">
-                  <span className="text-sm md:text-base font-black text-zinc-800">RM</span>
+                  <span className="text-xs md:text-sm font-black text-zinc-800">{currency}</span>
                 </div>
                 <input 
                   type="text" 
@@ -404,7 +405,7 @@ export function CashCalculator({ amountDue: initialAmountDue, orderId, orderDeta
                    <div className="text-center w-full">
                      <p className="text-emerald-300 text-[8px] font-black uppercase tracking-widest mb-1 italic">Verify Transaction</p>
                      <h3 className="text-xl font-black text-white tracking-tight leading-none italic">
-                        {isSufficient ? `Give Change RM ${change.toFixed(2)}?` : `Pay Partial RM ${cash.toFixed(2)}?`}
+                        {isSufficient ? `Give Change ${currency} ${change.toFixed(2)}?` : `Pay Partial ${currency} ${cash.toFixed(2)}?`}
                      </h3>
                    </div>
                    <div className="flex gap-2 w-full shrink-0">

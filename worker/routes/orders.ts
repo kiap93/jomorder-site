@@ -483,7 +483,7 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
   try {
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('restaurant_id, status')
+      .select('*, restaurants(*)')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -555,6 +555,66 @@ orderRoutes.patch("/api/orders/:id", authenticate, async (c) => {
       if (allowedColumns.includes(dbColumn) && body[key] !== undefined) {
         updatePayload[dbColumn] = body[key];
       }
+    }
+
+    // Recalculate total_price dynamically if items or discount is being altered
+    if (updatePayload['items'] !== undefined || updatePayload['discount'] !== undefined) {
+      const items = updatePayload['items'] !== undefined ? updatePayload['items'] : order.items;
+      const discount = updatePayload['discount'] !== undefined ? updatePayload['discount'] : order.discount;
+
+      let rawSubtotal = 0;
+      if (Array.isArray(items)) {
+        items.forEach((item: any) => {
+          if (item.voided || item.status === 'voided' || item.status === 'cancelled') {
+            return;
+          }
+          const price = item.price || item.originalUnitPrice || 0;
+          const qty = item.quantity || 1;
+          const itemTotal = price * qty;
+
+          let itemDiscountAmt = 0;
+          if (item.discount) {
+            if (item.discount.type === 'percentage') {
+              itemDiscountAmt = itemTotal * (item.discount.value / 100);
+            } else {
+              itemDiscountAmt = Math.min(itemTotal, item.discount.value * qty);
+            }
+          }
+          rawSubtotal += (itemTotal - itemDiscountAmt);
+        });
+      }
+
+      let orderDiscAmt = 0;
+      if (discount) {
+        if (discount.type === 'percentage') {
+          orderDiscAmt = rawSubtotal * (discount.value / 100);
+        } else {
+          orderDiscAmt = Math.min(rawSubtotal, discount.value);
+        }
+      }
+
+      const netSubtotal = Math.max(0, rawSubtotal - orderDiscAmt);
+
+      const restaurant = (order as any).restaurants || {};
+      const scRate = (restaurant.service_charge || 0) / 100;
+
+      let sstRate = (restaurant.sst || 0) / 100;
+      if (restaurant.id) {
+        const { data: activeProfiles } = await supabase
+          .from('tax_profiles')
+          .select('tax_rate')
+          .eq('business_id', restaurant.id)
+          .eq('is_active', true);
+        if (activeProfiles && activeProfiles.length > 0) {
+          sstRate = Number(activeProfiles[0].tax_rate) / 100;
+        }
+      }
+
+      const scAmount = netSubtotal * scRate;
+      const sstAmount = (netSubtotal + scAmount) * sstRate;
+      const grandTotal = netSubtotal + scAmount + sstAmount;
+
+      updatePayload['total_price'] = Math.round(grandTotal * 100) / 100;
     }
 
     const { data, error } = await supabase
