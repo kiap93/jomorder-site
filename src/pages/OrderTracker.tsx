@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { formatCurrency } from '../lib/localization';
 
 export function OrderTracker() {
   const { orderId, restId, tableId, sessionId } = useParams();
@@ -31,6 +32,7 @@ export function OrderTracker() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [paymentSettings, setPaymentSettings] = useState<{ provider?: string; enabled_methods?: string[] } | null>(null);
+  const [restaurant, setRestaurant] = useState<any>(null);
   const { t } = useLanguageStore();
 
   const [callingStaff, setCallingStaff] = useState(false);
@@ -91,6 +93,17 @@ export function OrderTracker() {
 
     const fetchSessionData = async () => {
       try {
+        // Fetch public restaurant info for currency settings
+        try {
+          const res = await fetch(getApiUrl(`/api/public/restaurants/${restId}`));
+          if (res.ok) {
+            const restData = await res.json();
+            setRestaurant(restData);
+          }
+        } catch (restErr) {
+          console.error('[OrderTracker] Fetch restaurant details failed:', restErr);
+        }
+
         // Fetch public payment settings
         try {
           const settingsRes = await fetch(getApiUrl(`/api/restaurants/${restId}/public-payment-settings`));
@@ -340,7 +353,7 @@ export function OrderTracker() {
               Cumulative Bill
             </p>
             <p className="text-base font-black text-orange-600 dark:text-orange-500">
-              RM {(totalPrice || 0).toFixed(2)}
+              {formatCurrency(totalPrice || 0, restaurant?.currency)}
             </p>
           </div>
         </div>
@@ -359,7 +372,7 @@ export function OrderTracker() {
                   Unpaid Balance
                 </span>
                 <p className="text-3xl font-black text-zinc-900 dark:text-white mt-2">
-                  RM {(unpaidTotal || 0).toFixed(2)}
+                  {formatCurrency(unpaidTotal || 0, restaurant?.currency)}
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
                   Settle session bill securely from your table
@@ -420,7 +433,7 @@ export function OrderTracker() {
               </div>
               <div className="text-right">
                 <p className="font-bold text-zinc-400 uppercase tracking-wider text-[9px]">Bill Total</p>
-                <p className="font-black text-zinc-900 dark:text-zinc-100 text-sm mt-0.5">RM {(totalPrice || 0).toFixed(2)}</p>
+                <p className="font-black text-zinc-900 dark:text-zinc-100 text-sm mt-0.5">{formatCurrency(totalPrice || 0, restaurant?.currency)}</p>
               </div>
             </div>
 
@@ -547,7 +560,7 @@ export function OrderTracker() {
 
                             <div className="text-right shrink-0">
                               <span className={`text-xs font-mono font-bold block ${isCancelled ? 'text-zinc-300 line-through font-normal' : 'text-zinc-550 dark:text-zinc-400'}`}>
-                                RM {((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                                {formatCurrency((item.price || 0) * (item.quantity || 1), restaurant?.currency)}
                               </span>
                             </div>
                           </div>
@@ -562,7 +575,7 @@ export function OrderTracker() {
                       Order Subtotal
                     </span>
                     <span className="text-sm font-black text-zinc-900 dark:text-zinc-100">
-                      RM {(o.totalPrice || 0).toFixed(2)}
+                      {formatCurrency(o.totalPrice || 0, restaurant?.currency)}
                     </span>
                   </div>
                 </div>
@@ -604,7 +617,7 @@ export function OrderTracker() {
                       </div>
                       
                       <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mt-1">
-                        Settle amount: <span className="font-bold text-zinc-800 dark:text-zinc-200">RM {o.totalPrice.toFixed(2)}</span> ({o.items?.length || 0} items)
+                        Settle amount: <span className="font-bold text-zinc-800 dark:text-zinc-200">{formatCurrency(o.totalPrice || 0, restaurant?.currency)}</span> ({o.items?.length || 0} items)
                       </p>
                     </div>
 
