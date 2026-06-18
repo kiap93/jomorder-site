@@ -378,15 +378,16 @@ export function AdminPanel() {
   const fetchAnalytics = async () => {
     setIsAnalyticsLoading(true);
     try {
-      // Fetch orders in range
-      const { data: orders, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('restaurant_id', restId)
-        .gte('created_at', `${dateRange.start}T00:00:00`)
-        .lte('created_at', `${dateRange.end}T23:59:59`);
+      const token = useAuthStore.getState().token;
+      if (!token) return;
 
-      if (error) throw error;
+      const res = await fetch(getApiUrl(`/api/restaurants/${restId}/orders?limit=3000&startDate=${dateRange.start}&endDate=${dateRange.end}`), {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        throw new Error(`Analytics API error: ${res.statusText}`);
+      }
+      const orders = await res.json();
 
       if (orders) {
         let grossSalesSum = 0;
@@ -413,7 +414,7 @@ export function AdminPanel() {
 
         const itemMap = new Map<string, { count: number, revenue: number }>();
 
-        orders.forEach(order => {
+        orders.forEach((order: any) => {
           const finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
           stats.revenue += finalPriceSum;
           

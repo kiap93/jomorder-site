@@ -4588,6 +4588,28 @@ router5.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIso
   if (caller.role !== "superadmin" && caller.restaurantId !== restId && caller.restaurant_id !== restId) {
     return res.status(403).json({ error: "Forbidden: Unauthorized access to system audit logs." });
   }
+  try {
+    const { data, error } = await supabaseAdmin.from("audit_logs").select("*").eq("restaurant_id", restId).order("timestamp", { ascending: false }).limit(300);
+    if (error) {
+      console.error("[Audit Service] DB read error:", error.message);
+      throw error;
+    }
+    if (data) {
+      const mappedLogs = data.map((log) => ({
+        id: log.id,
+        restaurant_id: log.restaurant_id,
+        user_id: log.user_id,
+        user_email: log.user_email,
+        role: log.user_role,
+        user_role: log.user_role,
+        action: log.action,
+        timestamp: log.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+      }));
+      return res.json(mappedLogs);
+    }
+  } catch (dbErr) {
+    console.error("[Audit Service] DB query fallback to in-memory:", dbErr?.message || dbErr);
+  }
   const logs = readAuditLogs();
   const restLogs = logs.filter((l) => l.restaurant_id === restId);
   res.json(restLogs);
@@ -6044,9 +6066,19 @@ init_auditService();
 var router9 = (0, import_express9.Router)();
 router9.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation("restId"), requireAnyPermission("orders.view", "kitchen.view"), async (req, res) => {
   const { restId } = req.params;
-  const limit = parseInt(req.query.limit) || 100;
-  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
-  const { data, error } = await supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", restId).order("created_at", { ascending: false }).limit(limit);
+  const startDate = req.query.startDate;
+  const endDate = req.query.endDate;
+  const defaultLimit = startDate || endDate ? 5e3 : 100;
+  const limit = parseInt(req.query.limit) || defaultLimit;
+  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}, startDate: ${startDate}, endDate: ${endDate}`);
+  let query = supabaseAdmin.from("orders").select("*, tables(name), payments(amount)").eq("restaurant_id", restId);
+  if (startDate) {
+    query = query.gte("created_at", `${startDate}T00:00:00`);
+  }
+  if (endDate) {
+    query = query.lte("created_at", `${endDate}T23:59:59`);
+  }
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) {
     console.error(`[API ERROR] Fetch orders failed for ${restId}:`, error.message);
     return res.status(500).json({ error: error.message });

@@ -9,13 +9,25 @@ const router = Router();
 // Get orders
 router.get("/restaurants/:restId/orders", authenticateJWT, requireTenantIsolation('restId'), requireAnyPermission('orders.view', 'kitchen.view'), async (req, res) => {
   const { restId } = req.params;
-  const limit = parseInt(req.query.limit as string) || 100;
-  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}`);
+  const startDate = req.query.startDate as string;
+  const endDate = req.query.endDate as string;
+  const defaultLimit = startDate || endDate ? 5000 : 100;
+  const limit = parseInt(req.query.limit as string) || defaultLimit;
+  console.log(`[API] Fetching orders for restId: ${restId}, limit: ${limit}, startDate: ${startDate}, endDate: ${endDate}`);
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
      .from('orders')
      .select('*, tables(name), payments(amount)')
-     .eq('restaurant_id', restId)
+     .eq('restaurant_id', restId);
+
+  if (startDate) {
+    query = query.gte('created_at', `${startDate}T00:00:00`);
+  }
+  if (endDate) {
+    query = query.lte('created_at', `${endDate}T23:59:59`);
+  }
+
+  const { data, error } = await query
      .order('created_at', { ascending: false })
      .limit(limit);
   

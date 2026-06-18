@@ -613,6 +613,42 @@ router.get("/restaurants/:restId/audit-logs", authenticateJWT, requireTenantIsol
     return res.status(403).json({ error: "Forbidden: Unauthorized access to system audit logs." });
   }
 
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('audit_logs')
+      .select('*')
+      .eq('restaurant_id', restId)
+      .order('timestamp', { ascending: false })
+      .limit(300);
+
+    if (error) {
+       console.error("[Audit Service] DB read error:", error.message);
+       throw error;
+    }
+
+    if (data) {
+      // Map keys to what the client expecting if they differ:
+      // timestamp -> timestamp
+      // user_email -> user_email
+      // user_id -> user_id
+      // user_role -> role, user_role (just in case they use both)
+      // action -> action
+      const mappedLogs = data.map((log: any) => ({
+        id: log.id,
+        restaurant_id: log.restaurant_id,
+        user_id: log.user_id,
+        user_email: log.user_email,
+        role: log.user_role,
+        user_role: log.user_role,
+        action: log.action,
+        timestamp: log.timestamp || new Date().toISOString()
+      }));
+      return res.json(mappedLogs);
+    }
+  } catch (dbErr: any) {
+    console.error("[Audit Service] DB query fallback to in-memory:", dbErr?.message || dbErr);
+  }
+
   const logs = readAuditLogs();
   const restLogs = logs.filter(l => l.restaurant_id === restId);
   res.json(restLogs);
