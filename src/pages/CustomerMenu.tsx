@@ -1885,7 +1885,7 @@ export function CustomerMenu() {
                 )}
                 {sst > 0 && (
                   <div className="flex justify-between text-xs font-medium text-zinc-500">
-                    <span>{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || 'SST'} ({(restaurant?.sst || 0) * 100}%)</span>
+                    <span>{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || (restaurant?.currency === 'SGD' || restaurant?.currency === 'AUD' ? 'GST' : (restaurant?.currency === 'GBP' || restaurant?.currency === 'EUR' ? 'VAT' : 'SST'))} ({(restaurant?.sst || 0) * 100}%)</span>
                     <span className="text-zinc-900">{formatCurrency(sst, restaurant?.currency)}</span>
                   </div>
                 )}

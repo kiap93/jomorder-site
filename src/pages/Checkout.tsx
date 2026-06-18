@@ -596,7 +596,7 @@ export function Checkout() {
                   )}
                   {calculatedSST > 0 && (
                     <div className="flex justify-between items-center">
-                      <span className="text-zinc-500 font-medium">{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || 'SST'} ({(sstRate * 100).toFixed(0)}%)</span>
+                      <span className="text-zinc-500 font-medium">{restaurant?.tax_profiles?.find((tp: any) => tp.is_active)?.tax_type || restaurant?.business_settings?.tax_type || (restaurant?.currency === 'SGD' || restaurant?.currency === 'AUD' ? 'GST' : (restaurant?.currency === 'GBP' || restaurant?.currency === 'EUR' ? 'VAT' : 'SST'))} ({(sstRate * 100).toFixed(0)}%)</span>
                       <span className="text-zinc-400 font-bold tabular-nums">{formatCurrency(calculatedSST, restaurant?.currency)}</span>
                     </div>
                   )}

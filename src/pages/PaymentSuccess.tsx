@@ -144,7 +144,7 @@ export function PaymentSuccess() {
     const sstRate = rawSST >= 1.0 ? rawSST / 100 : rawSST;
 
     const activeTP = (restaurant as any)?.tax_profiles?.find((tp: any) => tp.is_active);
-    const taxLabel = activeTP?.tax_type || (restaurant as any)?.business_settings?.tax_type || 'SST';
+    const taxLabel = activeTP?.tax_type || (restaurant as any)?.business_settings?.tax_type || (restaurant?.currency === 'SGD' || restaurant?.currency === 'AUD' ? 'GST' : (restaurant?.currency === 'GBP' || restaurant?.currency === 'EUR' ? 'VAT' : 'SST'));
 
     const netSubtotal = Math.max(0, itemsSubtotal - totalDiscounts);
     const serviceChargeTotal = netSubtotal * scRate;
