@@ -34,6 +34,7 @@ import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { indexedDbStorage } from '../lib/indexedDbStorage';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { formatCurrency } from '../lib/localization';
 import { Order, OrderItem, Restaurant, Payment, PaymentStatus } from '../types';
 import { OrderStatus } from '../enums';
 import { useAuthStore } from '../store/useAuthStore';
@@ -1074,7 +1075,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                   discountType === 'fixed' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                               >
-                                Fixed MYR (RM)
+                                Fixed {restaurant?.currency || 'RM'}
                               </button>
                             </div>
 
@@ -1090,7 +1091,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                     className="w-full h-9 bg-zinc-950 border border-zinc-800 rounded px-2.5 text-[10px] text-white font-black focus:outline-none focus:border-orange-500/50 transition-all tabular-nums"
                                   />
                                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-black bg-zinc-900 px-1 border border-zinc-800 rounded text-zinc-500 leading-none">
-                                    {discountType === 'percentage' ? '%' : 'RM'}
+                                    {discountType === 'percentage' ? '%' : restaurant?.currency || 'RM'}
                                   </span>
                                 </div>
                               </div>
@@ -1116,7 +1117,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                   onClick={() => setDiscountValue(val)}
                                   className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-850 rounded text-[9px] font-black tracking-tight text-zinc-400 hover:text-white transition-all tabular-nums"
                                 >
-                                  {discountType === 'percentage' ? `${val}%` : `RM ${val}`}
+                                  {discountType === 'percentage' ? `${val}%` : `${restaurant?.currency || 'RM'} ${val}`}
                                 </button>
                               ))}
                             </div>
@@ -1188,7 +1189,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                           Disc Applied
                                         </span>
                                         <span className="text-[8.5px] font-bold text-zinc-400 leading-none">
-                                          {it.discount?.value}{it.discount?.type === 'percentage' ? '%' : ' RM'} Off ({it.discount?.reason})
+                                          {it.discount?.value}{it.discount?.type === 'percentage' ? '%' : ` ${restaurant?.currency || 'RM'}`} Off ({it.discount?.reason})
                                         </span>
                                       </div>
                                     )}
@@ -1196,7 +1197,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
                                   <div className="text-right shrink-0">
                                     <p className={`text-[10px] font-black tabular-nums leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-white'}`}>
-                                      RM {itemFinalTotal.toFixed(2)}
+                                      {formatCurrency(itemFinalTotal, restaurant?.currency)}
                                     </p>
                                     
                                     {!isItemVoided && (
@@ -1376,7 +1377,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-3 bg-zinc-900/50 rounded-lg border border-zinc-800 text-left">
                           <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1 leading-none">Net Due</p>
-                          <p className="text-sm font-black text-white leading-none">RM {remainingBalance.toFixed(2)}</p>
+                          <p className="text-sm font-black text-white leading-none">{formatCurrency(remainingBalance, restaurant?.currency)}</p>
                         </div>
                         <div className="p-3 bg-zinc-900/50 rounded-lg border border-zinc-800 text-left">
                           <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1 leading-none">Signal</p>
@@ -1427,7 +1428,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                     <div className="w-full max-w-xl bg-zinc-900 rounded-2xl border border-zinc-800 p-6 shadow-2xl">
                       <div className="mb-6 text-center">
                          <h3 className="text-xl font-black text-white tracking-tight uppercase italic leading-none mb-1">Bill Partition</h3>
-                         <p className="text-zinc-600 text-[10px] font-black uppercase tracking-widest leading-none mt-2">Allocation for <span className="text-white">RM {remainingBalance.toFixed(2)}</span></p>
+                         <p className="text-zinc-600 text-[10px] font-black uppercase tracking-widest leading-none mt-2">Allocation for <span className="text-white">{formatCurrency(remainingBalance, restaurant?.currency)}</span></p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 mb-6">
@@ -1468,7 +1469,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             </div>
                             <div className="text-right space-y-1 border-l border-zinc-800/50 pl-6">
                               <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1 leading-none">Per User</p>
-                              <p className="text-xl font-black text-orange-500 tracking-tighter tabular-nums leading-none">RM {(remainingBalance / splitCount).toFixed(2)}</p>
+                              <p className="text-xl font-black text-orange-500 tracking-tighter tabular-nums leading-none">{formatCurrency(remainingBalance / splitCount, restaurant?.currency)}</p>
                             </div>
                           </div>
 
@@ -1555,7 +1556,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
 
                       <div className="bg-zinc-950 rounded p-2.5 mb-4 border border-zinc-800/50">
                         <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest block mb-0.5 text-left leading-none">Charge</span>
-                        <span className="text-xl font-black text-white tabular-nums tracking-tighter leading-none">RM {remainingBalance.toFixed(2)}</span>
+                        <span className="text-xl font-black text-white tabular-nums tracking-tighter leading-none">{formatCurrency(remainingBalance, restaurant?.currency)}</span>
                       </div>
 
                       <button 
@@ -1636,7 +1637,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         discountType === 'fixed' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                       }`}
                     >
-                      Fixed MYR (RM)
+                      Fixed {restaurant?.currency || 'RM'}
                     </button>
                   </div>
 
@@ -1708,7 +1709,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                        <span className={`w-1 h-1 rounded-full ${o.id === order.id ? 'bg-orange-500' : 'bg-zinc-700'}`} />
                        <span className="text-zinc-500 font-bold uppercase tracking-tighter leading-none">#{getOrderDisplayNo(o.id, o.createdAt || o.created_at)}</span>
                     </div>
-                    <span className="text-zinc-400 font-black leading-none">RM {parseFloat(String(o.totalPrice || o.total_price || 0)).toFixed(2)}</span>
+                    <span className="text-zinc-400 font-black leading-none">{formatCurrency(parseFloat(String(o.totalPrice || o.total_price || 0)), restaurant?.currency)}</span>
                   </div>
                 ))}
               </div>
@@ -1720,24 +1721,24 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
               <div className="space-y-1.5 opacity-60">
                 <div className="flex justify-between items-center text-[9px]">
                   <span className="font-black text-zinc-600 uppercase tracking-widest leading-none">Subtotal</span>
-                  <span className="font-black text-zinc-400 tabular-nums leading-none">RM {subtotal.toFixed(2)}</span>
+                  <span className="font-black text-zinc-400 tabular-nums leading-none">{formatCurrency(subtotal, restaurant?.currency)}</span>
                 </div>
                 <div className="flex justify-between items-center text-[9px]">
                   <span className="font-bold text-zinc-600 uppercase tracking-widest leading-none">Taxes</span>
-                  <span className="font-black text-zinc-400 tabular-nums leading-none">RM {(scAmount + sstAmount).toFixed(2)}</span>
+                  <span className="font-black text-zinc-400 tabular-nums leading-none">{formatCurrency((scAmount + sstAmount), restaurant?.currency)}</span>
                 </div>
               </div>
 
               <div className="pt-3 border-t border-zinc-800/50">
                  <div className="flex justify-between items-baseline mb-2">
                    <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest leading-none">Total</span>
-                   <span className="text-lg font-black text-zinc-500 tracking-tighter tabular-nums leading-none">RM {totalAmount.toFixed(2)}</span>
+                   <span className="text-lg font-black text-zinc-500 tracking-tighter tabular-nums leading-none">{formatCurrency(totalAmount, restaurant?.currency)}</span>
                  </div>
                  
                  {paidAmount > 0 && (
                    <div className="flex justify-between items-center mb-3 px-2 py-1.5 bg-zinc-950 rounded border border-zinc-800/50">
                      <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-none">Settled</span>
-                     <span className="text-[11px] font-black text-emerald-500 tabular-nums leading-none">RM {paidAmount.toFixed(2)}</span>
+                     <span className="text-[11px] font-black text-emerald-500 tabular-nums leading-none">{formatCurrency(paidAmount, restaurant?.currency)}</span>
                    </div>
                  )}
 
@@ -1746,7 +1747,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                        <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">Due Net</span>
                        <span className="text-[8px] font-bold text-zinc-700 uppercase leading-none">Outstanding</span>
                     </div>
-                    <span className="text-4xl font-black text-white tracking-tighter tabular-nums leading-[0.8] mb-0"> {remainingBalance.toFixed(2)}</span>
+                    <span className="text-4xl font-black text-white tracking-tighter tabular-nums leading-[0.8] mb-0">{formatCurrency(remainingBalance, restaurant?.currency)}</span>
                  </div>
               </div>
             </div>
@@ -1822,8 +1823,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                     <span className="text-[8px] font-black uppercase tracking-widest leading-none">Awaiting Ops</span>
                   </div>
                   <div className="flex items-center gap-1 leading-none">
-                    <span className="text-zinc-600 text-[10px] font-bold leading-none">RM</span>
-                    <span className="text-lg font-black text-white tabular-nums leading-none mt-0.5">{remainingBalance.toFixed(2)}</span>
+                    <span className="text-lg font-black text-white tabular-nums leading-none mt-0.5">{formatCurrency(remainingBalance, restaurant?.currency)}</span>
                   </div>
                </div>
             )}

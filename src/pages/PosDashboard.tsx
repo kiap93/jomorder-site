@@ -13,6 +13,7 @@ import { flattenSelections } from '../lib/configEngine';
 import { offlineService } from '../lib/offlineService';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { printerService } from '../services/printerService';
+import { formatCurrency } from '../lib/localization';
 
 interface RawOrder {
   id: string;
@@ -528,7 +529,7 @@ export function PosDashboard() {
 
                           {item.discount && !isCancelled && (
                             <p className="text-[10px] text-orange-600 font-bold mt-0.5 bg-orange-50/50 px-1 py-0.2 rounded-sm inline-block">
-                              🏷️ {item.discount.type === 'percentage' ? `${item.discount.value}% off` : item.discount.type === 'fixed' ? `RM ${item.discount.value} off` : `Override RM ${item.discount.value}`}
+                              🏷️ {item.discount.type === 'percentage' ? `${item.discount.value}% off` : item.discount.type === 'fixed' ? `${formatCurrency(item.discount.value, restaurant?.currency)} off` : `Override ${formatCurrency(item.discount.value, restaurant?.currency)}`}
                             </p>
                           )}
 
@@ -564,14 +565,14 @@ export function PosDashboard() {
                       <div className="text-right pl-2 select-none">
                         {item.discount && !isCancelled && (
                           <div className="text-[9px] line-through text-zinc-400 leading-none">
-                            RM {itemOriginalPrice.toFixed(2)}
+                            {formatCurrency(itemOriginalPrice, restaurant?.currency)}
                           </div>
                         )}
                         <div className={`text-[10px] font-black leading-tight mt-0.5 ${isCancelled ? 'line-through text-zinc-400' : 'text-zinc-900 font-mono'}`}>
-                          RM {itemFinalPrice.toFixed(2)}
+                          {formatCurrency(itemFinalPrice, restaurant?.currency)}
                         </div>
                         <div className="text-[8px] font-bold text-zinc-400 font-mono">
-                          Total: RM {(itemFinalPrice * item.quantity).toFixed(2)}
+                          Total: {formatCurrency(itemFinalPrice * item.quantity, restaurant?.currency)}
                         </div>
                       </div>
                     </div>
@@ -586,7 +587,7 @@ export function PosDashboard() {
                   </span>
                   <div className="text-right">
                     <span className="text-sm font-black text-gray-900 tabular-nums">
-                      RM {((order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? order.totalPrice - (order.paidAmount ?? 0) : order.totalPrice).toFixed(2)}
+                      {formatCurrency(((order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? order.totalPrice - (order.paidAmount ?? 0) : order.totalPrice), restaurant?.currency)}
                     </span>
                   </div>
                 </div>

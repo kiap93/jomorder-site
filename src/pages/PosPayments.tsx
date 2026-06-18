@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { getApiUrl } from '../lib/api';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { formatCurrency } from '../lib/localization';
 
 import { useAuthStore } from '../store/useAuthStore';
 import { Order, OrderStatus, Restaurant } from '../types';
@@ -220,7 +221,7 @@ export function PosPayments() {
               <div>
                 <span className="text-[8px] font-black text-orange-600 uppercase tracking-widest block leading-none mb-0.5 text-center">Outstanding</span>
                 <span className="text-base font-black text-gray-900 tabular-nums tracking-tighter block text-center">
-                  RM {totalOutstanding.toFixed(2)}
+                  {formatCurrency(totalOutstanding, restaurant?.currency)}
                 </span>
               </div>
             </div>
@@ -303,7 +304,7 @@ export function PosPayments() {
                          ? 'text-emerald-600' 
                          : 'text-gray-900')
                  }`}>
-                   RM {(table.session ? (table.hasUnpaid ? table.unpaidTotal : table.sessionTotal) : 0).toFixed(2)}
+                   {formatCurrency(table.session ? (table.hasUnpaid ? table.unpaidTotal : table.sessionTotal) : 0, restaurant?.currency)}
                  </span>
               </div>
               

@@ -6358,7 +6358,7 @@ router10.get("/restaurants/:restId/dining-sessions", authenticateJWT, requireTen
   let query = supabaseAdmin.from("dining_sessions").select("*, orders(id, total_price, status, paid_at, items, session_id)").eq("restaurant_id", req.params.restId);
   if (status === "active") {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1e3).toISOString();
-    query = query.in("status", ["active", "awaiting_payment", "paid"]).gt("created_at", yesterday);
+    query = query.in("status", ["active", "awaiting_payment", "paid"]).gt("started_at", yesterday);
   }
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
