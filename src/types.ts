@@ -248,7 +248,9 @@ export interface OrderItem {
   voidApprovedBy?: string;
   status?: string;
   originalUnitPrice?: number;
+  original_unit_price?: number;
   finalUnitPrice?: number;
+  final_unit_price?: number;
   discount?: {
     type: 'percentage' | 'fixed' | 'override';
     value: number;

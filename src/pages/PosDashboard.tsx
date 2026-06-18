@@ -28,6 +28,7 @@ interface RawOrder {
   paid_at?: string;
   created_at: string;
   session_id?: string;
+  discount?: any;
 }
 
 export function PosDashboard() {
@@ -192,7 +193,8 @@ export function PosDashboard() {
             paid_at: o.paid_at,
             createdAt: o.created_at,
             updatedAt: o.created_at,
-            sessionId: o.session_id
+            sessionId: o.session_id,
+            discount: o.discount
           }));
 
           setOrders(fetchedOrders);
@@ -234,7 +236,8 @@ export function PosDashboard() {
               paid_at: o.status === 'completed' ? new Date().toISOString() : undefined,
               createdAt: o.created_at,
               updatedAt: o.created_at,
-              sessionId: o.p_session_id || ''
+              sessionId: o.p_session_id || '',
+              discount: (o as any).discount
             })) as Order[]);
             setError(null);
           } else {
@@ -495,8 +498,20 @@ export function PosDashboard() {
                 {order.items.map((item, idx) => {
                   const itemStatus = item.status || order.status || 'pending';
                   const isCancelled = itemStatus === 'cancelled' || item.voided;
-                  const itemOriginalPrice = item.originalUnitPrice !== undefined ? item.originalUnitPrice : item.price;
-                  const itemFinalPrice = item.finalUnitPrice !== undefined ? item.finalUnitPrice : item.price;
+                  const priceRaw = typeof item.price === 'string' ? parseFloat(item.price) : (item.price || 0);
+                  const itemOriginalPrice = item.originalUnitPrice !== undefined ? item.originalUnitPrice : 
+                                            (item.original_unit_price !== undefined ? item.original_unit_price : priceRaw);
+                  
+                  let itemFinalPrice = item.finalUnitPrice !== undefined ? item.finalUnitPrice : 
+                                       (item.final_unit_price !== undefined ? item.final_unit_price : priceRaw);
+
+                  if (item.discount && !isCancelled) {
+                    if (item.discount.type === 'percentage') {
+                      itemFinalPrice = itemOriginalPrice * (1 - item.discount.value / 100);
+                    } else if (item.discount.type === 'fixed') {
+                      itemFinalPrice = Math.max(0, itemOriginalPrice - item.discount.value);
+                    }
+                  }
 
                   return (
                     <div key={idx} className="flex justify-between items-start border-b border-gray-105 pb-1.5 last:border-0 last:pb-0">
@@ -529,7 +544,7 @@ export function PosDashboard() {
 
                           {item.discount && !isCancelled && (
                             <p className="text-[10px] text-orange-600 font-bold mt-0.5 bg-orange-50/50 px-1 py-0.2 rounded-sm inline-block">
-                              🏷️ {item.discount.type === 'percentage' ? `${item.discount.value}% off` : item.discount.type === 'fixed' ? `${formatCurrency(item.discount.value, restaurant?.currency)} off` : `Override ${formatCurrency(item.discount.value, restaurant?.currency)}`}
+                              🏷️ Discount Applied
                             </p>
                           )}
 
@@ -561,36 +576,12 @@ export function PosDashboard() {
                         </div>
                       </div>
 
-                      {/* Display Pricing Columns */}
-                      <div className="text-right pl-2 select-none">
-                        {item.discount && !isCancelled && (
-                          <div className="text-[9px] line-through text-zinc-400 leading-none">
-                            {formatCurrency(itemOriginalPrice, restaurant?.currency)}
-                          </div>
-                        )}
-                        <div className={`text-[10px] font-black leading-tight mt-0.5 ${isCancelled ? 'line-through text-zinc-400' : 'text-zinc-900 font-mono'}`}>
-                          {formatCurrency(itemFinalPrice, restaurant?.currency)}
-                        </div>
-                        <div className="text-[8px] font-bold text-zinc-400 font-mono">
-                          Total: {formatCurrency(itemFinalPrice * item.quantity, restaurant?.currency)}
-                        </div>
-                      </div>
                     </div>
                   );
                 })}
               </div>
 
               <div className="p-3 pt-0 mt-auto bg-gray-50/10">
-                <div className="flex justify-between items-center mb-2 pt-2 border-t border-gray-100">
-                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                    {(order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? t('pos.due') : t('pos.sum')}
-                  </span>
-                  <div className="text-right">
-                    <span className="text-sm font-black text-gray-900 tabular-nums">
-                      {formatCurrency(((order.paidAmount ?? 0) > 0 && (order.paidAmount ?? 0) < order.totalPrice ? order.totalPrice - (order.paidAmount ?? 0) : order.totalPrice), restaurant?.currency)}
-                    </span>
-                  </div>
-                </div>
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1.5">
                     {order.status === OrderStatus.PENDING && (

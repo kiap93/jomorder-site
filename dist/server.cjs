@@ -6145,22 +6145,35 @@ router9.patch("/orders/:id", authenticateJWT, requireTenantIsolation(), requireA
       let rawSubtotal = 0;
       if (Array.isArray(items)) {
         items.forEach((item) => {
-          if (item.voided || item.status === "voided" || item.status === "cancelled") {
-            return;
+          if (item.original_unit_price === void 0 && item.originalUnitPrice === void 0) {
+            item.original_unit_price = parseFloat(item.price) || 0;
           }
-          const price = item.price || item.originalUnitPrice || 0;
+          const price = item.original_unit_price !== void 0 ? item.original_unit_price : item.originalUnitPrice !== void 0 ? item.originalUnitPrice : parseFloat(item.price) || 0;
           const qty = item.quantity || 1;
           const itemTotal = price * qty;
           let itemDiscountAmt = 0;
+          let finalPrice = price;
           if (item.discount) {
             if (item.discount.type === "percentage") {
               itemDiscountAmt = itemTotal * (item.discount.value / 100);
+              finalPrice = price * (1 - item.discount.value / 100);
             } else {
               itemDiscountAmt = Math.min(itemTotal, item.discount.value * qty);
+              finalPrice = Math.max(0, price - item.discount.value);
             }
+          }
+          item.final_unit_price = finalPrice;
+          item.finalUnitPrice = finalPrice;
+          item.original_unit_price = price;
+          item.originalUnitPrice = price;
+          if (item.voided || item.status === "voided" || item.status === "cancelled") {
+            return;
           }
           rawSubtotal += itemTotal - itemDiscountAmt;
         });
+        if (updatePayload["items"] !== void 0) {
+          updatePayload["items"] = items;
+        }
       }
       let orderDiscAmt = 0;
       if (discount) {

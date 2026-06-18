@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { getApiUrl } from '../lib/api';
+import { getApiUrl, getOrderDisplayNo } from '../lib/api';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { formatCurrency } from '../lib/localization';
 
@@ -39,6 +39,7 @@ interface ApisOrderItem {
   price: number;
   quantity: number;
   options: ApisOrderOption[];
+  discount?: any;
 }
 
 interface ApisOrder {
@@ -48,6 +49,7 @@ interface ApisOrder {
   paid_at?: string;
   created_at: string;
   items: ApisOrderItem[];
+  discount?: any;
 }
 
 interface ApisDiningSession {
@@ -248,7 +250,7 @@ export function PosPayments() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredTables.map(table => (
           <motion.div
             layout
@@ -261,38 +263,28 @@ export function PosPayments() {
                     : 'border-gray-100 opacity-60')
             }`}
           >
-            <div className={`p-2 border-b flex justify-between items-center ${
+            <div className={`p-2.5 border-b flex justify-between items-center ${
               table.hasUnpaid 
                 ? 'bg-orange-50/50 border-orange-50' 
                 : (table.session 
                     ? 'bg-emerald-50/30 border-emerald-50' 
                     : 'bg-gray-50/50 border-gray-50')
             }`}>
-              <div className="flex items-center gap-2">
-                 <div className={`w-7 h-7 ${
-                   table.hasUnpaid 
-                     ? 'bg-orange-600' 
-                     : (table.session 
-                         ? 'bg-emerald-600' 
-                         : 'bg-gray-900')
-                 } text-white rounded flex items-center justify-center font-black text-[11px]`}>
-                    {table.name}
-                 </div>
-                 <div className="flex flex-col">
-                    <p className={`text-[9px] font-black uppercase tracking-tighter ${
-                      table.session 
-                        ? (table.hasUnpaid 
-                            ? 'text-orange-600 font-extrabold' 
-                            : 'text-emerald-600 font-extrabold') 
-                        : 'text-gray-400'
-                    }`}>
-                       {table.session ? (table.hasUnpaid ? 'Billed' : 'Paid') : 'Vacant'}
-                    </p>
-                 </div>
+              <div className="flex justify-between items-center w-full">
+                 <span className="text-sm font-black text-slate-800 uppercase tracking-tight">{table.name}</span>
+                 <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border ${
+                   table.session 
+                     ? (table.hasUnpaid 
+                         ? 'bg-orange-600 text-white border-orange-600' 
+                         : 'bg-emerald-600 text-white border-emerald-600') 
+                     : 'bg-zinc-100 text-zinc-650 border-zinc-200'
+                 }`}>
+                    {table.session ? (table.hasUnpaid ? 'Billed' : 'Paid') : 'Vacant'}
+                 </span>
               </div>
             </div>
 
-            <div className="p-3 flex-1 flex flex-col gap-2">
+            <div className="p-3 md:flex-1 flex flex-col gap-2">
               <div className="flex justify-between items-center">
                  <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">
                    {table.session ? (table.hasUnpaid ? 'Unpaid' : 'Paid') : 'Unpaid'}
@@ -313,6 +305,62 @@ export function PosPayments() {
                     <Clock size={10} />
                     <span>{Math.floor((Date.now() - new Date(table.session.created_at).getTime()) / 60000)}m</span>
                  </div>
+              )}
+
+              {table.session && table.session.orders && table.session.orders.length > 0 && (
+                <div className="mt-1 pt-2 border-t border-gray-100 space-y-1.5 md:flex-1 overflow-y-auto max-h-[160px] scrollbar-thin">
+                  <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider mb-1">Orders ({table.session.orders.length})</p>
+                  {table.session.orders.map((order) => {
+                    const isOrderCancelled = order.status === 'cancelled';
+                    const isOrderPaid = !!order.paid_at;
+                    const oPrice = parseFloat(order.total_price) || 0;
+                    
+                    // Check order-level or item-level discount presence
+                    const hasOrderDiscount = order.discount && order.discount.value > 0;
+                    const hasItemDiscount = order.items?.some((item: any) => item.discount && item.discount.value > 0);
+                    const hasAnyDiscount = hasOrderDiscount || hasItemDiscount;
+
+                    let discountLabel = "";
+                    if (hasOrderDiscount) {
+                      discountLabel = order.discount.type === 'percentage' 
+                        ? `${order.discount.value}%` 
+                        : formatCurrency(order.discount.value, restaurant?.currency);
+                    } else if (hasItemDiscount) {
+                      discountLabel = "Items";
+                    }
+
+                    return (
+                      <div key={order.id} className="text-[10px] bg-slate-50/50 p-1.5 rounded-md border border-gray-100 flex flex-col gap-0.5 leading-none shadow-sm/5">
+                        <div className="flex justify-between items-center">
+                          <span className="font-extrabold text-gray-700">Ord #{getOrderDisplayNo(order.id, order.created_at || (order as any).createdAt)}</span>
+                          <span className={`font-mono text-[10px] font-bold ${
+                            isOrderPaid ? 'text-emerald-600' : isOrderCancelled ? 'text-zinc-400 line-through' : 'text-zinc-900 font-extrabold'
+                          }`}>
+                            {formatCurrency(oPrice, restaurant?.currency)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between mt-0.5">
+                          <span className={`px-1 py-0.2 rounded-sm text-[8px] font-black uppercase tracking-tighter ${
+                            isOrderPaid 
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' 
+                              : isOrderCancelled 
+                                ? 'bg-zinc-150 text-zinc-500' 
+                                : 'bg-orange-50 text-orange-800 border border-orange-100'
+                          }`}>
+                            {isOrderPaid ? 'Paid' : isOrderCancelled ? 'Void' : 'Unpaid'}
+                          </span>
+                          
+                          {hasAnyDiscount && (
+                            <span className="bg-orange-100 text-orange-800 px-1 py-0.5 rounded-sm font-black text-[8px] leading-none flex items-center gap-0.5">
+                              🏷️ {discountLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
 
               <div className="mt-auto pt-2">
