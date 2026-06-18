@@ -18,7 +18,7 @@ diningSessionRoutes.get("/api/restaurants/:restId/dining-sessions", authenticate
   
   if (status === 'active') {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    query = query.in('status', ['active', 'awaiting_payment', 'paid']).gt('created_at', yesterday);
+    query = query.in('status', ['active', 'awaiting_payment', 'paid']).gt('started_at', yesterday);
   }
 
   const { data, error } = await query;
