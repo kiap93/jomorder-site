@@ -527,6 +527,36 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   };
 
+  const handleUndoVoidItem = async (itemIdx: number, targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
+    if (!activeOrder) return;
+
+    // Check role access
+    const userRole = (profile?.role || 'cashier').toLowerCase();
+    const isManager = userRole === 'manager' || userRole === 'owner' || userRole === 'admin' || unlockedRole === 'manager';
+    
+    if (!isManager) {
+      alert("Unauthorized: Void reversal is restricted. Manager override PIN required.");
+      return;
+    }
+
+    const updatedItems = [...(activeOrder.items || [])];
+    const item = { ...updatedItems[itemIdx] };
+    
+    delete item.voided;
+    delete item.voidReason;
+    delete item.voidedBy;
+    delete item.voidedAt;
+    delete item.voidApprovedBy;
+
+    updatedItems[itemIdx] = item;
+    
+    const auditText = `[VOID REVERSAL] Restored item '${item.name}' (qty: ${item.quantity || 1})`;
+    
+    await applyFinancialMutation({ items: updatedItems }, auditText, activeOrderId);
+  };
+
   const handleApplyOrderDiscount = async (type: 'percentage' | 'fixed', value: number, reason: string) => {
     const activeOrder = sessionOrders.find(o => o.id === order.id);
     if (!activeOrder) return;
@@ -1219,7 +1249,21 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                               {formatCurrency(itemFinalTotal, restaurant?.currency)}
                                             </p>
                                             
-                                            {!isItemVoided && (
+                                            {isItemVoided ? (
+                                              <div className="flex gap-1.5 mt-1.5 justify-end">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (confirm(`Restore/Undo void for item '${it.name}'?`)) {
+                                                      handleUndoVoidItem(idx, currentOrder.id);
+                                                    }
+                                                  }}
+                                                  className="text-[7.5px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-wider leading-none"
+                                                >
+                                                  Undo Void
+                                                </button>
+                                              </div>
+                                            ) : (
                                               <div className="flex gap-1.5 mt-1.5 justify-end">
                                                 {isItemDiscounted ? (
                                                   <button
@@ -1281,19 +1325,26 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         </div>
 
                         <div className="h-32 overflow-y-auto bg-zinc-950/80 border border-zinc-800 p-2 rounded-lg font-mono text-[8px] space-y-1.5 scrollbar-thin flex-1 scroll-smooth">
-                          {auditLogs.length === 0 ? (
-                            <div className="text-zinc-700 py-4 text-center leading-relaxed">
-                              &gt; SYSTEM RESTING. NO AUDIT THREADS SPAWNED YET.
-                            </div>
-                          ) : (
-                            auditLogs.map((log, i) => (
+                          {(() => {
+                            const filtered = auditLogs.filter(log => {
+                              const act = (log.action || log.message || '').toLowerCase();
+                              return !act.includes('menu item');
+                            });
+                            if (filtered.length === 0) {
+                              return (
+                                <div className="text-zinc-700 py-4 text-center leading-relaxed">
+                                  &gt; SYSTEM RESTING. NO AUDIT THREADS SPAWNED YET.
+                                </div>
+                              );
+                            }
+                            return filtered.map((log, i) => (
                               <div key={i} className="text-zinc-500 border-b border-zinc-900/50 pb-1 last:border-0">
                                 <span className="text-orange-600 font-bold">[{new Date(log.created_at || log.timestamp || Date.now()).toLocaleTimeString()}]</span>{' '}
                                 <span className="text-zinc-400 font-semibold">{log.email || log.user_email || 'operator'}:</span>{' '}
                                 <span className="text-zinc-200">{log.action || log.message}</span>
                               </div>
-                            ))
-                          )}
+                            ));
+                          })()}
                         </div>
                       </div>
                     </div>
