@@ -139,7 +139,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [pinInput, setPinInput] = useState<string>('');
   const [unlockedRole, setUnlockedRole] = useState<'cashier' | 'manager' | 'owner' | null>(null);
 
-  const [selectedItemForAction, setSelectedItemForAction] = useState<{ item: OrderItem; idx: number } | null>(null);
+  const [selectedItemForAction, setSelectedItemForAction] = useState<{ item: OrderItem; idx: number; orderId: string } | null>(null);
   const [selectedActionType, setSelectedActionType] = useState<'discount' | 'void' | null>(null);
 
   const [reasonText, setReasonText] = useState<string>('');
@@ -400,12 +400,13 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   }, [restaurant?.id]);
 
-  const applyFinancialMutation = async (updatedOrderData: Partial<Order>, auditMsg: string) => {
+  const applyFinancialMutation = async (updatedOrderData: Partial<Order>, auditMsg: string, targetOrderId?: string) => {
     const token = useAuthStore.getState().token;
     if (!token) return;
     setIsProcessing(true);
+    const activeOrderId = targetOrderId || order.id;
     try {
-      const res = await fetch(getApiUrl(`/api/orders/${order.id}`), {
+      const res = await fetch(getApiUrl(`/api/orders/${activeOrderId}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -424,7 +425,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       const newOrder = await res.json();
       
       // Update local state to immediately show updated pricing
-      setSessionOrders(prev => prev.map(o => o.id === order.id ? {
+      setSessionOrders(prev => prev.map(o => o.id === activeOrderId ? {
         ...o,
         ...newOrder,
         totalPrice: parseFloat(String(newOrder.total_price || newOrder.totalPrice || 0))
@@ -442,8 +443,9 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   };
 
-  const handleApplyItemDiscount = async (itemIdx: number, type: 'percentage' | 'fixed', value: number, reason: string) => {
-    const activeOrder = sessionOrders.find(o => o.id === order.id);
+  const handleApplyItemDiscount = async (itemIdx: number, type: 'percentage' | 'fixed', value: number, reason: string, targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
     if (!activeOrder) return;
     
     // Check role access
@@ -469,15 +471,16 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     
     const auditText = `[DISCOUNT] Applied ${value}${type === 'percentage' ? '%' : ' RM'} item discount on '${item.name}' (qty: ${item.quantity || 1}) - Reason: ${reason}`;
     
-    const result = await applyFinancialMutation({ items: updatedItems }, auditText);
+    const result = await applyFinancialMutation({ items: updatedItems }, auditText, activeOrderId);
     if (result) {
       setSelectedItemForAction(null);
       setSelectedActionType(null);
     }
   };
 
-  const handleClearItemDiscount = async (itemIdx: number) => {
-    const activeOrder = sessionOrders.find(o => o.id === order.id);
+  const handleClearItemDiscount = async (itemIdx: number, targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
     if (!activeOrder) return;
 
     const updatedItems = [...(activeOrder.items || [])];
@@ -486,11 +489,12 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     updatedItems[itemIdx] = item;
 
     const auditText = `[DISCOUNT] Removed item-level discount on '${item.name}' (qty: ${item.quantity || 1})`;
-    await applyFinancialMutation({ items: updatedItems }, auditText);
+    await applyFinancialMutation({ items: updatedItems }, auditText, activeOrderId);
   };
 
-  const handleVoidItem = async (itemIdx: number, reason: string) => {
-    const activeOrder = sessionOrders.find(o => o.id === order.id);
+  const handleVoidItem = async (itemIdx: number, reason: string, targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
     if (!activeOrder) return;
 
     // Check role access
@@ -515,7 +519,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     
     const auditText = `[VOID] Soft-voided item '${item.name}' (qty: ${item.quantity}) - Reason: ${reason}`;
     
-    const result = await applyFinancialMutation({ items: updatedItems }, auditText);
+    const result = await applyFinancialMutation({ items: updatedItems }, auditText, activeOrderId);
     if (result) {
       setShowVoidReasonModal(false);
       setVoidTarget(null);
@@ -1149,94 +1153,113 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                       <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 md:p-5 flex-1 flex flex-col min-h-0">
                         <h4 className="text-xs font-black text-white uppercase tracking-wider leading-none mb-3">Item-Level Ledger Overrides</h4>
                         
-                        <div className="space-y-1.5 overflow-y-auto max-h-[220px] flex-1 pr-1 scrollbar-thin">
-                          {(sessionOrders.find(o => o.id === order.id)?.items || []).map((it, idx) => {
-                            const isItemVoided = !!it.voided;
-                            const isItemDiscounted = !!it.discount;
-                            const itemPrice = it.price || 0;
-                            const itemQty = it.quantity || 1;
-                            const itemFinalTotal = (itemPrice * itemQty) - (isItemDiscounted && it.discount ? (it.discount.type === 'percentage' ? (itemPrice * itemQty * (it.discount.value/100)) : (it.discount.value * itemQty)) : 0);
-
+                        <div className="space-y-4 overflow-y-auto max-h-[300px] flex-1 pr-1 scrollbar-thin">
+                          {sessionOrders.map((currentOrder) => {
+                            const items = currentOrder.items || [];
+                            if (items.length === 0) return null;
                             return (
-                              <div 
-                                key={idx} 
-                                className={`p-2.5 rounded border transition-all ${
-                                  isItemVoided 
-                                    ? 'bg-red-500/5 border-red-500/20 text-zinc-500 opacity-60' 
-                                    : 'bg-zinc-950 border-zinc-800 text-zinc-200'
-                                }`}
-                              >
-                                <div className="flex justify-between items-start gap-3">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`text-[10px] font-black truncate leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>
-                                        {it.name}
-                                      </span>
-                                      <span className="text-[8px] font-bold text-zinc-500 px-1 py-0.2 bg-zinc-900 border border-zinc-800 rounded tabular-nums leading-none">
-                                        x{itemQty}
-                                      </span>
-                                    </div>
+                              <div key={currentOrder.id} className="border border-zinc-800/60 bg-zinc-950/20 rounded-lg p-2.5 mb-3 last:mb-0">
+                                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2 mb-2 px-1">
+                                  <span className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">
+                                    Order #{getOrderDisplayNo(currentOrder.id, currentOrder.createdAt || currentOrder.created_at)}
+                                  </span>
+                                  <span className="text-[8px] font-mono font-bold text-zinc-500 tabular-nums">
+                                    {items.length} {items.length === 1 ? 'item' : 'items'}
+                                  </span>
+                                </div>
+                                
+                                <div className="space-y-1.5">
+                                  {items.map((it, idx) => {
+                                    const isItemVoided = !!it.voided;
+                                    const isItemDiscounted = !!it.discount;
+                                    const itemPrice = it.price || 0;
+                                    const itemQty = it.quantity || 1;
+                                    const itemFinalTotal = (itemPrice * itemQty) - (isItemDiscounted && it.discount ? (it.discount.type === 'percentage' ? (itemPrice * itemQty * (it.discount.value/100)) : (it.discount.value * itemQty)) : 0);
 
-                                    {isItemVoided && (
-                                      <span className="text-[8px] font-black text-red-500 uppercase tracking-wider block mt-1 leading-none">
-                                        VOID COMPLETE - Reason: {it.voidReason}
-                                      </span>
-                                    )}
+                                    return (
+                                      <div 
+                                        key={idx} 
+                                        className={`p-2.5 rounded border transition-all ${
+                                          isItemVoided 
+                                            ? 'bg-red-500/5 border-red-500/20 text-zinc-500 opacity-60' 
+                                            : 'bg-zinc-950 border-zinc-800 text-zinc-200'
+                                        }`}
+                                      >
+                                        <div className="flex justify-between items-start gap-3">
+                                          <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <span className={`text-[10px] font-black truncate leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>
+                                                {it.name}
+                                              </span>
+                                              <span className="text-[8px] font-bold text-zinc-500 px-1 py-0.2 bg-zinc-900 border border-zinc-800 rounded tabular-nums leading-none">
+                                                x{itemQty}
+                                              </span>
+                                            </div>
 
-                                    {isItemDiscounted && !isItemVoided && (
-                                      <div className="flex items-center gap-1.5 mt-1">
-                                        <span className="text-[8px] font-black bg-orange-500/10 text-orange-500 px-1 rounded uppercase tracking-wider leading-none">
-                                          Disc Applied
-                                        </span>
-                                        <span className="text-[8.5px] font-bold text-zinc-400 leading-none">
-                                          {it.discount?.value}{it.discount?.type === 'percentage' ? '%' : ` ${restaurant?.currency || 'RM'}`} Off ({it.discount?.reason})
-                                        </span>
+                                            {isItemVoided && (
+                                              <span className="text-[8px] font-black text-red-500 uppercase tracking-wider block mt-1 leading-none">
+                                                VOID COMPLETE - Reason: {it.voidReason}
+                                              </span>
+                                            )}
+
+                                            {isItemDiscounted && !isItemVoided && (
+                                              <div className="flex items-center gap-1.5 mt-1">
+                                                <span className="text-[8px] font-black bg-orange-500/10 text-orange-500 px-1 rounded uppercase tracking-wider leading-none">
+                                                  Disc Applied
+                                                </span>
+                                                <span className="text-[8.5px] font-bold text-zinc-400 leading-none">
+                                                  {it.discount?.value}{it.discount?.type === 'percentage' ? '%' : ` ${restaurant?.currency || 'RM'}`} Off ({it.discount?.reason})
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          <div className="text-right shrink-0">
+                                            <p className={`text-[10px] font-black tabular-nums leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-white'}`}>
+                                              {formatCurrency(itemFinalTotal, restaurant?.currency)}
+                                            </p>
+                                            
+                                            {!isItemVoided && (
+                                              <div className="flex gap-1.5 mt-1.5 justify-end">
+                                                {isItemDiscounted ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleClearItemDiscount(idx, currentOrder.id)}
+                                                    className="text-[7.5px] font-black text-red-500 hover:text-red-400 uppercase tracking-wider leading-none"
+                                                  >
+                                                    Clear Disc
+                                                  </button>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setSelectedItemForAction({ item: it, idx, orderId: currentOrder.id });
+                                                      setSelectedActionType('discount');
+                                                    }}
+                                                    className="text-[7.5px] font-black text-orange-500 hover:text-orange-400 uppercase tracking-wider leading-none"
+                                                  >
+                                                    Discount
+                                                  </button>
+                                                )}
+                                                
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (confirm(`Void single item '${it.name}'? This action removes it from final settlements.`)) {
+                                                      handleVoidItem(idx, "Operator Entry Correction", currentOrder.id);
+                                                    }
+                                                  }}
+                                                  className="text-[7.5px] font-black text-red-500 hover:text-red-400 uppercase tracking-wider leading-none"
+                                                >
+                                                  Void
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
                                       </div>
-                                    )}
-                                  </div>
-
-                                  <div className="text-right shrink-0">
-                                    <p className={`text-[10px] font-black tabular-nums leading-none ${isItemVoided ? 'line-through text-zinc-500' : 'text-white'}`}>
-                                      {formatCurrency(itemFinalTotal, restaurant?.currency)}
-                                    </p>
-                                    
-                                    {!isItemVoided && (
-                                      <div className="flex gap-1.5 mt-1.5 justify-end">
-                                        {isItemDiscounted ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleClearItemDiscount(idx)}
-                                            className="text-[7.5px] font-black text-red-500 hover:text-red-400 uppercase tracking-wider leading-none"
-                                          >
-                                            Clear Disc
-                                          </button>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedItemForAction({ item: it, idx });
-                                              setSelectedActionType('discount');
-                                            }}
-                                            className="text-[7.5px] font-black text-orange-500 hover:text-orange-400 uppercase tracking-wider leading-none"
-                                          >
-                                            Discount
-                                          </button>
-                                        )}
-                                        
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (confirm(`Void single item '${it.name}'? This action removes it from final settlements.`)) {
-                                              handleVoidItem(idx, "Operator Entry Correction");
-                                            }
-                                          }}
-                                          className="text-[7.5px] font-black text-red-500 hover:text-red-400 uppercase tracking-wider leading-none"
-                                        >
-                                          Void
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             );
@@ -1670,7 +1693,8 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         selectedItemForAction.idx,
                         discountType,
                         discountValue,
-                        reasonText || 'Manager Item Discount Adjustment'
+                        reasonText || 'Manager Item Discount Adjustment',
+                        selectedItemForAction.orderId
                       );
                       setSelectedItemForAction(null);
                       setDiscountValue(0);
