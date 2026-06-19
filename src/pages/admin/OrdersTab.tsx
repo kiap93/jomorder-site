@@ -1,17 +1,20 @@
 import { Order, OrderItem } from '../../types';
 import { RefreshCw, ShoppingBag } from 'lucide-react';
 import { getOrderDisplayNo } from '../../lib/api';
+import { formatCurrency } from '../../lib/localization';
 
 interface OrdersTabProps {
   orders: (Order & { total_price?: string, created_at?: string, tables?: { name: string } })[];
   fetchData: () => void;
   t: (key: string) => string;
+  currency?: string;
 }
 
 export function OrdersTab({
   orders,
   fetchData,
-  t
+  t,
+  currency
 }: OrdersTabProps) {
   return (
     <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100 min-h-[50vh]">
@@ -69,7 +72,9 @@ export function OrdersTab({
                   </div>
                 </td>
                 <td className="px-3 py-2">
-                  <span className="text-xs font-black text-orange-600">RM {(parseFloat(String(order.total_price || order.totalPrice || 0)) || 0).toFixed(2)}</span>
+                  <span className="text-xs font-black text-orange-600">
+                    {formatCurrency(parseFloat(String(order.total_price || order.totalPrice || 0)) || 0, currency || 'MYR')}
+                  </span>
                 </td>
                 <td className="px-3 py-2">
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${

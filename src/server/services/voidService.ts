@@ -74,7 +74,7 @@ export class VoidService {
         userId,
         userEmail,
         userRole,
-        `SUBMITTED VOID REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+        `SUBMITTED VOID REQUEST: Item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
         restaurantId
       );
 
@@ -115,7 +115,7 @@ export class VoidService {
       userId,
       userEmail,
       userRole,
-      `ITEM_VOIDED: Voided item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+      `ITEM_VOIDED: Voided item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
       restaurantId
     );
 
@@ -183,7 +183,7 @@ export class VoidService {
       userId,
       userEmail,
       userRole,
-      `ITEM_VOID_RESTORED: Restored voided item ${item.name} in Order ${orderId}`,
+      `ITEM_VOID_RESTORED: Restored voided item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}`,
       restaurantId
     );
 

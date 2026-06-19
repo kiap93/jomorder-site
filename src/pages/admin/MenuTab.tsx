@@ -1,5 +1,6 @@
 import { MenuItem, Category } from '../../types';
 import { Plus, Edit2, Trash2, Image as ImageIcon } from 'lucide-react';
+import { formatCurrency } from '../../lib/localization';
 
 interface MenuTabProps {
   menuItems: MenuItem[];
@@ -7,6 +8,7 @@ interface MenuTabProps {
   setEditingItem: (item: Partial<MenuItem> | null) => void;
   deleteMenuItem: (id: string) => void;
   t: (key: string) => string;
+  currency?: string;
 }
 
 export function MenuTab({
@@ -14,7 +16,8 @@ export function MenuTab({
   categories,
   setEditingItem,
   deleteMenuItem,
-  t
+  t,
+  currency
 }: MenuTabProps) {
   return (
     <section className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-gray-100">
@@ -63,7 +66,9 @@ export function MenuTab({
             <div className="p-3">
               <div className="flex justify-between items-start mb-0.5">
                 <h3 className="font-black text-gray-900 line-clamp-1 text-sm">{item.name}</h3>
-                <span className="font-mono font-bold text-orange-600 text-xs">RM{item.price.toFixed(2)}</span>
+                <span className="font-mono font-bold text-orange-600 text-xs">
+                  {formatCurrency(item.price, currency || 'MYR')}
+                </span>
               </div>
               <div className="flex justify-between items-end">
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">

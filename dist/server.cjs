@@ -1043,7 +1043,7 @@ var init_discountService = __esm({
             userId,
             userEmail,
             userRole,
-            `SUBMITTED DISCOUNT REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+            `SUBMITTED DISCOUNT REQUEST: Item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
             restaurantId
           );
           return {
@@ -1088,7 +1088,7 @@ var init_discountService = __esm({
           userId,
           userEmail,
           userRole,
-          `ITEM_DISCOUNTED: Applied ${discountType} discount (${discountValue}) to item ${item.name}. Old Price: RM${originalPrice.toFixed(2)}, New Price: RM${finalPrice.toFixed(2)}`,
+          `ITEM_DISCOUNTED: Applied ${discountType} discount (${discountValue}) to item ${item.name} (qty: ${item.quantity || 1}). Old Price: RM${originalPrice.toFixed(2)}, New Price: RM${finalPrice.toFixed(2)}`,
           restaurantId
         );
         await recalculateOrderAndSync(orderId);
@@ -1130,7 +1130,7 @@ var init_discountService = __esm({
           userId,
           userEmail,
           userRole,
-          `ITEM_DISCOUNT_REMOVED: Removed discount from item ${item.name}`,
+          `ITEM_DISCOUNT_REMOVED: Removed discount from item ${item.name} (qty: ${item.quantity || 1})`,
           restaurantId
         );
         await recalculateOrderAndSync(orderId);
@@ -1188,7 +1188,7 @@ var init_voidService = __esm({
             userId,
             userEmail,
             userRole,
-            `SUBMITTED VOID REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+            `SUBMITTED VOID REQUEST: Item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
             restaurantId
           );
           return {
@@ -1219,7 +1219,7 @@ var init_voidService = __esm({
           userId,
           userEmail,
           userRole,
-          `ITEM_VOIDED: Voided item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+          `ITEM_VOIDED: Voided item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
           restaurantId
         );
         await recalculateOrderAndSync(orderId);
@@ -1261,7 +1261,7 @@ var init_voidService = __esm({
           userId,
           userEmail,
           userRole,
-          `ITEM_VOID_RESTORED: Restored voided item ${item.name} in Order ${orderId}`,
+          `ITEM_VOID_RESTORED: Restored voided item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}`,
           restaurantId
         );
         await recalculateOrderAndSync(orderId);
@@ -8000,7 +8000,7 @@ router12.get("/baskets", async (req, res) => {
   res.json(data);
 });
 router12.get("/baskets/:basketId/items", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("basket_items").select("id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at").eq("basket_id", req.params.basketId);
+  const { data, error } = await supabaseAdmin.from("basket_items").select("id,basket_id,product_id,menu_item_id,quantity,configuration,device_info,created_at,updated_at").eq("basket_id", req.params.basketId);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });

@@ -113,12 +113,14 @@ export function CustomerMenu() {
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [basketId, setBasketId] = useState<string | null>(null);
 
-  const syncLocalCartFromServer = (basketItems: (BasketItem & { product_id?: string; menu_item_id?: string; special_instructions?: string; special_Instructions?: string; notes?: string })[], allProducts: MenuItem[]) => {
+  const syncLocalCartFromServer = (basketItems: any[], allProducts: MenuItem[]) => {
+    if (!Array.isArray(basketItems)) return;
     const newCart: OrderItem[] = basketItems.map(item => {
-      const product = allProducts.find(p => p.id === item.product_id || p.id === item.menu_item_id);
+      const productId = item.product_id || item.menu_item_id || item.productId || item.menuItemId;
+      const product = allProducts.find(p => p.id === productId);
       if (!product) return null;
 
-      const selection = item.configuration as ProductSelection;
+      const selection = (item.configuration || {}) as ProductSelection;
       const kdsMods = getVisibleModifiers(product, selection, 'kds');
       const customerMods = getVisibleModifiers(product, selection, 'qr_cart');
       const receiptMods = getVisibleModifiers(product, selection, 'receipt');
@@ -131,7 +133,7 @@ export function CustomerMenu() {
         quantity: item.quantity,
         options: [],
         selection: selection,
-        specialInstructions: item.special_instructions || item.special_Instructions || item.notes || '',
+        specialInstructions: item.special_instructions || item.special_Instructions || item.specialInstructions || item.notes || '',
         smartRenderedLines: {
           kds: kdsMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
           customer: customerMods.map(m => `${"  ".repeat(m.depth)}• ${m.name}`),
@@ -830,7 +832,7 @@ export function CustomerMenu() {
           try {
             const { data: items, error } = await supabase
               .from('basket_items')
-              .select('id, basketId:basket_id, productId:product_id, quantity, configuration, deviceInfo:device_info, createdAt:created_at, updatedAt:updated_at')
+              .select('id, basketId:basket_id, productId:product_id, menuItemId:menu_item_id, quantity, configuration, deviceInfo:device_info, createdAt:created_at, updatedAt:updated_at')
               .eq('basket_id', basketId);
             
             if (items) {

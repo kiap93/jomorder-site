@@ -84,7 +84,7 @@ export class DiscountService {
         userId,
         userEmail,
         userRole,
-        `SUBMITTED DISCOUNT REQUEST: Item ${item.name} in Order ${orderId}. Reason: ${reason}`,
+        `SUBMITTED DISCOUNT REQUEST: Item ${item.name} (qty: ${item.quantity || 1}) in Order ${orderId}. Reason: ${reason}`,
         restaurantId
       );
 
@@ -142,7 +142,7 @@ export class DiscountService {
       userId,
       userEmail,
       userRole,
-      `ITEM_DISCOUNTED: Applied ${discountType} discount (${discountValue}) to item ${item.name}. Old Price: RM${originalPrice.toFixed(2)}, New Price: RM${finalPrice.toFixed(2)}`,
+      `ITEM_DISCOUNTED: Applied ${discountType} discount (${discountValue}) to item ${item.name} (qty: ${item.quantity || 1}). Old Price: RM${originalPrice.toFixed(2)}, New Price: RM${finalPrice.toFixed(2)}`,
       restaurantId
     );
 
@@ -208,7 +208,7 @@ export class DiscountService {
       userId,
       userEmail,
       userRole,
-      `ITEM_DISCOUNT_REMOVED: Removed discount from item ${item.name}`,
+      `ITEM_DISCOUNT_REMOVED: Removed discount from item ${item.name} (qty: ${item.quantity || 1})`,
       restaurantId
     );
 

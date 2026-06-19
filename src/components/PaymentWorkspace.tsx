@@ -467,7 +467,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     
     updatedItems[itemIdx] = item;
     
-    const auditText = `[DISCOUNT] Applied ${value}${type === 'percentage' ? '%' : ' RM'} item discount on '${item.name}' - Reason: ${reason}`;
+    const auditText = `[DISCOUNT] Applied ${value}${type === 'percentage' ? '%' : ' RM'} item discount on '${item.name}' (qty: ${item.quantity || 1}) - Reason: ${reason}`;
     
     const result = await applyFinancialMutation({ items: updatedItems }, auditText);
     if (result) {
@@ -485,7 +485,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     delete item.discount;
     updatedItems[itemIdx] = item;
 
-    const auditText = `[DISCOUNT] Removed item-level discount on '${item.name}'`;
+    const auditText = `[DISCOUNT] Removed item-level discount on '${item.name}' (qty: ${item.quantity || 1})`;
     await applyFinancialMutation({ items: updatedItems }, auditText);
   };
 

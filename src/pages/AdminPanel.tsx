@@ -1608,6 +1608,7 @@ export function AdminPanel() {
           setEditingItem={setEditingItem}
           deleteMenuItem={deleteMenuItem}
           t={t}
+          currency={restaurant?.currency}
         />
       )}
 
@@ -1651,6 +1652,7 @@ export function AdminPanel() {
           orders={orders}
           fetchData={fetchData}
           t={t}
+          currency={restaurant?.currency}
         />
       )}
 

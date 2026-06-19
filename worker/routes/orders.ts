@@ -70,7 +70,7 @@ orderRoutes.get('/api/public/baskets/:basketId/items', async (c) => {
   const supabase = getSupabase(c.env);
   const { data, error } = await supabase
     .from('basket_items')
-    .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
+    .select('id,basket_id,product_id,menu_item_id,quantity,configuration,device_info,created_at,updated_at')
     .eq('basket_id', c.req.param('basketId'));
   
   if (error) return c.json({ error: error.message }, 500);
@@ -135,7 +135,7 @@ orderRoutes.post('/api/public/sync-basket-item', async (c) => {
     // 3. Fetch current basket items to handle merge and identify column names
     const { data: items, error: itemsErr } = await supabase
       .from('basket_items')
-      .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
+      .select('id,basket_id,product_id,menu_item_id,quantity,configuration,device_info,created_at,updated_at')
       .eq('basket_id', basketId);
 
     if (itemsErr) return c.json({ error: itemsErr.message }, 500);

@@ -205,7 +205,7 @@ router.get("/baskets", async (req, res) => {
 router.get("/baskets/:basketId/items", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('basket_items')
-    .select('id,basket_id,product_id,quantity,configuration,device_info,created_at,updated_at')
+    .select('id,basket_id,product_id,menu_item_id,quantity,configuration,device_info,created_at,updated_at')
     .eq('basket_id', req.params.basketId);
   
   if (error) return res.status(500).json({ error: error.message });
