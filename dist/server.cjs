@@ -6047,7 +6047,7 @@ router8.post("/tables", authenticateJWT, requireTenantIsolation(), requirePermis
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-router8.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions("settings.manage"), async (req, res) => {
+router8.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("settings.manage", "orders.view", "payments.view", "kitchen.view"), async (req, res) => {
   const { data, error } = await supabaseAdmin.from("tables").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);

@@ -29,7 +29,7 @@ router.post("/tables", authenticateJWT, requireTenantIsolation(), requirePermiss
 });
 
 // Update table
-router.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requirePermissions('settings.manage'), async (req, res) => {
+router.patch("/tables/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission('settings.manage', 'orders.view', 'payments.view', 'kitchen.view'), async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('tables')
     .update(req.body)

@@ -663,6 +663,39 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       // Fetch latest audit logs to display immediately
       await fetchAuditLogs();
       
+      // Auto-close session and clean table if this was a session-based order
+      if (hasValidSessionId) {
+        const targetTableId = order.tableId || (order as any).table_id;
+        if (targetTableId) {
+          try {
+            // 1. Mark session as closed
+            await fetch(getApiUrl(`/api/dining-sessions/${sessionId}`), {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
+            });
+
+            // 2. Clear the table status
+            await fetch(getApiUrl(`/api/tables/${targetTableId}`), {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ current_session_id: null, status: 'available' })
+            });
+          } catch (sessionErr) {
+            console.error("Failed to auto-close dining session or release table:", sessionErr);
+          }
+        }
+        
+        // Return to dashboard
+        onPaymentSuccess();
+      }
+
       setShowVoidReasonModal(false);
       setVoidTarget(null);
       setVoidItemId(null);

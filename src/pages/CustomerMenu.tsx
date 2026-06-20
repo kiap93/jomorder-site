@@ -221,6 +221,9 @@ export function CustomerMenu() {
         setHasActiveOrders(!!count && count > 0);
         if (data && data.length > 0) {
           setLastOrderId(data[0].id);
+        } else {
+          setLastOrderId(null);
+          await indexedDbStorage.removeItem(`last_order_${restId}_${tableId}`);
         }
       } catch (err) {
         console.error("Error checking orders:", err);
