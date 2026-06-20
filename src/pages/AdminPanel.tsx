@@ -397,10 +397,11 @@ export function AdminPanel() {
         let voidedAmountSum = 0;
         const discountList: any[] = [];
         const voidList: any[] = [];
+        let activeOrdersCount = 0;
 
         const stats = {
           revenue: 0,
-          orders: orders.length,
+          orders: 0,
           avgTicket: 0,
           topItems: [] as { name: string, count: number, revenue: number }[],
           grossSales: 0,
@@ -415,6 +416,33 @@ export function AdminPanel() {
         const itemMap = new Map<string, { count: number, revenue: number }>();
 
         orders.forEach((order: any) => {
+          const isOrderFullyCancelled = order.status === 'cancelled' || order.voided === true;
+
+          if (isOrderFullyCancelled) {
+            order.items?.forEach((item: any) => {
+              if (!item || typeof item.quantity !== 'number') return;
+
+              const itemPrice = parseFloat(String(item.originalUnitPrice !== undefined ? item.originalUnitPrice : item.price || 0));
+              const optionsTotal = Array.isArray(item.options) ? item.options.reduce((sum: number, opt: any) => sum + (parseFloat(opt.priceDelta) || 0), 0) : 0;
+              const fullBasePrice = itemPrice + optionsTotal;
+              const itemQuantity = item.quantity;
+              const baseSubtotal = fullBasePrice * itemQuantity;
+
+              voidedItemsCountSum += itemQuantity;
+              voidedAmountSum += baseSubtotal;
+              voidList.push({
+                orderId: order.id,
+                itemName: item.name,
+                amount: baseSubtotal,
+                reason: item.voidReason || item.void_reason || order.void_reason || order.voidReason || 'Order Cancelled',
+                staff: item.voidedBy || order.voided_by || order.cancelled_by || 'Staff',
+                date: item.voidedAt || order.voided_at || order.cancelled_at || order.created_at || new Date().toISOString()
+              });
+            });
+            return;
+          }
+
+          activeOrdersCount++;
           const finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
           stats.revenue += finalPriceSum;
           
@@ -483,6 +511,7 @@ export function AdminPanel() {
           });
         });
 
+        stats.orders = activeOrdersCount;
         stats.grossSales = grossSalesSum;
         stats.totalDiscounts = totalDiscountsSum;
         stats.discountCount = discountCountSum;
