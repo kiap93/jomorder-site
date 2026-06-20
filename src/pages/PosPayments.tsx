@@ -57,7 +57,8 @@ interface ApisDiningSession {
   restaurant_id: string;
   table_id: string;
   status: string;
-  created_at: string;
+  created_at?: string;
+  started_at?: string;
   orders?: ApisOrder[];
 }
 
@@ -127,8 +128,8 @@ export function PosPayments() {
         if (tablesData && sessionsData && !tablesData.error && !sessionsData.error) {
           const processedTables: ProcessedTable[] = (tablesData as ApisTable[]).map((t) => {
             const tableSessions = (sessionsData as ApisDiningSession[])
-              .filter((s) => s.table_id === t.id)
-              .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+               .filter((s) => s.table_id === t.id)
+               .sort((a, b) => new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime());
             
             const activeSession = tableSessions.find((s) => s.status === 'active' || s.status === 'awaiting_payment') || tableSessions[0] || null;
             let unpaidTotal = 0;
@@ -303,7 +304,7 @@ export function PosPayments() {
               {table.session && (
                  <div className="flex items-center gap-1.5 text-[8px] font-bold text-gray-400 uppercase">
                     <Clock size={10} />
-                    <span>{Math.floor((Date.now() - new Date(table.session.created_at).getTime()) / 60000)}m</span>
+                    <span>{Math.floor((Date.now() - new Date(table.session.started_at || table.session.created_at || Date.now()).getTime()) / 60000)}m</span>
                  </div>
               )}
 

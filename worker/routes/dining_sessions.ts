@@ -17,12 +17,27 @@ diningSessionRoutes.get("/api/restaurants/:restId/dining-sessions", authenticate
     .eq('restaurant_id', restId);
   
   if (status === 'active') {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    query = query.in('status', ['active', 'awaiting_payment', 'paid']).gt('started_at', yesterday);
+    query = query.in('status', ['active', 'awaiting_payment', 'paid']);
   }
 
   const { data, error } = await query;
   if (error) return c.json({ error: error.message }, 500);
+
+  if (status === 'active') {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).getTime();
+    const filteredData = (data || []).filter((session: any) => {
+      if (session.status === 'active' || session.status === 'awaiting_payment') {
+        return true;
+      }
+      if (session.status === 'paid') {
+        const sessionDate = new Date(session.started_at || session.created_at || Date.now()).getTime();
+        return sessionDate > yesterday;
+      }
+      return false;
+    });
+    return c.json(filteredData);
+  }
+
   return c.json(data || []);
 });
 
