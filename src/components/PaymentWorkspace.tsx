@@ -592,8 +592,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   };
 
   const handleVoidOrder = async (reason: string) => {
-    const activeOrder = sessionOrders.find(o => o.id === order.id);
-    if (!activeOrder) return;
+    if (sessionOrders.length === 0) return;
 
     const userRole = (profile?.role || 'cashier').toLowerCase();
     const isManager = userRole === 'manager' || userRole === 'owner' || userRole === 'admin' || unlockedRole === 'manager';
@@ -603,21 +602,75 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       return;
     }
 
-    const auditText = `[VOID] Soft-voided entire Order #${getOrderDisplayNo(order.id, order.createdAt || order.created_at)} - Reason: ${reason}`;
+    const token = useAuthStore.getState().token;
+    if (!token) return;
 
-    const result = await applyFinancialMutation({
-      status: OrderStatus.CANCELLED,
-      voided: true,
-      voidReason: reason,
-      voidedBy: profile?.email || 'cashier',
-      voidedAt: new Date().toISOString(),
-      voidApprovedBy: 'Supervisor PIN Override'
-    }, auditText);
+    setIsProcessing(true);
+    try {
+      const activeOrdersToVoid = sessionOrders.filter(o => o.status !== 'cancelled' && !o.voided);
+      
+      const voidPromises = activeOrdersToVoid.map(async (o) => {
+        const auditText = `[VOID] Soft-voided entire Order #${getOrderDisplayNo(o.id, o.createdAt || o.created_at)} - Reason: ${reason}`;
+        const res = await fetch(getApiUrl(`/api/orders/${o.id}`), {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            status: OrderStatus.CANCELLED,
+            voided: true,
+            voidReason: reason,
+            voidedBy: profile?.email || 'cashier',
+            voidedAt: new Date().toISOString(),
+            voidApprovedBy: 'Supervisor PIN Override',
+            auditAction: auditText
+          })
+        });
+        if (!res.ok) {
+          throw new Error(`Failed to void order #${getOrderDisplayNo(o.id, o.createdAt || o.created_at)}`);
+        }
+        return res.json();
+      });
 
-    if (result) {
+      const updatedOrders = await Promise.all(voidPromises);
+
+      // Merge updated results into sessionOrders local state
+      setSessionOrders(prev => prev.map(o => {
+        const matchingUpdated = updatedOrders.find(u => u.id === o.id);
+        if (matchingUpdated) {
+          return {
+            ...o,
+            ...matchingUpdated,
+            totalPrice: parseFloat(String(matchingUpdated.total_price || matchingUpdated.totalPrice || 0))
+          };
+        }
+        if (activeOrdersToVoid.some(av => av.id === o.id)) {
+          return {
+            ...o,
+            status: OrderStatus.CANCELLED,
+            voided: true,
+            voidReason: reason,
+            voidedBy: profile?.email || 'cashier',
+            voidedAt: new Date().toISOString(),
+            voidApprovedBy: 'Supervisor PIN Override',
+            totalPrice: 0
+          };
+        }
+        return o;
+      }));
+
+      // Fetch latest audit logs to display immediately
+      await fetchAuditLogs();
+      
       setShowVoidReasonModal(false);
       setVoidTarget(null);
       setVoidItemId(null);
+    } catch (err: any) {
+      console.error("Void entire session error:", err);
+      alert("Failed to void entire session: " + err.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -776,6 +829,10 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     ...(hasDuitNow ? [{ id: 'qr', label: 'DuitNow QR', icon: QrCode, color: 'rose' }] : []),
     { id: 'split', label: 'Split Payment', icon: Split, color: 'orange' },
   ];
+
+  const isEntireSessionVoided = useMemo(() => {
+    return sessionOrders.length > 0 && sessionOrders.every(o => o.status === 'cancelled' || o.voided);
+  }, [sessionOrders]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col md:flex-row overflow-y-auto md:overflow-hidden font-sans">
@@ -1009,17 +1066,17 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                           <div>
                             <h4 className="text-xs font-black text-white uppercase tracking-wider leading-none">Void/Cancel Whole Bill</h4>
                             <p className="text-[9px] text-zinc-500 mt-1.5 leading-relaxed">
-                              Voiding will soft-cancel this order, release billing locks, and tag table T-{order.tableName || '-'} for reconciliation.
+                              Voiding will soft-cancel all orders in this table session, release billing locks, and tag table T-{order.tableName || '-'} for reconciliation.
                             </p>
                           </div>
                         </div>
 
                         <div className="space-y-3">
-                          {order.status === 'cancelled' || order.voided ? (
+                          {isEntireSessionVoided ? (
                             <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg text-center">
-                              <span className="text-[8px] font-black text-red-500 uppercase tracking-widest block mb-1">ORDER VOID COMPLETE</span>
+                              <span className="text-[8px] font-black text-red-500 uppercase tracking-widest block mb-1">BILL VOID COMPLETE</span>
                               <p className="text-[10px] text-zinc-400 font-bold leading-relaxed">
-                                Reason: {order.voidReason || 'Manager cancelled'}
+                                Reason: {sessionOrders.find(o => o.voidReason)?.voidReason || order.voidReason || 'Manager cancelled'}
                               </p>
                             </div>
                           ) : (
@@ -1040,15 +1097,16 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                               </div>
 
                               <button
+                                type="button"
                                 onClick={() => {
-                                  if (confirm(`CRITICAL: Are you sure you want to void this complete order #${getOrderDisplayNo(order.id, order.createdAt || order.created_at)}?`)) {
+                                  if (confirm(`CRITICAL: Are you sure you want to void ALL orders in the current table session? This will cancel the entire bill.`)) {
                                     handleVoidOrder(voidReason);
                                   }
                                 }}
                                 className="w-full h-11 bg-gradient-to-r from-red-950/40 to-red-900/60 hover:from-red-900 hover:to-red-800 text-red-400 hover:text-white border border-red-500/30 hover:border-red-500 rounded font-black text-[10.5px] uppercase tracking-[0.15em] transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-red-500/10 active:scale-[0.99]"
                               >
                                 <AlertCircle size={13} className="text-red-400" />
-                                Confirm Void Entire Order
+                                Confirm Void Entire Session
                               </button>
                             </div>
                           )}
