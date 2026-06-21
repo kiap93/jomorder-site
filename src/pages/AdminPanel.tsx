@@ -449,6 +449,7 @@ export function AdminPanel() {
           } else {
             finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
           }
+          finalPriceSum = Math.round(finalPriceSum * 100) / 100;
           stats.revenue += finalPriceSum;
           
           order.items?.forEach((item: any) => {
@@ -469,7 +470,7 @@ export function AdminPanel() {
               voidList.push({
                 orderId: order.id,
                 itemName: item.name,
-                amount: baseSubtotal,
+                amount: Math.round(baseSubtotal * 100) / 100,
                 reason: item.voidReason || item.void_reason || 'Unspecified',
                 staff: item.voidedBy || 'Staff',
                 date: item.voidedAt || order.created_at || new Date().toISOString()
@@ -517,15 +518,16 @@ export function AdminPanel() {
         });
 
         stats.orders = activeOrdersCount;
-        stats.grossSales = grossSalesSum;
-        stats.totalDiscounts = totalDiscountsSum;
+        stats.grossSales = Math.round(grossSalesSum * 100) / 100;
+        stats.revenue = Math.round(stats.revenue * 100) / 100;
+        stats.totalDiscounts = Math.round(totalDiscountsSum * 100) / 100;
         stats.discountCount = discountCountSum;
         stats.voidedItemsCount = voidedItemsCountSum;
-        stats.voidedAmount = voidedAmountSum;
+        stats.voidedAmount = Math.round(voidedAmountSum * 100) / 100;
         stats.discountList = discountList;
         stats.voidList = voidList;
 
-        stats.avgTicket = stats.orders > 0 ? stats.revenue / stats.orders : 0;
+        stats.avgTicket = stats.orders > 0 ? Math.round((stats.revenue / stats.orders) * 100) / 100 : 0;
         stats.topItems = Array.from(itemMap.entries())
           .map(([name, data]) => ({ name, ...data }))
           .sort((a, b) => b.count - a.count);

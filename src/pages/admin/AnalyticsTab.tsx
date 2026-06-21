@@ -129,7 +129,7 @@ export function AnalyticsTab({
         <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">Gross Sales</div>
           <div className="text-xl sm:text-2xl font-black text-gray-800">
-            {currency} {grossSales.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {currency} {grossSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] font-bold text-gray-400 mt-1">Sum of original values</div>
         </div>
@@ -138,7 +138,7 @@ export function AnalyticsTab({
         <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-orange-100 bg-orange-50/20 flex flex-col justify-between">
           <div className="text-orange-500 text-[9px] font-black uppercase tracking-widest mb-2">Net Sales (Revenue)</div>
           <div className="text-xl sm:text-2xl font-black text-orange-600">
-            {currency} {netSales.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {currency} {netSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] font-bold text-orange-400 mt-1">Post-discounts and post-voids</div>
         </div>
@@ -147,7 +147,7 @@ export function AnalyticsTab({
         <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">Total Discounts</div>
           <div className="text-xl sm:text-2xl font-black text-red-600">
-            - {currency} {totalDiscounts.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            - {currency} {totalDiscounts.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] font-bold text-red-400 mt-1">Applied to {discountCount} item{discountCount !== 1 ? 's' : ''}</div>
         </div>
@@ -156,7 +156,7 @@ export function AnalyticsTab({
         <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">Voided Value</div>
           <div className="text-xl sm:text-2xl font-black text-gray-900">
-            {currency} {voidedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {currency} {voidedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] font-bold text-gray-500 mt-1">{voidedItemsCount} item{voidedItemsCount !== 1 ? 's' : ''} voided</div>
         </div>
@@ -172,7 +172,7 @@ export function AnalyticsTab({
         <div className="bg-white p-4 py-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div className="text-gray-400 text-[9px] font-black uppercase tracking-widest mb-2">{t('admin.avgTicket')}</div>
           <div className="text-xl sm:text-2xl font-black text-gray-900 font-mono">
-            {currency} {analyticsData.avgTicket.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {currency} {analyticsData.avgTicket.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] font-bold text-gray-400 mt-1">Per unique checkout</div>
         </div>
