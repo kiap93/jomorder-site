@@ -443,7 +443,12 @@ export function AdminPanel() {
           }
 
           activeOrdersCount++;
-          const finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
+          let finalPriceSum = 0;
+          if (Array.isArray(order.payments) && order.payments.length > 0) {
+            finalPriceSum = order.payments.reduce((sum: number, p: any) => sum + parseFloat(String(p.amount || 0)), 0);
+          } else {
+            finalPriceSum = parseFloat(String(order.total_price || order.totalPrice || 0));
+          }
           stats.revenue += finalPriceSum;
           
           order.items?.forEach((item: any) => {
