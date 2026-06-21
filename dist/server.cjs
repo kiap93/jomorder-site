@@ -6501,7 +6501,7 @@ router10.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation()
     const unpaidActiveOrders = (orders || []).filter((o) => {
       const isPaid = !!o.paid_at;
       const isCancelled = o.status === "cancelled";
-      const isVoided = !!o.voided;
+      const isVoided = !!o.voided || o.status === "voided";
       return !isPaid && !isCancelled && !isVoided;
     });
     if (unpaidActiveOrders.length > 0) {

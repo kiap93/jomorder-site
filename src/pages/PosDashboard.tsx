@@ -329,6 +329,27 @@ export function PosDashboard() {
     if (!token) return;
 
     try {
+      // Validate that there are no unpaid active orders before issuing the PATCH
+      const ordersRes = await fetch(getApiUrl(`/api/dining-sessions/${sessionId}/orders`), {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (ordersRes.ok) {
+        const sessionOrders = await ordersRes.json().catch(() => []);
+        const unpaidActiveOrders = (sessionOrders || []).filter((o: any) => {
+          const isPaid = !!o.paid_at;
+          const isCancelled = o.status === 'cancelled';
+          const isVoided = !!o.voided || o.status === 'voided';
+          return !isPaid && !isCancelled && !isVoided;
+        });
+
+        if (unpaidActiveOrders.length > 0) {
+          alert("Cannot close dining session with outstanding payments. Please settle or void all orders first.");
+          return;
+        }
+      }
+
       // 1. Mark session as closed
       const response = await fetch(getApiUrl(`/api/dining-sessions/${sessionId}`), {
         method: 'PATCH',

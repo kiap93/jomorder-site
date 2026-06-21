@@ -1096,6 +1096,26 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
+      // Validate that there are no unpaid active orders before issuing the PATCH
+      const ordersRes = await fetch(getApiUrl(`/api/dining-sessions/${session.id}/orders`), {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (ordersRes.ok) {
+        const sessionOrders = await ordersRes.json().catch(() => []);
+        const unpaidActiveOrders = (sessionOrders || []).filter((o: any) => {
+          const isPaid = !!o.paid_at;
+          const isCancelled = o.status === 'cancelled';
+          const isVoided = !!o.voided || o.status === 'voided';
+          return !isPaid && !isCancelled && !isVoided;
+        });
+
+        if (unpaidActiveOrders.length > 0) {
+          throw new Error("Cannot close dining session with outstanding payments. Please settle or void all orders first.");
+        }
+      }
+
       const response = await fetch(getApiUrl(`/api/dining-sessions/${session.id}`), {
         method: 'PATCH',
         headers: {

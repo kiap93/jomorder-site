@@ -111,7 +111,7 @@ diningSessionRoutes.patch("/api/dining-sessions/:id", authenticate, async (c) =>
     const unpaidActiveOrders = (orders || []).filter((o: any) => {
       const isPaid = !!o.paid_at;
       const isCancelled = o.status === 'cancelled';
-      const isVoided = !!o.voided;
+      const isVoided = !!o.voided || o.status === 'voided';
       return !isPaid && !isCancelled && !isVoided;
     });
 
