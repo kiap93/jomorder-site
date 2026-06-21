@@ -1096,7 +1096,7 @@ export function AdminPanel() {
 
     setLoading(true);
     try {
-      await fetch(getApiUrl(`/api/dining-sessions/${session.id}`), {
+      const response = await fetch(getApiUrl(`/api/dining-sessions/${session.id}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1105,8 +1105,13 @@ export function AdminPanel() {
         body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
       });
 
+      if (!response.ok) {
+        const errObj = await response.json().catch(() => ({}));
+        throw new Error(errObj.error || "Failed to close dining session");
+      }
+
       // Reset table pointer
-      await fetch(getApiUrl(`/api/tables/${session.tableId}`), {
+      const tableResponse = await fetch(getApiUrl(`/api/tables/${session.tableId}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1114,11 +1119,16 @@ export function AdminPanel() {
         },
         body: JSON.stringify({ current_session_id: null, status: 'available' })
       });
+
+      if (!tableResponse.ok) {
+        const errObj = await tableResponse.json().catch(() => ({}));
+        throw new Error(errObj.error || "Failed to reset table status");
+      }
       
       await fetchData();
     } catch (err: any) {
       console.error("Close session failed:", err);
-      alert("Failed to close session: " + err.message);
+      alert(err.message || "Failed to close session");
     } finally {
       setLoading(false);
     }

@@ -96,6 +96,32 @@ diningSessionRoutes.post("/api/dining-sessions/:id/settle", authenticate, async 
 diningSessionRoutes.patch("/api/dining-sessions/:id", authenticate, async (c) => {
   const supabase = getUserSupabaseClient(c);
   const body = await c.req.json();
+
+  if (body && body.status === 'closed') {
+    // Check if there are outstanding payments
+    const { data: orders, error: ordersError } = await supabase
+      .from('orders')
+      .select('id, status, paid_at, voided')
+      .eq('session_id', c.req.param('id'));
+
+    if (ordersError) {
+      return c.json({ error: ordersError.message }, 500);
+    }
+
+    const unpaidActiveOrders = (orders || []).filter((o: any) => {
+      const isPaid = !!o.paid_at;
+      const isCancelled = o.status === 'cancelled';
+      const isVoided = !!o.voided;
+      return !isPaid && !isCancelled && !isVoided;
+    });
+
+    if (unpaidActiveOrders.length > 0) {
+      return c.json({ 
+        error: "Cannot close dining session with outstanding payments. Please settle or void all orders first." 
+      }, 400);
+    }
+  }
+
   const { data, error } = await supabase
     .from('dining_sessions')
     .update(body)

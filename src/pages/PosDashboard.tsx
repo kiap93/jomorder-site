@@ -328,25 +328,41 @@ export function PosDashboard() {
     const token = useAuthStore.getState().token;
     if (!token) return;
 
-    // 1. Mark session as closed
-    await fetch(getApiUrl(`/api/dining-sessions/${sessionId}`), {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
-    });
+    try {
+      // 1. Mark session as closed
+      const response = await fetch(getApiUrl(`/api/dining-sessions/${sessionId}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: 'closed', closed_at: new Date().toISOString() })
+      });
 
-    // 2. Clear the table status
-    await fetch(getApiUrl(`/api/tables/${tableId}`), {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ current_session_id: null, status: 'available' })
-    });
+      if (!response.ok) {
+        const errObj = await response.json().catch(() => ({}));
+        alert(errObj.error || "Failed to close dining session. There may be outstanding payments.");
+        return;
+      }
+
+      // 2. Clear the table status
+      const tableResponse = await fetch(getApiUrl(`/api/tables/${tableId}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ current_session_id: null, status: 'available' })
+      });
+
+      if (!tableResponse.ok) {
+        const errObj = await tableResponse.json().catch(() => ({}));
+        alert(errObj.error || "Failed to clear table status.");
+      }
+    } catch (err: any) {
+      console.error("Close session failed:", err);
+      alert("Error: " + err.message);
+    }
   };
 
   const [printingOrders, setPrintingOrders] = useState<Record<string, boolean>>({});

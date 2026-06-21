@@ -6493,6 +6493,23 @@ router10.post("/dining-sessions/:id/settle", authenticateJWT, requireTenantIsola
   }
 });
 router10.patch("/dining-sessions/:id", authenticateJWT, requireTenantIsolation(), requireAnyPermission("orders.view"), async (req, res) => {
+  if (req.body && req.body.status === "closed") {
+    const { data: orders, error: ordersError } = await supabaseAdmin.from("orders").select("id, status, paid_at, voided").eq("session_id", req.params.id);
+    if (ordersError) {
+      return res.status(500).json({ error: ordersError.message });
+    }
+    const unpaidActiveOrders = (orders || []).filter((o) => {
+      const isPaid = !!o.paid_at;
+      const isCancelled = o.status === "cancelled";
+      const isVoided = !!o.voided;
+      return !isPaid && !isCancelled && !isVoided;
+    });
+    if (unpaidActiveOrders.length > 0) {
+      return res.status(400).json({
+        error: "Cannot close dining session with outstanding payments. Please settle or void all orders first."
+      });
+    }
+  }
   const { data, error } = await supabaseAdmin.from("dining_sessions").update(req.body).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
