@@ -662,6 +662,67 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     }
   };
 
+  const handleUndoVoidSingleOrder = async (orderId: string) => {
+    const activeOrder = sessionOrders.find(o => o.id === orderId);
+    if (!activeOrder) return;
+
+    const userRole = (profile?.role || 'cashier').toLowerCase();
+    const isManager = userRole === 'manager' || userRole === 'owner' || userRole === 'admin' || unlockedRole === 'manager';
+    
+    if (!isManager) {
+      alert("Unauthorized: Void reversal is restricted. Manager override PIN required.");
+      return;
+    }
+
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    setIsProcessing(true);
+    try {
+      const auditText = `[VOID REVERSAL] Unvoided Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)}`;
+      const res = await fetch(getApiUrl(`/api/orders/${activeOrder.id}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: 'confirmed',
+          voided: false,
+          voidReason: null,
+          voidedBy: null,
+          voidedAt: null,
+          voidApprovedBy: null,
+          items: activeOrder.items || [], // Send items array to re-run price calculation
+          auditAction: auditText
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to unvoid Order");
+      const updatedOrder = await res.json();
+
+      setSessionOrders(prev => prev.map(o => o.id === activeOrder.id ? {
+        ...o,
+        ...updatedOrder,
+        status: 'confirmed',
+        voided: false,
+        voidReason: null,
+        voidedBy: null,
+        voidedAt: null,
+        voidApprovedBy: null,
+        totalPrice: parseFloat(String(updatedOrder.total_price || updatedOrder.totalPrice || 0))
+      } : o));
+
+      alert(`Successfully unvoided Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)}`);
+      await fetchAuditLogs();
+    } catch (err: any) {
+      console.error("Undo void order error:", err);
+      alert("Failed to undo void order: " + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleVoidOrder = async (reason: string) => {
     if (sessionOrders.length === 0) return;
 
@@ -1242,6 +1303,50 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                 <AlertCircle size={13} className="text-red-400" />
                                 Confirm Void Entire Session
                               </button>
+
+                              {/* Reversible Action: List voided or cancelled orders in this session to support undoing */}
+                              {(() => {
+                                const voidedOrders = sessionOrders.filter(o => o.voided || o.status === OrderStatus.CANCELLED);
+                                if (voidedOrders.length > 0) {
+                                  return (
+                                    <div className="border border-emerald-500/20 bg-emerald-950/10 rounded-lg p-2.5 space-y-2 mt-4">
+                                      <div className="flex items-center gap-1.5 text-[8.5px] font-black text-emerald-400 uppercase tracking-widest leading-none">
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                                        <span>Reversible Voids Detected:</span>
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-1.5">
+                                        {voidedOrders.map((o) => (
+                                          <div
+                                            key={o.id}
+                                            className="px-2.5 py-2 bg-zinc-950 border border-zinc-900 rounded flex items-center justify-between"
+                                          >
+                                            <div className="flex flex-col">
+                                              <span className="text-[9px] font-black text-zinc-300">
+                                                Order #{getOrderDisplayNo(o.id, o.createdAt || o.created_at)}
+                                              </span>
+                                              <span className="text-[7.5px] font-bold text-zinc-500 leading-none mt-0.5">
+                                                Reason: {o.voidReason || 'Manager Void'}
+                                              </span>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (confirm(`Are you sure you want to revert the void on Order #${getOrderDisplayNo(o.id, o.createdAt || o.created_at)}?`)) {
+                                                  handleUndoVoidSingleOrder(o.id);
+                                                }
+                                              }}
+                                              className="h-7 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-white border border-emerald-500/20 hover:border-emerald-500/40 rounded text-[8.5px] font-black uppercase transition-all"
+                                            >
+                                              Undo Void
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           )}
                         </div>
@@ -1417,12 +1522,34 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                             return (
                               <div key={currentOrder.id} className="border border-zinc-800/60 bg-zinc-950/20 rounded-lg p-2.5 mb-3 last:mb-0">
                                 <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2 mb-2 px-1">
-                                  <span className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">
-                                    Order #{getOrderDisplayNo(currentOrder.id, currentOrder.createdAt || currentOrder.created_at)}
-                                  </span>
-                                  <span className="text-[8px] font-mono font-bold text-zinc-500 tabular-nums">
-                                    {items.length} {items.length === 1 ? 'item' : 'items'}
-                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">
+                                      Order #{getOrderDisplayNo(currentOrder.id, currentOrder.createdAt || currentOrder.created_at)}
+                                    </span>
+                                    {(currentOrder.voided || currentOrder.status === OrderStatus.CANCELLED) && (
+                                      <span className="text-[7.5px] font-black bg-red-500/10 text-red-400 border border-red-500/20 px-1 py-0.2 rounded uppercase tracking-wider leading-none">
+                                        Voided
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {(currentOrder.voided || currentOrder.status === OrderStatus.CANCELLED) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (confirm(`Are you sure you want to revert the void on Order #${getOrderDisplayNo(currentOrder.id, currentOrder.createdAt || currentOrder.created_at)}?`)) {
+                                            handleUndoVoidSingleOrder(currentOrder.id);
+                                          }
+                                        }}
+                                        className="text-[7.5px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-wider bg-emerald-500/10 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/10 hover:border-emerald-500/30 transition-all leading-none"
+                                      >
+                                        Undo Void Order
+                                      </button>
+                                    )}
+                                    <span className="text-[8px] font-mono font-bold text-zinc-500 tabular-nums">
+                                      {items.length} {items.length === 1 ? 'item' : 'items'}
+                                    </span>
+                                  </div>
                                 </div>
                                 
                                 <div className="space-y-1.5">
