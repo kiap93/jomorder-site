@@ -150,6 +150,13 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
   const [voidTarget, setVoidTarget] = useState<'item' | 'order' | null>(null);
   const [voidItemId, setVoidItemId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState<string>('Operator Input Entry Mistake');
+  const [selectedTargetOrderId, setSelectedTargetOrderId] = useState<string>(order.id);
+
+  useEffect(() => {
+    if (order?.id) {
+      setSelectedTargetOrderId(order.id);
+    }
+  }, [order?.id]);
 
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loadingAudits, setLoadingAudits] = useState<boolean>(false);
@@ -557,8 +564,9 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     await applyFinancialMutation({ items: updatedItems }, auditText, activeOrderId);
   };
 
-  const handleApplyOrderDiscount = async (type: 'percentage' | 'fixed', value: number, reason: string) => {
-    const activeOrder = sessionOrders.find(o => o.id === order.id);
+  const handleApplyOrderDiscount = async (type: 'percentage' | 'fixed', value: number, reason: string, targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
     if (!activeOrder) return;
 
     // Check role access
@@ -566,7 +574,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
     const isManager = userRole === 'manager' || userRole === 'owner' || userRole === 'admin' || unlockedRole === 'manager';
     
     if (!isManager && (type === 'percentage' ? value > 10 : value > 25)) {
-      alert("Unauthorized: Order discounts over 10% require supervisor PIN override.");
+      alert("Unauthorized: Order discounts over 10% require supervisor PIN override. Please authenticate first.");
       return;
     }
 
@@ -578,17 +586,80 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       approvedBy: unlockedRole === 'manager' ? 'Supervisor PIN Override' : undefined
     };
 
-    const auditText = `[DISCOUNT] Applied ${value}${type === 'percentage' ? '%' : ' RM'} order discount on Order #${getOrderDisplayNo(order.id, order.createdAt || order.created_at)} - Reason: ${reason}`;
+    const auditText = `[DISCOUNT] Applied ${value}${type === 'percentage' ? '%' : ' RM'} order discount on Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)} - Reason: ${reason}`;
 
-    const result = await applyFinancialMutation({ discount: discountPayload }, auditText);
+    const result = await applyFinancialMutation({ discount: discountPayload }, auditText, activeOrderId);
     if (result) {
       setSelectedActionType(null);
     }
   };
 
-  const handleClearOrderDiscount = async () => {
-    const auditText = `[DISCOUNT] Removed order-level discount on Order #${getOrderDisplayNo(order.id, order.createdAt || order.created_at)}`;
-    await applyFinancialMutation({ discount: null }, auditText);
+  const handleClearOrderDiscount = async (targetOrderId?: string) => {
+    const activeOrderId = targetOrderId || order.id;
+    const activeOrder = sessionOrders.find(o => o.id === activeOrderId);
+    if (!activeOrder) return;
+    const auditText = `[DISCOUNT] Removed order-level discount on Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)}`;
+    await applyFinancialMutation({ discount: null }, auditText, activeOrderId);
+  };
+
+  const handleVoidSingleOrder = async (orderId: string, reason: string) => {
+    const activeOrder = sessionOrders.find(o => o.id === orderId);
+    if (!activeOrder) return;
+
+    const userRole = (profile?.role || 'cashier').toLowerCase();
+    const isManager = userRole === 'manager' || userRole === 'owner' || userRole === 'admin' || unlockedRole === 'manager';
+    
+    if (!isManager) {
+      alert("Unauthorized: Void operations are restricted. Manager override PIN required.");
+      return;
+    }
+
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    setIsProcessing(true);
+    try {
+      const auditText = `[VOID] Soft-voided Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)} - Reason: ${reason}`;
+      const res = await fetch(getApiUrl(`/api/orders/${activeOrder.id}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: 'voided',
+          voided: true,
+          voidReason: reason,
+          voidedBy: profile?.email || 'cashier',
+          voidedAt: new Date().toISOString(),
+          voidApprovedBy: 'Supervisor PIN Override',
+          auditAction: auditText
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to void Order");
+      const updatedOrder = await res.json();
+
+      setSessionOrders(prev => prev.map(o => o.id === activeOrder.id ? {
+        ...o,
+        ...updatedOrder,
+        status: 'voided',
+        voided: true,
+        voidReason: reason,
+        voidedBy: profile?.email || 'cashier',
+        voidedAt: new Date().toISOString(),
+        voidApprovedBy: 'Supervisor PIN Override',
+        totalPrice: 0
+      } : o));
+
+      alert(`Successfully voided Order #${getOrderDisplayNo(activeOrder.id, activeOrder.createdAt || activeOrder.created_at)}`);
+      await fetchAuditLogs();
+    } catch (err: any) {
+      console.error("Void order error:", err);
+      alert("Failed to void order: " + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleVoidOrder = async (reason: string) => {
@@ -1097,14 +1168,14 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                         <div className="absolute -right-24 -bottom-24 w-48 h-48 bg-red-500/5 blur-3xl rounded-full" />
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <h4 className="text-xs font-black text-white uppercase tracking-wider leading-none">Void/Cancel Whole Bill</h4>
+                            <h4 className="text-xs font-black text-white uppercase tracking-wider leading-none">Void/Cancel Invoice Operations</h4>
                             <p className="text-[9px] text-zinc-500 mt-1.5 leading-relaxed">
-                              Voiding will soft-cancel all orders in this table session, release billing locks, and tag table T-{order.tableName || '-'} for reconciliation.
+                              Perform soft-void overrides. You can cancel individual orders or void the entire multi-order session.
                             </p>
                           </div>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {isEntireSessionVoided ? (
                             <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg text-center">
                               <span className="text-[8px] font-black text-red-500 uppercase tracking-widest block mb-1">BILL VOID COMPLETE</span>
@@ -1113,9 +1184,9 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                               </p>
                             </div>
                           ) : (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                               <div>
-                                <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Cancellation Reason Rationale</label>
+                                <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Void / Cancellation Reason</label>
                                 <select
                                   value={voidReason}
                                   onChange={(e) => setVoidReason(e.target.value)}
@@ -1128,6 +1199,36 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                                   <option value="Duplicate Order Entry">Duplicate Order Entry</option>
                                 </select>
                               </div>
+
+                              {/* If there are multiple active orders, permit single-order voids */}
+                              {(() => {
+                                const activeSessionOrders = sessionOrders.filter(o => o.status !== 'cancelled' && !o.voided);
+                                if (activeSessionOrders.length > 1) {
+                                  return (
+                                    <div className="border border-zinc-800/60 bg-zinc-950/20 rounded-lg p-2.5 space-y-2">
+                                      <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest block leading-none">Void Specific Single Order:</span>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {activeSessionOrders.map((o) => (
+                                          <button
+                                            key={o.id}
+                                            type="button"
+                                            onClick={() => {
+                                              if (confirm(`Are you sure you want to void only Order #${getOrderDisplayNo(o.id, o.createdAt || o.created_at)}? This action is irreversible.`)) {
+                                                handleVoidSingleOrder(o.id, voidReason);
+                                              }
+                                            }}
+                                            className="h-9 px-2.5 bg-red-950/10 hover:bg-red-900/30 text-red-400 hover:text-white border border-red-500/10 hover:border-red-500/30 rounded text-[9px] font-black uppercase transition-all flex items-center justify-between"
+                                          >
+                                            <span>Order #{getOrderDisplayNo(o.id, o.createdAt || o.created_at)}</span>
+                                            <span className="text-[7.5px] font-black text-red-500/80">Void</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
 
                               <button
                                 type="button"
@@ -1152,119 +1253,154 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
                           <div>
                             <h4 className="text-xs font-black text-white uppercase tracking-wider leading-none">Order-Level Discount Adjustment</h4>
                             <p className="text-[9px] text-zinc-500 mt-1.5 leading-relaxed">
-                              Apply a blanket percentage or fixed reduction to the complete bill.
+                              Apply a blanket percentage or fixed reduction to any specific order's bill.
                             </p>
                           </div>
                         </div>
 
-                        {/* Check existing discount */}
+                        {/* Order Selector for Discounting */}
                         {(() => {
-                          const matchedOrder = sessionOrders.find(o => o.id === order.id);
+                          const activeSessionOrders = sessionOrders.filter(o => o.status !== 'cancelled' && !o.voided);
+                          if (activeSessionOrders.length > 1) {
+                            return (
+                              <div className="mb-4 bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-850">
+                                <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Target Order for Discount Override:</label>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {activeSessionOrders.map((o) => {
+                                    const isSelected = selectedTargetOrderId === o.id;
+                                    return (
+                                      <button
+                                        key={o.id}
+                                        type="button"
+                                        onClick={() => setSelectedTargetOrderId(o.id)}
+                                        className={`px-2 py-1.5 rounded text-[8.5px] font-black uppercase transition-all border text-left flex flex-col justify-between ${
+                                          isSelected
+                                            ? 'bg-orange-500/15 border-orange-500 text-orange-400'
+                                            : 'bg-zinc-900 hover:bg-zinc-850 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                      >
+                                        <span>Order #{getOrderDisplayNo(o.id, o.createdAt || o.created_at)}</span>
+                                        <span className="text-[7.5px] opacity-75 font-mono mt-0.5">
+                                          {o.discount ? `Applied: ${o.discount.value}${o.discount.type === 'percentage' ? '%' : ' ' + (restaurant?.currency || 'RM')}` : 'No Discount'}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Check existing discount for targeted order */}
+                        {(() => {
+                          const matchedOrder = sessionOrders.find(o => o.id === selectedTargetOrderId);
                           return matchedOrder?.discount ? (
                             <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-800/60 flex items-center justify-between">
                               <div>
                                 <div className="flex items-center gap-1.5 text-orange-500 uppercase font-black text-[9px] leading-none mb-1">
                                   <CheckCircle2 size={10} />
-                                  DISCOUNT APPLIED
+                                  DISCOUNT APPLIED (Order #{getOrderDisplayNo(matchedOrder.id, matchedOrder.createdAt || matchedOrder.created_at)})
                                 </div>
                                 <p className="text-[10px] font-black text-white leading-tight">
                                   {matchedOrder.discount.value}
-                                  {matchedOrder.discount.type === 'percentage' ? '%' : ' RM'} Off
+                                  {matchedOrder.discount.type === 'percentage' ? '%' : ' ' + (restaurant?.currency || 'RM')} Off
                                 </p>
                                 <p className="text-[8px] text-zinc-500 mt-0.5 leading-none">
                                   Reason: {matchedOrder.discount.reason || 'Ad-Hoc Promo'}
                                 </p>
                               </div>
                               <button
-                                onClick={handleClearOrderDiscount}
+                                onClick={() => handleClearOrderDiscount(matchedOrder.id)}
                                 className="text-[8px] font-black text-red-500 hover:text-red-400 uppercase tracking-wider bg-red-500/10 hover:bg-red-500/20 px-2 py-1.5 rounded transition-all border border-red-500/20"
                               >
                                 Clear Discount
                               </button>
                             </div>
-                          ) : null;
-                        })() || (
-                          <div className="space-y-4">
-                            <div className="flex bg-zinc-950 p-0.5 rounded border border-zinc-850">
-                              <button
-                                onClick={() => setDiscountType('percentage')}
-                                className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded transition-all leading-none ${
-                                  discountType === 'percentage' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
-                                }`}
-                              >
-                                Percent (%)
-                              </button>
-                              <button
-                                onClick={() => setDiscountType('fixed')}
-                                className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded transition-all leading-none ${
-                                  discountType === 'fixed' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
-                                }`}
-                              >
-                                Fixed {restaurant?.currency || 'RM'}
-                              </button>
-                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="flex bg-zinc-950 p-0.5 rounded border border-zinc-850">
+                                <button
+                                  onClick={() => setDiscountType('percentage')}
+                                  className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded transition-all leading-none ${
+                                    discountType === 'percentage' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                                  }`}
+                                >
+                                  Percent (%)
+                                </button>
+                                <button
+                                  onClick={() => setDiscountType('fixed')}
+                                  className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded transition-all leading-none ${
+                                    discountType === 'fixed' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                                  }`}
+                                >
+                                  Fixed {restaurant?.currency || 'RM'}
+                                </button>
+                              </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Amount Off</label>
-                                <div className="relative">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Amount Off</label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      placeholder="0"
+                                      value={discountValue || ''}
+                                      onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                                      className="w-full h-9 bg-zinc-950 border border-zinc-800 rounded px-2.5 text-[10px] text-white font-black focus:outline-none focus:border-orange-500/50 transition-all tabular-nums"
+                                    />
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-black bg-zinc-900 px-1 border border-zinc-850 rounded text-zinc-500 leading-none">
+                                      {discountType === 'percentage' ? '%' : restaurant?.currency || 'RM'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Approval Description</label>
                                   <input
-                                    type="number"
-                                    placeholder="0"
-                                    value={discountValue || ''}
-                                    onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
-                                    className="w-full h-9 bg-zinc-950 border border-zinc-800 rounded px-2.5 text-[10px] text-white font-black focus:outline-none focus:border-orange-500/50 transition-all tabular-nums"
+                                    type="text"
+                                    placeholder="Promo / Campaign ID"
+                                    value={reasonText}
+                                    onChange={(e) => setReasonText(e.target.value)}
+                                    className="w-full h-9 bg-zinc-950 border border-zinc-800 rounded px-2.5 text-[10px] text-zinc-300 font-bold focus:outline-none focus:border-orange-500/50 transition-all"
                                   />
-                                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-black bg-zinc-900 px-1 border border-zinc-800 rounded text-zinc-500 leading-none">
-                                    {discountType === 'percentage' ? '%' : restaurant?.currency || 'RM'}
-                                  </span>
                                 </div>
                               </div>
 
-                              <div>
-                                <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block mb-1.5">Approval Description</label>
-                                <input
-                                  type="text"
-                                  placeholder="Promo / Campaign ID"
-                                  value={reasonText}
-                                  onChange={(e) => setReasonText(e.target.value)}
-                                  className="w-full h-9 bg-zinc-950 border border-zinc-800 rounded px-2.5 text-[10px] text-zinc-300 font-bold focus:outline-none focus:border-orange-500/50 transition-all"
-                                />
+                              {/* Quick presets */}
+                              <div className="flex gap-1.5 flex-wrap">
+                                {(discountType === 'percentage' ? [5, 10, 15, 20, 30, 50] : [5, 10, 15, 20, 50, 100]).map(val => (
+                                  <button
+                                    key={val}
+                                    type="button"
+                                    onClick={() => setDiscountValue(val)}
+                                    className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-850 rounded text-[9px] font-black tracking-tight text-zinc-400 hover:text-white transition-all tabular-nums"
+                                  >
+                                    {discountType === 'percentage' ? `${val}%` : `${restaurant?.currency || 'RM'} ${val}`}
+                                  </button>
+                                ))}
                               </div>
-                            </div>
 
-                            {/* Quick presets */}
-                            <div className="flex gap-1.5 flex-wrap">
-                              {(discountType === 'percentage' ? [5, 10, 15, 20, 30, 50] : [5, 10, 15, 20, 50, 100]).map(val => (
-                                <button
-                                  key={val}
-                                  type="button"
-                                  onClick={() => setDiscountValue(val)}
-                                  className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-850 rounded text-[9px] font-black tracking-tight text-zinc-400 hover:text-white transition-all tabular-nums"
-                                >
-                                  {discountType === 'percentage' ? `${val}%` : `${restaurant?.currency || 'RM'} ${val}`}
-                                </button>
-                              ))}
+                              <button
+                                onClick={() => {
+                                  if (discountValue <= 0) {
+                                    alert("Please specify a discount value greater than zero.");
+                                    return;
+                                  }
+                                  const description = reasonText || 'Manager Ad-Hoc Discount';
+                                  handleApplyOrderDiscount(discountType, discountValue, description, selectedTargetOrderId);
+                                  setDiscountValue(0);
+                                  setReasonText('');
+                                }}
+                                className="w-full h-10 bg-orange-600 hover:bg-orange-500 text-white rounded font-black text-[10px] uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5"
+                              >
+                                <CheckCircle2 size={11} />
+                                Apply Order Discount
+                              </button>
                             </div>
-
-                            <button
-                              onClick={() => {
-                                if (discountValue <= 0) {
-                                  alert("Please specify a discount value greater than zero.");
-                                  return;
-                                }
-                                const description = reasonText || 'Manager Ad-Hoc Discount';
-                                handleApplyOrderDiscount(discountType, discountValue, description);
-                                setDiscountValue(0);
-                                setReasonText('');
-                              }}
-                              className="w-full h-10 bg-orange-600 hover:bg-orange-500 text-white rounded font-black text-[10px] uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5"
-                            >
-                              <CheckCircle2 size={11} />
-                              Apply Order Discount
-                            </button>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
 
