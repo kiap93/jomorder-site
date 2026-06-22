@@ -1022,7 +1022,7 @@ export function PaymentWorkspace({ order, restaurant, onClose, onPaymentSuccess 
       </div>
 
       {/* 2️⃣ Main Workspace Center */}
-      <div className="bg-zinc-950 flex flex-col relative md:overflow-hidden min-h-[420px] md:min-h-0 shrink-0 md:shrink">
+      <div className="bg-zinc-950 flex flex-col relative overflow-auto min-h-[420px] md:min-h-0 shrink-0 md:shrink">
         {/* Workspace Top Bar */}
         <div className="bg-zinc-950 border-b border-zinc-800/50 flex flex-col items-center justify-between px-4 shrink-0">
            <div className="flex items-center gap-3">
