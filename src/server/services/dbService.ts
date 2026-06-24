@@ -85,8 +85,10 @@ export function readRegistry(): Record<string, RegistryEntry> {
 }
 
 export function writeRegistry(data: Record<string, RegistryEntry>) {
-  Object.keys(tenantRegistryInMemory).forEach(key => delete tenantRegistryInMemory[key]);
-  Object.assign(tenantRegistryInMemory, data);
+  if (data !== tenantRegistryInMemory) {
+    Object.keys(tenantRegistryInMemory).forEach(key => delete tenantRegistryInMemory[key]);
+    Object.assign(tenantRegistryInMemory, data);
+  }
 }
 
 export async function getOrganizationSettings(supabase: SupabaseClient, orgId: string): Promise<RegistryEntry> {

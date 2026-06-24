@@ -25,7 +25,7 @@ billingRoutes.get("/api/billing/overview", authenticate, async (c) => {
 
   try {
     const supabaseClient = getSupabase(c.env);
-    const service = new BillingService(supabaseClient);
+    const service = new BillingService(supabaseClient, c.env.STRIPE_SECRET_KEY);
     const overview = await service.getTenantBillingOverview(tenantId);
     return c.json(overview);
   } catch (err: any) {
@@ -74,7 +74,7 @@ billingRoutes.post("/api/billing/create-checkout-session", authenticate, async (
 
   try {
     const supabaseClient = getSupabase(c.env);
-    const service = new BillingService(supabaseClient);
+    const service = new BillingService(supabaseClient, c.env.STRIPE_SECRET_KEY);
     const result = await service.createCheckoutSession(tenantId, plan as PlanCode, email, returnUrl);
     return c.json(result);
   } catch (err: any) {
@@ -117,7 +117,7 @@ billingRoutes.post("/api/billing/create-portal-session", authenticate, async (c)
 
   try {
     const supabaseClient = getSupabase(c.env);
-    const service = new BillingService(supabaseClient);
+    const service = new BillingService(supabaseClient, c.env.STRIPE_SECRET_KEY);
     const result = await service.createPortalSession(tenantId, returnUrl);
     return c.json(result);
   } catch (err: any) {
@@ -144,7 +144,7 @@ billingRoutes.post("/api/billing/upgrade", authenticate, async (c) => {
 
   try {
     const supabaseClient = getSupabase(c.env);
-    const service = new BillingService(supabaseClient);
+    const service = new BillingService(supabaseClient, c.env.STRIPE_SECRET_KEY);
     const updated = await service.upgradeSubscription(tenantId, plan as PlanCode);
     return c.json({ success: true, subscription: updated });
   } catch (err: any) {
@@ -169,7 +169,7 @@ billingRoutes.post("/api/billing/cancel", authenticate, async (c) => {
 
   try {
     const supabaseClient = getSupabase(c.env);
-    const service = new BillingService(supabaseClient);
+    const service = new BillingService(supabaseClient, c.env.STRIPE_SECRET_KEY);
     const cancelled = await service.cancelSubscription(tenantId);
     return c.json({ success: true, subscription: cancelled });
   } catch (err: any) {

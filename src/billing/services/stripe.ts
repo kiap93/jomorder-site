@@ -4,20 +4,22 @@ import dotenv from "dotenv";
 dotenv.config();
 
 let stripeInstance: Stripe | null = null;
+let activeApiKey: string | null = null;
 
 /**
  * Lazy initializer for secure standard Node-based stripe calls.
  * This ensures the server never crashes on startup if secret keys are missing.
  */
-export function getStripeClient(): Stripe {
-  if (!stripeInstance) {
-    const secretKey = process.env.STRIPE_SECRET_KEY;
-    if (!secretKey) {
-      throw new Error("Missing STRIPE_SECRET_KEY");
-    }
+export function getStripeClient(apiKey?: string): Stripe {
+  const secretKey = apiKey || process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error("Missing STRIPE_SECRET_KEY");
+  }
+  if (!stripeInstance || activeApiKey !== secretKey) {
     stripeInstance = new Stripe(secretKey, {
       apiVersion: "2022-11-15" as any,
     });
+    activeApiKey = secretKey;
   }
   return stripeInstance;
 }

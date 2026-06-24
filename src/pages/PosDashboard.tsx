@@ -29,6 +29,9 @@ interface RawOrder {
   created_at: string;
   session_id?: string;
   discount?: any;
+  voided?: boolean;
+  void_reason?: string;
+  void_approved_by?: string;
 }
 
 export function PosDashboard() {
@@ -194,7 +197,10 @@ export function PosDashboard() {
             createdAt: o.created_at,
             updatedAt: o.created_at,
             sessionId: o.session_id,
-            discount: o.discount
+            discount: o.discount,
+            voided: o.voided || o.status === 'voided',
+            voidReason: o.void_reason,
+            voidApprovedBy: o.void_approved_by
           }));
 
           setOrders(fetchedOrders);
@@ -237,7 +243,10 @@ export function PosDashboard() {
               createdAt: o.created_at,
               updatedAt: o.created_at,
               sessionId: o.p_session_id || '',
-              discount: (o as any).discount
+              discount: (o as any).discount,
+              voided: (o as any).voided || o.status === 'voided',
+              voidReason: (o as any).void_reason,
+              voidApprovedBy: (o as any).void_approved_by
             })) as Order[]);
             setError(null);
           } else {
@@ -494,7 +503,9 @@ export function PosDashboard() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               key={order.id}
-              className="bg-white rounded-lg overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
+              className={`rounded-lg overflow-hidden border shadow-sm hover:shadow-md transition-all flex flex-col ${
+                order.voided ? 'bg-red-50/20 border-red-250 ring-2 ring-red-500/10' : 'bg-white border-gray-100'
+              }`}
             >
               <div className="p-2 border-b flex justify-between items-center bg-gray-50/50">
                 <div>
@@ -521,17 +532,35 @@ export function PosDashboard() {
                   </div>
                 </div>
                 <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border ${
+                  order.voided ? 'bg-red-600 text-white border-red-700 animate-pulse' :
                   order.status === OrderStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                   order.status === OrderStatus.CONFIRMED ? 'bg-blue-50 text-blue-700 border-blue-200' :
                   order.status === OrderStatus.COOKING ? 'bg-orange-50 text-orange-700 border-orange-200' :
                   order.status === OrderStatus.READY ? 'bg-green-50 text-green-700 border-green-200' :
                   'bg-gray-50 text-gray-700 border-gray-200'
                 }`}>
-                  {t(`status.${order.status}`) || order.status}
+                  {order.voided ? 'VOIDED' : (t(`status.${order.status}`) || order.status)}
                 </div>
               </div>
 
               <div className="p-3 flex-1 space-y-2">
+                {order.voided && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-2">
+                    <div className="flex items-center gap-1.5 text-red-700 font-black text-[9px] uppercase tracking-wider mb-1">
+                      <span>⚠️ VOIDED BY MANAGER</span>
+                    </div>
+                    {order.voidReason && (
+                      <p className="text-[10px] text-red-600 font-bold leading-tight">
+                        Reason: "{order.voidReason}"
+                      </p>
+                    )}
+                    {order.voidApprovedBy && (
+                      <p className="text-[8px] text-red-500 font-medium mt-1 uppercase tracking-wider leading-none">
+                        Approved: {order.voidApprovedBy.replace(' | KDS_ACK', '')}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {order.items.map((item, idx) => {
                   const itemStatus = item.status || order.status || 'pending';
                   const isCancelled = itemStatus === 'cancelled' || item.voided;
@@ -621,91 +650,102 @@ export function PosDashboard() {
               <div className="p-3 pt-0 mt-auto bg-gray-50/10">
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1.5">
-                    {order.status === OrderStatus.PENDING && (
+                    {order.voided && order.status !== OrderStatus.CANCELLED && filter !== 'cancelled' ? (
                       <button
-                        onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
-                        className="flex-1 h-8 bg-yellow-400 text-yellow-950 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-yellow-500 transition-colors shadow-sm"
+                        onClick={() => updateStatus(order.id, OrderStatus.CANCELLED)}
+                        className="flex-1 h-8 bg-red-600 hover:bg-red-700 text-white rounded font-black text-[10px] uppercase tracking-tighter transition-colors shadow-sm flex items-center justify-center gap-1.5"
                       >
-                        {t('pos.accept')}
+                        Acknowledge Void (Cancel)
                       </button>
-                    )}
-                    {order.status === OrderStatus.CONFIRMED && (
-                      <button
-                        onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
-                        className="flex-1 h-8 bg-blue-100 text-blue-900 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-blue-200 transition-colors"
-                      >
-                        {t('pos.cook')}
-                      </button>
-                    )}
-                    {order.status === OrderStatus.COOKING && (
-                      <button
-                        onClick={() => updateStatus(order.id, OrderStatus.READY)}
-                        className="flex-1 h-8 bg-orange-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/10"
-                      >
-                        {t('pos.ready')}
-                      </button>
-                    )}
-                    {order.status === OrderStatus.READY && (
-                      <button
-                        onClick={() => updateStatus(order.id, OrderStatus.SERVED)}
-                        className="flex-1 h-8 bg-emerald-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/10"
-                      >
-                        {order.orderType === OrderType.TAKEAWAY ? t('pos.pickup') : t('pos.serve')}
-                      </button>
-                    )}
-                    {order.status === OrderStatus.SERVED && (
-                      <button
-                        onClick={() => updateStatus(order.id, OrderStatus.COMPLETED)}
-                        className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors"
-                      >
-                        {t('pos.done')}
-                      </button>
-                    )}
-                    {(order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SERVED) && order.session_id && (
-                      <button
-                        onClick={() => closeSession(order.session_id!, order.table_id || '')}
-                        className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors shadow-sm"
-                      >
-                        {t('pos.close')}
-                      </button>
-                    )}
-                    {order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
-                      <button
-                        onClick={() => {
-                          const cancellable = order.items.filter(item => {
-                            const itemStatus = item.status || order.status || 'pending';
-                            const isCancelled = itemStatus === 'cancelled' || item.voided;
-                            return order.status !== 'cancelled' && !isCancelled && itemStatus !== 'completed';
-                          });
-                          if (cancellable.length === 0) return;
-                          if (cancellable.length === 1) {
-                            setCancellingItem({
-                              orderId: order.id,
-                              itemId: cancellable[0].orderItemId || cancellable[0].id || '',
-                              name: cancellable[0].name,
-                              quantity: cancellable[0].quantity
-                            });
-                            setCancelQty(cancellable[0].quantity);
-                            setCancelReason('Customer Request');
-                            setCancelError(null);
-                            setCancelSuccess(null);
-                          } else {
-                            setChoosingItemOrder(order);
-                          }
-                        }}
-                        className="flex-1 h-8 bg-red-50 hover:bg-red-100 dark:bg-red-955/20 text-red-600 dark:text-red-400 rounded font-black text-[10px] uppercase tracking-tighter flex items-center justify-center gap-1 border border-red-200/50 transition-all disabled:opacity-40"
-                        disabled={order.items.every(item => {
-                          const itemStatus = item.status || order.status || 'pending';
-                          return itemStatus === 'cancelled' || item.voided || itemStatus === 'completed';
-                        })}
-                      >
-                        <X size={12} />
-                        Cancel Item
-                      </button>
+                    ) : (
+                      <>
+                        {order.status === OrderStatus.PENDING && (
+                          <button
+                            onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
+                            className="flex-1 h-8 bg-yellow-400 text-yellow-950 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-yellow-500 transition-colors shadow-sm"
+                          >
+                            {t('pos.accept')}
+                          </button>
+                        )}
+                        {order.status === OrderStatus.CONFIRMED && (
+                          <button
+                            onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
+                            className="flex-1 h-8 bg-blue-100 text-blue-900 rounded font-black text-[10px] uppercase tracking-tighter hover:bg-blue-200 transition-colors"
+                          >
+                            {t('pos.cook')}
+                          </button>
+                        )}
+                        {order.status === OrderStatus.COOKING && (
+                          <button
+                            onClick={() => updateStatus(order.id, OrderStatus.READY)}
+                            className="flex-1 h-8 bg-orange-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-orange-700 transition-colors shadow-sm shadow-orange-600/10"
+                          >
+                            {t('pos.ready')}
+                          </button>
+                        )}
+                        {order.status === OrderStatus.READY && (
+                          <button
+                            onClick={() => updateStatus(order.id, OrderStatus.SERVED)}
+                            className="flex-1 h-8 bg-emerald-600 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/10"
+                          >
+                            {order.orderType === OrderType.TAKEAWAY ? t('pos.pickup') : t('pos.serve')}
+                          </button>
+                        )}
+                        {order.status === OrderStatus.SERVED && (
+                          <button
+                            onClick={() => updateStatus(order.id, OrderStatus.COMPLETED)}
+                            className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors"
+                          >
+                            {t('pos.done')}
+                          </button>
+                        )}
+                        {(order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SERVED) && order.session_id && (
+                          <button
+                            onClick={() => closeSession(order.session_id!, order.table_id || '')}
+                            className="flex-1 h-8 bg-zinc-900 text-white rounded font-black text-[10px] uppercase tracking-tighter hover:bg-black transition-colors shadow-sm"
+                          >
+                            {t('pos.close')}
+                          </button>
+                        )}
+                        {order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED && (
+                          <button
+                            onClick={() => {
+                              const cancellable = order.items.filter(item => {
+                                const itemStatus = item.status || order.status || 'pending';
+                                const isCancelled = itemStatus === 'cancelled' || item.voided;
+                                return order.status !== 'cancelled' && !isCancelled && itemStatus !== 'completed';
+                              });
+                              if (cancellable.length === 0) return;
+                              if (cancellable.length === 1) {
+                                setCancellingItem({
+                                  orderId: order.id,
+                                  itemId: cancellable[0].orderItemId || cancellable[0].id || '',
+                                  name: cancellable[0].name,
+                                  quantity: cancellable[0].quantity
+                                });
+                                setCancelQty(cancellable[0].quantity);
+                                setCancelReason('Customer Request');
+                                setCancelError(null);
+                                setCancelSuccess(null);
+                              } else {
+                                setChoosingItemOrder(order);
+                              }
+                            }}
+                            className="flex-1 h-8 bg-red-50 hover:bg-red-100 dark:bg-red-955/20 text-red-600 dark:text-red-400 rounded font-black text-[10px] uppercase tracking-tighter flex items-center justify-center gap-1 border border-red-200/50 transition-all disabled:opacity-40"
+                            disabled={order.items.every(item => {
+                              const itemStatus = item.status || order.status || 'pending';
+                              return itemStatus === 'cancelled' || item.voided || itemStatus === 'completed';
+                            })}
+                          >
+                            <X size={12} />
+                            Cancel Item
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
 
-                  {order.status !== OrderStatus.CANCELLED && (
+                  {order.status !== OrderStatus.CANCELLED && !order.voided && (
                     <button
                       onClick={() => handlePrintOrderKOT(order)}
                       disabled={printingOrders[order.id]}

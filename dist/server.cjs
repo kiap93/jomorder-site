@@ -50,8 +50,10 @@ function readRegistry() {
   return tenantRegistryInMemory;
 }
 function writeRegistry(data) {
-  Object.keys(tenantRegistryInMemory).forEach((key) => delete tenantRegistryInMemory[key]);
-  Object.assign(tenantRegistryInMemory, data);
+  if (data !== tenantRegistryInMemory) {
+    Object.keys(tenantRegistryInMemory).forEach((key) => delete tenantRegistryInMemory[key]);
+    Object.assign(tenantRegistryInMemory, data);
+  }
 }
 async function getOrganizationSettings(supabase, orgId) {
   try {
@@ -8779,6 +8781,7 @@ var import_express14 = require("express");
 
 // src/billing/repositories/billingRepository.ts
 init_dbService();
+var import_crypto7 = require("crypto");
 var BillingRepository = class _BillingRepository {
   constructor(supabase) {
     this.supabase = supabase || supabaseAdmin;
@@ -8930,12 +8933,13 @@ var BillingRepository = class _BillingRepository {
    */
   async upsertSubscription(sub) {
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-    const recordId = sub.id || Math.random().toString(36).substr(2, 9);
+    const recordId = sub.id || (0, import_crypto7.randomUUID)();
     const payload = {
       ...sub,
       id: recordId,
       updated_at: timestamp
     };
+    await this.ensurePlanFeatures();
     try {
       const { data, error } = await this.supabase.from("subscriptions").upsert({
         ...payload,
@@ -8996,7 +9000,7 @@ var BillingRepository = class _BillingRepository {
       registry[tenantId].features = features;
     }
     const subDetails = {
-      id: subFields?.id || Math.random().toString(36).substr(2, 9),
+      id: subFields?.id || (0, import_crypto7.randomUUID)(),
       tenant_id: tenantId,
       stripe_customer_id: subFields?.stripe_customer_id || "cus_fallback",
       stripe_subscription_id: subFields?.stripe_subscription_id || "sub_fallback",
@@ -9073,6 +9077,37 @@ var BillingRepository = class _BillingRepository {
       console.warn("[BillingRepository] Increment usage tracking error", err);
     }
   }
+  /**
+   * Safe seed plan features on-demand if empty to satisfy FK constraints
+   */
+  async ensurePlanFeatures() {
+    try {
+      const { data, error } = await this.supabase.from("plan_features").select("plan_code");
+      if (!data || data.length === 0) {
+        console.log("[BillingRepository] plan_features table is empty, seeding defaults...");
+        const featuresToSeed = Object.keys(_BillingRepository.DEFAULT_PLAN_FEATURES).map((code) => ({
+          plan_code: code,
+          name: code === "starter" ? "JomOrder Starter" : code === "growth" ? "JomOrder Growth" : "JomOrder Pro",
+          max_outlets: code === "starter" ? 1 : code === "growth" ? 3 : 9999,
+          can_qr_order: true,
+          can_basic_pos: true,
+          can_kitchen_display: code !== "starter",
+          can_printer_support: code !== "starter",
+          can_staff_roles: code !== "starter",
+          can_ai_translation: code === "pro",
+          can_advanced_analytics: code === "pro",
+          can_franchise_management: code === "pro",
+          created_at: (/* @__PURE__ */ new Date()).toISOString()
+        }));
+        const { error: seedError } = await this.supabase.from("plan_features").insert(featuresToSeed);
+        if (seedError) {
+          console.error("[BillingRepository] Failed to seed plan_features:", seedError.message);
+        }
+      }
+    } catch (err) {
+      console.warn("[BillingRepository] Error checking/seeding plan_features:", err);
+    }
+  }
 };
 
 // src/billing/services/stripe.ts
@@ -9080,15 +9115,17 @@ var import_stripe3 = __toESM(require("stripe"), 1);
 var import_dotenv2 = __toESM(require("dotenv"), 1);
 import_dotenv2.default.config();
 var stripeInstance = null;
-function getStripeClient() {
-  if (!stripeInstance) {
-    const secretKey = process.env.STRIPE_SECRET_KEY;
-    if (!secretKey) {
-      throw new Error("Missing STRIPE_SECRET_KEY");
-    }
+var activeApiKey = null;
+function getStripeClient(apiKey) {
+  const secretKey = apiKey || process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error("Missing STRIPE_SECRET_KEY");
+  }
+  if (!stripeInstance || activeApiKey !== secretKey) {
     stripeInstance = new import_stripe3.default(secretKey, {
       apiVersion: "2022-11-15"
     });
+    activeApiKey = secretKey;
   }
   return stripeInstance;
 }
@@ -9121,22 +9158,46 @@ function getPlanCodeFromPriceId(priceId) {
 // src/billing/services/billingService.ts
 init_dbService();
 var BillingService = class {
-  constructor(supabaseClient) {
+  constructor(supabaseClient, stripeApiKey) {
     this.supabaseClient = supabaseClient || supabaseAdmin;
     this.repo = new BillingRepository(this.supabaseClient);
+    this.stripeApiKey = stripeApiKey;
+  }
+  /**
+   * Helper to resolve the correct organization ID (tenant_id in subscriptions table) from a restaurant ID
+   */
+  async resolveOrganizationId(tenantId) {
+    try {
+      const { data: restData } = await this.supabaseClient.from("restaurants").select("organization_id").eq("id", tenantId).maybeSingle();
+      if (restData?.organization_id) {
+        return restData.organization_id;
+      }
+    } catch (err) {
+      console.warn("[BillingService] Error resolving organization_id from restaurantId:", err);
+    }
+    return tenantId;
   }
   /**
    * Safe retrieval of active subscription and features overview for a tenant
    */
   async getTenantBillingOverview(tenantId) {
-    let subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    let subscription = await this.repo.getSubscription(dbTenantId);
     if (!subscription) {
-      subscription = await this.bootstrapTrial(tenantId);
+      subscription = await this.bootstrapTrial(tenantId, dbTenantId);
     } else if (subscription.status === "trialing" && (subscription.stripe_customer_id?.startsWith("cus_mock") || subscription.stripe_customer_id === "cus_fallback")) {
       try {
-        const { data } = await this.supabaseClient.from("organizations").select("created_at").eq("id", tenantId).maybeSingle();
-        if (data?.created_at) {
-          const regDate = new Date(data.created_at);
+        let regDate = null;
+        const { data: restData } = await this.supabaseClient.from("restaurants").select("created_at").eq("id", tenantId).maybeSingle();
+        if (restData?.created_at) {
+          regDate = new Date(restData.created_at);
+        } else {
+          const { data: orgData } = await this.supabaseClient.from("organizations").select("created_at").eq("id", dbTenantId).maybeSingle();
+          if (orgData?.created_at) {
+            regDate = new Date(orgData.created_at);
+          }
+        }
+        if (regDate) {
           const alignedTrialEnd = new Date(regDate.getTime() + 14 * 24 * 60 * 60 * 1e3).toISOString();
           if (subscription.trial_end !== alignedTrialEnd) {
             subscription.trial_end = alignedTrialEnd;
@@ -9149,12 +9210,12 @@ var BillingService = class {
       }
     }
     const plan = await this.repo.getPlanFeature(subscription.plan_code);
-    const outletsUsage = await this.repo.getUsage(tenantId, "outlets_count");
-    const translationUsage = await this.repo.getUsage(tenantId, "translation_characters");
+    const outletsUsage = await this.repo.getUsage(dbTenantId, "outlets_count");
+    const translationUsage = await this.repo.getUsage(dbTenantId, "translation_characters");
     const usageLimits = [
       outletsUsage || {
         id: "usage_outlets",
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         metric_code: "outlets_count",
         current_usage: 0,
         max_limit: plan.max_outlets,
@@ -9163,7 +9224,7 @@ var BillingService = class {
       },
       translationUsage || {
         id: "usage_translation",
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         metric_code: "translation_characters",
         current_usage: 0,
         max_limit: plan.can_ai_translation ? 5e4 : 0,
@@ -9187,24 +9248,37 @@ var BillingService = class {
   /**
    * Bootstrap immediate 14-day free trial on signup if missing
    */
-  async bootstrapTrial(tenantId) {
+  async bootstrapTrial(tenantId, orgId) {
     const trialDays = 14;
     let registrationDate = /* @__PURE__ */ new Date();
     let email = "business@jomorder.com";
     try {
-      const { data } = await this.supabaseClient.from("organizations").select("name, created_at").eq("id", tenantId).maybeSingle();
-      if (data?.name) {
-        email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+      const { data: restData } = await this.supabaseClient.from("restaurants").select("name, created_at").eq("id", tenantId).maybeSingle();
+      if (restData) {
+        if (restData.created_at) {
+          registrationDate = new Date(restData.created_at);
+        }
+        if (restData.name) {
+          email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+        }
+      } else {
+        const { data: orgData } = await this.supabaseClient.from("organizations").select("name, created_at").eq("id", orgId).maybeSingle();
+        if (orgData) {
+          if (orgData.created_at) {
+            registrationDate = new Date(orgData.created_at);
+          }
+          if (orgData.name) {
+            email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+          }
+        }
       }
-      if (data?.created_at) {
-        registrationDate = new Date(data.created_at);
-      }
-    } catch (_) {
+    } catch (err) {
+      console.warn("[BillingService] Error fetching registration date:", err);
     }
     const trialEnd = new Date(registrationDate.getTime() + trialDays * 24 * 60 * 60 * 1e3);
-    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}, starting from registration: ${registrationDate.toISOString()}`);
+    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${orgId}, starting from registration: ${registrationDate.toISOString()}`);
     return await this.repo.upsertSubscription({
-      tenant_id: tenantId,
+      tenant_id: orgId,
       stripe_customer_id: "cus_mock_" + Math.random().toString(36).substr(2, 6),
       stripe_subscription_id: null,
       stripe_price_id: null,
@@ -9220,24 +9294,25 @@ var BillingService = class {
    * Generate Checkout URL for the user
    */
   async createCheckoutSession(tenantId, planCode, email, returnUrl) {
-    const stripe = getStripeClient();
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const stripe = getStripeClient(this.stripeApiKey);
     const config = PLAN_PRICES[planCode];
     if (!config) {
       throw new Error(`Invalid plan code specified: ${planCode}`);
     }
     let customerId = "";
-    const customerMap = await this.repo.getBillingCustomer(tenantId);
+    const customerMap = await this.repo.getBillingCustomer(dbTenantId);
     if (customerMap) {
       customerId = customerMap.stripe_customer_id;
     } else {
       try {
         const customer = await stripe.customers.create({
           email,
-          metadata: { tenant_id: tenantId }
+          metadata: { tenant_id: dbTenantId }
         });
         customerId = customer.id;
         await this.repo.upsertBillingCustomer({
-          tenant_id: tenantId,
+          tenant_id: dbTenantId,
           stripe_customer_id: customerId,
           email
         });
@@ -9246,10 +9321,10 @@ var BillingService = class {
         customerId = "cus_mock_" + Math.random().toString(36).substr(2, 6);
       }
     }
-    const existingSub = await this.repo.getSubscription(tenantId);
+    const existingSub = await this.repo.getSubscription(dbTenantId);
     const hasConsumedTrialBefore = existingSub && existingSub.stripe_subscription_id !== null;
     const subscriptionData = {
-      metadata: { tenant_id: tenantId, plan_code: planCode }
+      metadata: { tenant_id: dbTenantId, plan_code: planCode }
     };
     if (!hasConsumedTrialBefore) {
       subscriptionData.trial_period_days = 14;
@@ -9278,7 +9353,7 @@ var BillingService = class {
         subscription_data: subscriptionData,
         success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&billing_status=success`,
         cancel_url: `${returnUrl}?billing_status=cancelled`,
-        metadata: { tenant_id: tenantId, plan_code: planCode }
+        metadata: { tenant_id: dbTenantId, plan_code: planCode }
       });
       return { url: session.url };
     } catch (err) {
@@ -9291,12 +9366,13 @@ var BillingService = class {
    * Billing Custom Portal Session link creator
    */
   async createPortalSession(tenantId, returnUrl) {
-    const stripe = getStripeClient();
-    let customerMap = await this.repo.getBillingCustomer(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const stripe = getStripeClient(this.stripeApiKey);
+    let customerMap = await this.repo.getBillingCustomer(dbTenantId);
     const ensureCustomer = async () => {
       let email = "business@jomorder.com";
       try {
-        const { data } = await this.supabaseClient.from("organizations").select("name").eq("id", tenantId).maybeSingle();
+        const { data } = await this.supabaseClient.from("organizations").select("name").eq("id", dbTenantId).maybeSingle();
         if (data?.name) {
           email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
         }
@@ -9304,10 +9380,10 @@ var BillingService = class {
       }
       const customer = await stripe.customers.create({
         email,
-        metadata: { tenant_id: tenantId }
+        metadata: { tenant_id: dbTenantId }
       });
       return await this.repo.upsertBillingCustomer({
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         stripe_customer_id: customer.id,
         email
       });
@@ -9343,11 +9419,12 @@ var BillingService = class {
    * Safe immediate cancel
    */
   async cancelSubscription(tenantId) {
-    const subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const subscription = await this.repo.getSubscription(dbTenantId);
     if (!subscription) {
       throw new Error("No subscription found for this tenant.");
     }
-    const stripe = getStripeClient();
+    const stripe = getStripeClient(this.stripeApiKey);
     if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {
       try {
         await stripe.subscriptions.update(subscription.stripe_subscription_id, {
@@ -9368,11 +9445,12 @@ var BillingService = class {
    * Apply proration upgrade
    */
   async upgradeSubscription(tenantId, targetPlan) {
-    const subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const subscription = await this.repo.getSubscription(dbTenantId);
     if (!subscription) {
       throw new Error("No subscription found to upgrade.");
     }
-    const stripe = getStripeClient();
+    const stripe = getStripeClient(this.stripeApiKey);
     const newPriceConfig = PLAN_PRICES[targetPlan];
     if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {
       try {

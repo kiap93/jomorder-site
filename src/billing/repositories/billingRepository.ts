@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin, readRegistry, writeRegistry, getOrganizationSettings, saveOrganizationSettings } from "../../server/services/dbService";
 import { TenantSubscription, BillingCustomer, UsageTracking, SubscriptionEvent, PlanCode, SubscriptionStatus, PlanFeature } from "../types";
+import { randomUUID } from "crypto";
 
 export class BillingRepository {
   private supabase: SupabaseClient;
@@ -187,12 +188,15 @@ export class BillingRepository {
    */
   async upsertSubscription(sub: Omit<TenantSubscription, 'id' | 'created_at' | 'updated_at'> & { id?: string }): Promise<TenantSubscription> {
     const timestamp = new Date().toISOString();
-    const recordId = sub.id || Math.random().toString(36).substr(2, 9);
+    const recordId = sub.id || randomUUID();
     const payload = {
       ...sub,
       id: recordId,
       updated_at: timestamp
     };
+
+    // Ensure plan features table is seeded before creating/upserting subscription
+    await this.ensurePlanFeatures();
 
     try {
       // Direct supabase upsert
@@ -277,7 +281,7 @@ export class BillingRepository {
 
     // Store rich metadata schema
     const subDetails: TenantSubscription = {
-      id: subFields?.id || Math.random().toString(36).substr(2, 9),
+      id: subFields?.id || randomUUID(),
       tenant_id: tenantId,
       stripe_customer_id: subFields?.stripe_customer_id || 'cus_fallback',
       stripe_subscription_id: subFields?.stripe_subscription_id || 'sub_fallback',
@@ -372,6 +376,44 @@ export class BillingRepository {
         }, { onConflict: 'tenant_id,metric_code' });
     } catch (err) {
       console.warn("[BillingRepository] Increment usage tracking error", err);
+    }
+  }
+
+  /**
+   * Safe seed plan features on-demand if empty to satisfy FK constraints
+   */
+  async ensurePlanFeatures(): Promise<void> {
+    try {
+      const { data, error } = await this.supabase
+        .from('plan_features')
+        .select('plan_code');
+      
+      if (!data || data.length === 0) {
+        console.log("[BillingRepository] plan_features table is empty, seeding defaults...");
+        const featuresToSeed = Object.keys(BillingRepository.DEFAULT_PLAN_FEATURES).map(code => ({
+          plan_code: code,
+          name: code === 'starter' ? 'JomOrder Starter' : code === 'growth' ? 'JomOrder Growth' : 'JomOrder Pro',
+          max_outlets: code === 'starter' ? 1 : code === 'growth' ? 3 : 9999,
+          can_qr_order: true,
+          can_basic_pos: true,
+          can_kitchen_display: code !== 'starter',
+          can_printer_support: code !== 'starter',
+          can_staff_roles: code !== 'starter',
+          can_ai_translation: code === 'pro',
+          can_advanced_analytics: code === 'pro',
+          can_franchise_management: code === 'pro',
+          created_at: new Date().toISOString()
+        }));
+
+        const { error: seedError } = await this.supabase
+          .from('plan_features')
+          .insert(featuresToSeed);
+        if (seedError) {
+          console.error("[BillingRepository] Failed to seed plan_features:", seedError.message);
+        }
+      }
+    } catch (err) {
+      console.warn("[BillingRepository] Error checking/seeding plan_features:", err);
     }
   }
 }

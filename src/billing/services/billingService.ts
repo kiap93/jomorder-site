@@ -1,37 +1,72 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BillingRepository } from "../repositories/billingRepository";
-import { getStripeClient, PLAN_PRICES, getPlanCodeFromPriceId } from "./stripe";
-import { TenantSubscription, PlanCode, SubscriptionStatus } from "../types";
+import { getStripeClient, PLAN_PRICES } from "./stripe";
+import { TenantSubscription, PlanCode } from "../types";
 import { supabaseAdmin } from "../../server/services/dbService";
 
 export class BillingService {
   private repo: BillingRepository;
   private supabaseClient: SupabaseClient;
+  private stripeApiKey?: string;
 
-  constructor(supabaseClient?: SupabaseClient) {
+  constructor(supabaseClient?: SupabaseClient, stripeApiKey?: string) {
     this.supabaseClient = supabaseClient || supabaseAdmin;
     this.repo = new BillingRepository(this.supabaseClient);
+    this.stripeApiKey = stripeApiKey;
+  }
+
+  /**
+   * Helper to resolve the correct organization ID (tenant_id in subscriptions table) from a restaurant ID
+   */
+  async resolveOrganizationId(tenantId: string): Promise<string> {
+    try {
+      const { data: restData } = await this.supabaseClient
+        .from("restaurants")
+        .select("organization_id")
+        .eq("id", tenantId)
+        .maybeSingle();
+      if (restData?.organization_id) {
+        return restData.organization_id;
+      }
+    } catch (err) {
+      console.warn("[BillingService] Error resolving organization_id from restaurantId:", err);
+    }
+    return tenantId;
   }
 
   /**
    * Safe retrieval of active subscription and features overview for a tenant
    */
   async getTenantBillingOverview(tenantId: string) {
-    let subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    let subscription = await this.repo.getSubscription(dbTenantId);
     
     // Auto-bootstrap a 14-day trial if no subscription at all exists
     if (!subscription) {
-      subscription = await this.bootstrapTrial(tenantId);
+      subscription = await this.bootstrapTrial(tenantId, dbTenantId);
     } else if (subscription.status === "trialing" && (subscription.stripe_customer_id?.startsWith("cus_mock") || subscription.stripe_customer_id === "cus_fallback")) {
-      // Align existing mock trial subscriptions with the organization registration date to ensure accurate countdown
+      // Align existing mock trial subscriptions with the organization/restaurant registration date to ensure accurate countdown
       try {
-        const { data } = await this.supabaseClient
-          .from("organizations")
+        let regDate: Date | null = null;
+        const { data: restData } = await this.supabaseClient
+          .from("restaurants")
           .select("created_at")
           .eq("id", tenantId)
           .maybeSingle();
-        if (data?.created_at) {
-          const regDate = new Date(data.created_at);
+        if (restData?.created_at) {
+          regDate = new Date(restData.created_at);
+        } else {
+          const { data: orgData } = await this.supabaseClient
+            .from("organizations")
+            .select("created_at")
+            .eq("id", dbTenantId)
+            .maybeSingle();
+          if (orgData?.created_at) {
+            regDate = new Date(orgData.created_at);
+          }
+        }
+
+        if (regDate) {
           const alignedTrialEnd = new Date(regDate.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
           if (subscription.trial_end !== alignedTrialEnd) {
             subscription.trial_end = alignedTrialEnd;
@@ -48,13 +83,13 @@ export class BillingService {
     const plan = await this.repo.getPlanFeature(subscription.plan_code);
     
     // Query metrics usage
-    const outletsUsage = await this.repo.getUsage(tenantId, "outlets_count");
-    const translationUsage = await this.repo.getUsage(tenantId, "translation_characters");
+    const outletsUsage = await this.repo.getUsage(dbTenantId, "outlets_count");
+    const translationUsage = await this.repo.getUsage(dbTenantId, "translation_characters");
 
     const usageLimits = [
       outletsUsage || {
         id: "usage_outlets",
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         metric_code: "outlets_count" as const,
         current_usage: 0,
         max_limit: plan.max_outlets,
@@ -63,7 +98,7 @@ export class BillingService {
       },
       translationUsage || {
         id: "usage_translation",
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         metric_code: "translation_characters" as const,
         current_usage: 0,
         max_limit: plan.can_ai_translation ? 50000 : 0,
@@ -91,33 +126,51 @@ export class BillingService {
   /**
    * Bootstrap immediate 14-day free trial on signup if missing
    */
-  async bootstrapTrial(tenantId: string): Promise<TenantSubscription> {
+  async bootstrapTrial(tenantId: string, orgId: string): Promise<TenantSubscription> {
     const trialDays = 14;
     let registrationDate = new Date();
     
     // Fetch tenant email and created_at if possible
     let email = "business@jomorder.com";
     try {
-      const { data } = await this.supabaseClient
-        .from("organizations")
+      const { data: restData } = await this.supabaseClient
+        .from("restaurants")
         .select("name, created_at")
         .eq("id", tenantId)
         .maybeSingle();
-      if (data?.name) {
-        // Construct simulated email or retrieve from contact
-        email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+
+      if (restData) {
+        if (restData.created_at) {
+          registrationDate = new Date(restData.created_at);
+        }
+        if (restData.name) {
+          email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+        }
+      } else {
+        const { data: orgData } = await this.supabaseClient
+          .from("organizations")
+          .select("name, created_at")
+          .eq("id", orgId)
+          .maybeSingle();
+        if (orgData) {
+          if (orgData.created_at) {
+            registrationDate = new Date(orgData.created_at);
+          }
+          if (orgData.name) {
+            email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+          }
+        }
       }
-      if (data?.created_at) {
-        registrationDate = new Date(data.created_at);
-      }
-    } catch (_) {}
+    } catch (err) {
+      console.warn("[BillingService] Error fetching registration date:", err);
+    }
 
     const trialEnd = new Date(registrationDate.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
-    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${tenantId}, starting from registration: ${registrationDate.toISOString()}`);
+    console.log(`[BillingService] Bootstrapping 14-day trial plan 'starter' for Tenant: ${orgId}, starting from registration: ${registrationDate.toISOString()}`);
 
     return await this.repo.upsertSubscription({
-      tenant_id: tenantId,
+      tenant_id: orgId,
       stripe_customer_id: "cus_mock_" + Math.random().toString(36).substr(2, 6),
       stripe_subscription_id: null,
       stripe_price_id: null,
@@ -134,7 +187,8 @@ export class BillingService {
    * Generate Checkout URL for the user
    */
   async createCheckoutSession(tenantId: string, planCode: PlanCode, email: string, returnUrl: string) {
-    const stripe = getStripeClient();
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const stripe = getStripeClient(this.stripeApiKey);
     const config = PLAN_PRICES[planCode];
 
     if (!config) {
@@ -143,7 +197,7 @@ export class BillingService {
 
     // Check if customer mapped
     let customerId = "";
-    const customerMap = await this.repo.getBillingCustomer(tenantId);
+    const customerMap = await this.repo.getBillingCustomer(dbTenantId);
     if (customerMap) {
       customerId = customerMap.stripe_customer_id;
     } else {
@@ -151,11 +205,11 @@ export class BillingService {
       try {
         const customer = await stripe.customers.create({
           email,
-          metadata: { tenant_id: tenantId }
+          metadata: { tenant_id: dbTenantId }
         });
         customerId = customer.id;
         await this.repo.upsertBillingCustomer({
-          tenant_id: tenantId,
+          tenant_id: dbTenantId,
           stripe_customer_id: customerId,
           email
         });
@@ -166,11 +220,11 @@ export class BillingService {
     }
 
     // Configure subscription data including 14-day trial if no existing payment history
-    const existingSub = await this.repo.getSubscription(tenantId);
+    const existingSub = await this.repo.getSubscription(dbTenantId);
     const hasConsumedTrialBefore = existingSub && existingSub.stripe_subscription_id !== null;
     
     const subscriptionData: Record<string, unknown> = {
-      metadata: { tenant_id: tenantId, plan_code: planCode }
+      metadata: { tenant_id: dbTenantId, plan_code: planCode }
     };
 
     if (!hasConsumedTrialBefore) {
@@ -202,7 +256,7 @@ export class BillingService {
         subscription_data: subscriptionData,
         success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&billing_status=success`,
         cancel_url: `${returnUrl}?billing_status=cancelled`,
-        metadata: { tenant_id: tenantId, plan_code: planCode }
+        metadata: { tenant_id: dbTenantId, plan_code: planCode }
       });
 
       return { url: session.url };
@@ -219,8 +273,9 @@ export class BillingService {
    * Billing Custom Portal Session link creator
    */
   async createPortalSession(tenantId: string, returnUrl: string) {
-    const stripe = getStripeClient();
-    let customerMap = await this.repo.getBillingCustomer(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const stripe = getStripeClient(this.stripeApiKey);
+    let customerMap = await this.repo.getBillingCustomer(dbTenantId);
 
     const ensureCustomer = async (): Promise<any> => {
       let email = "business@jomorder.com";
@@ -228,7 +283,7 @@ export class BillingService {
         const { data } = await this.supabaseClient
           .from("organizations")
           .select("name")
-          .eq("id", tenantId)
+          .eq("id", dbTenantId)
           .maybeSingle();
         if (data?.name) {
           email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
@@ -237,10 +292,10 @@ export class BillingService {
 
       const customer = await stripe.customers.create({
         email,
-        metadata: { tenant_id: tenantId }
+        metadata: { tenant_id: dbTenantId }
       });
       return await this.repo.upsertBillingCustomer({
-        tenant_id: tenantId,
+        tenant_id: dbTenantId,
         stripe_customer_id: customer.id,
         email
       });
@@ -282,12 +337,13 @@ export class BillingService {
    * Safe immediate cancel
    */
   async cancelSubscription(tenantId: string): Promise<TenantSubscription> {
-    const subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const subscription = await this.repo.getSubscription(dbTenantId);
     if (!subscription) {
       throw new Error("No subscription found for this tenant.");
     }
 
-    const stripe = getStripeClient();
+    const stripe = getStripeClient(this.stripeApiKey);
     if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {
       try {
         await stripe.subscriptions.update(subscription.stripe_subscription_id, {
@@ -311,12 +367,13 @@ export class BillingService {
    * Apply proration upgrade
    */
   async upgradeSubscription(tenantId: string, targetPlan: PlanCode): Promise<TenantSubscription> {
-    const subscription = await this.repo.getSubscription(tenantId);
+    const dbTenantId = await this.resolveOrganizationId(tenantId);
+    const subscription = await this.repo.getSubscription(dbTenantId);
     if (!subscription) {
       throw new Error("No subscription found to upgrade.");
     }
 
-    const stripe = getStripeClient();
+    const stripe = getStripeClient(this.stripeApiKey);
     const newPriceConfig = PLAN_PRICES[targetPlan];
 
     if (subscription.stripe_subscription_id && !subscription.stripe_subscription_id.startsWith("sub_fallback")) {

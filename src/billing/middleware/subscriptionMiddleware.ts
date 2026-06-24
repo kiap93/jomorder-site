@@ -6,6 +6,25 @@ import { AuthenticatedRequest } from "../../server/middleware/authMiddleware";
 const repo = new BillingRepository();
 
 /**
+ * Helper to resolve the correct organization ID (tenant_id in subscriptions table) from a restaurant ID
+ */
+export async function resolveOrganizationId(tenantId: string): Promise<string> {
+  try {
+    const { data: restData } = await supabaseAdmin
+      .from("restaurants")
+      .select("organization_id")
+      .eq("id", tenantId)
+      .maybeSingle();
+    if (restData?.organization_id) {
+      return restData.organization_id;
+    }
+  } catch (err) {
+    console.warn("[SubscriptionMiddleware] Error resolving organization_id from restaurantId:", err);
+  }
+  return tenantId;
+}
+
+/**
  * Enterprise Subscription Enforcement Middleware
  * Implements standard SaaS states:
  * - trialing / active: Full Access
@@ -34,26 +53,96 @@ export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, 
   }
 
   try {
-    let sub = await repo.getSubscription(tenantId);
+    const orgId = await resolveOrganizationId(tenantId);
+    let sub = await repo.getSubscription(orgId);
     
     // Auto trial bootstrap if subscription record is absent
     if (!sub) {
       const trialDays = 14;
-      const trialEnd = new Date();
-      trialEnd.setDate(trialEnd.getDate() + trialDays);
+      let registrationDate = new Date();
+      
+      // Fetch tenant email and created_at if possible
+      let email = "business@jomorder.com";
+      try {
+        const { data: restData } = await supabaseAdmin
+          .from("restaurants")
+          .select("name, created_at")
+          .eq("id", tenantId)
+          .maybeSingle();
+
+        if (restData) {
+          if (restData.created_at) {
+            registrationDate = new Date(restData.created_at);
+          }
+          if (restData.name) {
+            email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+          }
+        } else {
+          const { data: orgData } = await supabaseAdmin
+            .from("organizations")
+            .select("name, created_at")
+            .eq("id", orgId)
+            .maybeSingle();
+          if (orgData) {
+            if (orgData.created_at) {
+              registrationDate = new Date(orgData.created_at);
+            }
+            if (orgData.name) {
+              email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[SubscriptionMiddleware] Error fetching registration date:", err);
+      }
+
+      const trialEnd = new Date(registrationDate.getTime() + trialDays * 24 * 60 * 60 * 1000);
       
       sub = await repo.upsertSubscription({
-        tenant_id: tenantId,
+        tenant_id: orgId,
         stripe_customer_id: "cus_mock_" + Math.random().toString(36).substr(2, 6),
         stripe_subscription_id: null,
         stripe_price_id: null,
         plan_code: "starter",
         status: "trialing",
-        current_period_start: new Date().toISOString(),
+        current_period_start: registrationDate.toISOString(),
         current_period_end: trialEnd.toISOString(),
         trial_end: trialEnd.toISOString(),
         cancel_at_period_end: false
       });
+    } else if (sub.status === "trialing" && (sub.stripe_customer_id?.startsWith("cus_mock") || sub.stripe_customer_id === "cus_fallback")) {
+      // Align existing mock trial subscriptions with the organization/restaurant registration date to ensure accurate countdown
+      try {
+        let regDate: Date | null = null;
+        const { data: restData } = await supabaseAdmin
+          .from("restaurants")
+          .select("created_at")
+          .eq("id", tenantId)
+          .maybeSingle();
+        if (restData?.created_at) {
+          regDate = new Date(restData.created_at);
+        } else {
+          const { data: orgData } = await supabaseAdmin
+            .from("organizations")
+            .select("created_at")
+            .eq("id", orgId)
+            .maybeSingle();
+          if (orgData?.created_at) {
+            regDate = new Date(orgData.created_at);
+          }
+        }
+
+        if (regDate) {
+          const alignedTrialEnd = new Date(regDate.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+          if (sub.trial_end !== alignedTrialEnd) {
+            sub.trial_end = alignedTrialEnd;
+            sub.current_period_end = alignedTrialEnd;
+            await repo.upsertSubscription(sub);
+          }
+        }
+      } catch (err) {
+        console.warn("[SubscriptionMiddleware] Error aligning existing trial dates:", err);
+      }
     }
 
     const status = sub.status;
@@ -106,7 +195,8 @@ export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, 
  * Evaluates feature authorization for a tenant
  */
 export async function canAccessFeature(tenantId: string, featureKey: string): Promise<boolean> {
-  const sub = await repo.getSubscription(tenantId);
+  const orgId = await resolveOrganizationId(tenantId);
+  const sub = await repo.getSubscription(orgId);
   const planCode = sub?.plan_code || "starter";
   const plan = await repo.getPlanFeature(planCode);
 
@@ -158,7 +248,8 @@ export function requireFeatureGating(featureKey: string) {
  * Checks outlet capacity before branch creation (Starter = 1, Growth = 3, Pro = Unlimited)
  */
 export async function canCreateOutlet(tenantId: string): Promise<boolean> {
-  const sub = await repo.getSubscription(tenantId);
+  const orgId = await resolveOrganizationId(tenantId);
+  const sub = await repo.getSubscription(orgId);
   const planCode = sub?.plan_code || "starter";
   const plan = await repo.getPlanFeature(planCode);
 
@@ -166,7 +257,7 @@ export async function canCreateOutlet(tenantId: string): Promise<boolean> {
     const { count, error } = await supabaseAdmin
       .from("restaurants")
       .select("id", { count: "exact", head: true })
-      .eq("organization_id", tenantId);
+      .eq("organization_id", orgId);
 
     if (error) throw error;
     
@@ -185,7 +276,8 @@ export async function canUseAITranslation(tenantId: string, charsCount: number =
   const hasFeature = await canAccessFeature(tenantId, "ai_translation");
   if (!hasFeature) return false;
 
-  const usage = await repo.getUsage(tenantId, "translation_characters");
+  const orgId = await resolveOrganizationId(tenantId);
+  const usage = await repo.getUsage(orgId, "translation_characters");
   const limit = usage?.max_limit || 50000;
   const current = usage?.current_usage || 0;
 

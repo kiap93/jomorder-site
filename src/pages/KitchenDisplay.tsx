@@ -40,6 +40,9 @@ interface KitchenOrder {
   createdAt: {
     toDate: () => Date;
   };
+  voided?: boolean;
+  voidReason?: string;
+  voidApprovedBy?: string;
 }
 
 interface ApiKitchenOrder {
@@ -52,6 +55,9 @@ interface ApiKitchenOrder {
   items: KitchenOrderItem[];
   paid_at?: string;
   created_at: string;
+  voided?: boolean;
+  void_reason?: string;
+  void_approved_by?: string;
 }
 
 export function KitchenDisplay() {
@@ -102,7 +108,14 @@ export function KitchenDisplay() {
           console.error("KDS JSON parse failed. Body snippet:", bodyText.slice(0, 100));
           throw new Error("Invalid response from server");
         }
-        const filteredData = data.filter((o) => [OrderStatus.PENDING as string, OrderStatus.CONFIRMED as string, OrderStatus.COOKING as string, OrderStatus.READY as string].includes(o.status));
+        const filteredData = data.filter((o) => {
+          const isVoided = o.voided || o.status === 'voided';
+          const isKdsAcked = o.void_approved_by && o.void_approved_by.includes('KDS_ACK');
+          if (isVoided && !isKdsAcked) {
+            return true;
+          }
+          return [OrderStatus.PENDING as string, OrderStatus.CONFIRMED as string, OrderStatus.COOKING as string, OrderStatus.READY as string].includes(o.status);
+        });
 
         if (filteredData) {
           setOrders(filteredData.map((o) => ({
@@ -114,7 +127,10 @@ export function KitchenDisplay() {
             totalPrice: parseFloat(o.total_price),
             items: o.items,
             paidAt: o.paid_at,
-            createdAt: { toDate: () => new Date(o.created_at) }
+            createdAt: { toDate: () => new Date(o.created_at) },
+            voided: o.voided || o.status === 'voided',
+            voidReason: o.void_reason,
+            voidApprovedBy: o.void_approved_by
           })));
         }
       } catch (err) {
@@ -200,6 +216,41 @@ export function KitchenDisplay() {
     }
   };
 
+  const handleAcknowledgeKdsVoid = async (orderId: string, currentVoidApprovedBy: string) => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    const newVoidApprovedBy = currentVoidApprovedBy 
+      ? `${currentVoidApprovedBy} | KDS_ACK` 
+      : 'KDS_ACK';
+
+    // Optimistically remove/update order from local state for speed
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+
+    try {
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          voidApprovedBy: newVoidApprovedBy,
+          updated_at: new Date().toISOString()
+        })
+      });
+      if (!response.ok) {
+        console.error("Failed to acknowledge void in kitchen:", await response.text());
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error("Error acknowledging void in kitchen:", err);
+      setRefreshTrigger(prev => prev + 1);
+    }
+  };
+
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col gap-8">
       <header className="flex items-center justify-between bg-gray-900 text-white p-6 rounded-[2rem]">
@@ -220,114 +271,149 @@ export function KitchenDisplay() {
 
       <div className="flex-1 overflow-x-auto pb-4 flex gap-6 scrollbar-thin">
         <AnimatePresence>
-          {orders.map(order => (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              key={order.id}
-              className={`w-80 flex-shrink-0 flex flex-col rounded-[2.5rem] overflow-hidden border-2 shadow-xl ${
-                order.status === OrderStatus.PENDING ? 'bg-white border-yellow-200' : 'bg-orange-50 border-orange-200'
-              }`}
-            >
-              <div className={`p-6 border-b flex justify-between items-center ${
-                order.status === OrderStatus.PENDING ? 'bg-yellow-50/50' : 'bg-orange-100/50'
-              }`}>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-black text-xl text-gray-900">
-                      {t('kds.table', { table: order.tableName || order.tableId })}
-                    </h3>
-                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
-                       order.orderType === OrderType.TAKEAWAY ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
-                    </span>
-                    {order.paidAt && (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase italic shadow-sm shadow-emerald-500/20">
-                        {t('pos.paid')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold">
-                    <Clock size={12} />
-                    {order.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-                <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[10px] font-bold font-mono">
-                  #{getOrderDisplayNo(order.id, order.createdAt)}
-                </div>
-              </div>
-
-              <div className="p-6 flex-1 space-y-4 overflow-y-auto">
-                {order.items.map((item, idx) => (
-                  <div key={idx} className="flex gap-4">
-                    <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center font-black flex-shrink-0">
-                      {item.quantity}x
-                    </div>
-                    <div>
-                      <h4 className="font-black text-gray-900 leading-tight">
-                        {item.kitchenName || item.name}
-                      </h4>
-                      {item.smartRenderedLines?.kds ? (
-                        <div className="mt-2 space-y-1">
-                          {item.smartRenderedLines.kds.map((line, i) => (
-                            <p key={i} className="text-[11px] text-orange-600 font-black leading-none">{line}</p>
-                          ))}
-                        </div>
-                      ) : item.selection ? (
-                        <div className="mt-2 space-y-1">
-                          {flattenSelections(item.selection).map((line, i) => (
-                            <p key={i} className="text-[11px] text-gray-500 font-bold leading-none">{line}</p>
-                          ))}
-                        </div>
-                      ) : item.options.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {item.options.map((opt, i) => (
-                            <span key={i} className="bg-white text-[10px] font-bold text-gray-400 px-1.5 py-0.5 rounded-md border">
-                              {opt.valueName}
-                            </span>
-                          ))}
-                        </div>
+          {orders.map(order => {
+            const isOrderVoided = order.voided;
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                key={order.id}
+                className={`w-80 flex-shrink-0 flex flex-col rounded-[2.5rem] overflow-hidden border-2 shadow-xl ${
+                  isOrderVoided ? 'bg-red-50/10 border-red-500 ring-2 ring-red-500/15 animate-pulse' :
+                  order.status === OrderStatus.PENDING ? 'bg-white border-yellow-200' : 'bg-orange-50 border-orange-200'
+                }`}
+              >
+                <div className={`p-6 border-b flex justify-between items-center ${
+                  isOrderVoided ? 'bg-red-50' :
+                  order.status === OrderStatus.PENDING ? 'bg-yellow-50/50' : 'bg-orange-100/50'
+                }`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-black text-xl text-gray-900">
+                        {t('kds.table', { table: order.tableName || order.tableId })}
+                      </h3>
+                      {isOrderVoided ? (
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-red-600 text-white uppercase animate-pulse">
+                          VOIDED
+                        </span>
+                      ) : (
+                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase ${
+                           order.orderType === OrderType.TAKEAWAY ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                        }`}>
+                          {order.orderType === OrderType.DINE_IN ? t('pos.dineIn') : t('pos.takeaway')}
+                        </span>
+                      )}
+                      {order.paidAt && (
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-white uppercase italic shadow-sm shadow-emerald-500/20">
+                          {t('pos.paid')}
+                        </span>
                       )}
                     </div>
+                    <div className="flex items-center gap-1.5 text-gray-400 font-mono text-xs font-bold mt-1">
+                      <Clock size={12} />
+                      {order.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[10px] font-bold font-mono">
+                    #{getOrderDisplayNo(order.id, order.createdAt)}
+                  </div>
+                </div>
 
-              <div className="p-6">
-                {order.status === OrderStatus.PENDING && (
-                  <button
-                    onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
-                    className="w-full bg-yellow-400 text-yellow-950 py-4 rounded-2xl font-black text-sm hover:bg-yellow-500 transition-all shadow-lg active:scale-95"
-                  >
-                    {t('kds.acceptOrder')}
-                  </button>
-                )}
-                {order.status === OrderStatus.CONFIRMED && (
-                  <button
-                    onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
-                    className="w-full bg-orange-100 text-orange-900 py-4 rounded-2xl font-black text-sm hover:bg-orange-200 transition-all shadow-lg active:scale-95"
-                  >
-                    {t('kds.startCooking')}
-                  </button>
-                )}
-                {order.status === OrderStatus.COOKING && (
-                  <button
-                    onClick={() => updateStatus(order.id, OrderStatus.READY)}
-                    className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle2 size={18} /> {t('kds.markReady')}
-                  </button>
-                )}
-                {order.status === OrderStatus.READY && (
-                   <div className="text-center py-4 bg-green-50 rounded-2xl text-green-700 font-black text-xs uppercase tracking-widest border border-green-100">
-                     {t('kds.waitingHandover')}
-                   </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
+                <div className="p-6 flex-1 space-y-4 overflow-y-auto">
+                  {isOrderVoided && (
+                    <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 mb-2">
+                      <p className="text-xs text-red-700 font-black uppercase tracking-wider mb-1">
+                        ⚠️ ORDER VOIDED BY FRONT
+                      </p>
+                      <p className="text-xs text-red-600 font-bold leading-normal">
+                        Reason: "{order.voidReason || 'No reason specified'}"
+                      </p>
+                      <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider mt-1.5">
+                        DO NOT COOK OR SERVE
+                      </p>
+                    </div>
+                  )}
+                  {order.items.map((item, idx) => (
+                    <div key={idx} className="flex gap-4">
+                      <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center font-black flex-shrink-0">
+                        {item.quantity}x
+                      </div>
+                      <div>
+                        <h4 className="font-black text-gray-900 leading-tight">
+                          {item.kitchenName || item.name}
+                        </h4>
+                        {item.smartRenderedLines?.kds ? (
+                          <div className="mt-2 space-y-1">
+                            {item.smartRenderedLines.kds.map((line, i) => (
+                              <p key={i} className="text-[11px] text-orange-600 font-black leading-none">{line}</p>
+                            ))}
+                          </div>
+                        ) : item.selection ? (
+                          <div className="mt-2 space-y-1">
+                            {flattenSelections(item.selection).map((line, i) => (
+                              <p key={i} className="text-[11px] text-gray-500 font-bold leading-none">{line}</p>
+                            ))}
+                          </div>
+                        ) : item.options.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {item.options.map((opt, i) => (
+                              <span key={i} className="bg-white text-[10px] font-bold text-gray-400 px-1.5 py-0.5 rounded-md border">
+                                {opt.valueName}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-6">
+                  {isOrderVoided ? (
+                    <button
+                      onClick={() => handleAcknowledgeKdsVoid(order.id, order.voidApprovedBy || '')}
+                      className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-red-700 transition-all shadow-lg active:scale-95 uppercase tracking-wider flex items-center justify-center gap-2"
+                    >
+                      Acknowledge & Clear Ticket
+                    </button>
+                  ) : (
+                    <>
+                      {order.status === OrderStatus.PENDING && (
+                        <button
+                          onClick={() => updateStatus(order.id, OrderStatus.CONFIRMED)}
+                          className="w-full bg-yellow-400 text-yellow-950 py-4 rounded-2xl font-black text-sm hover:bg-yellow-500 transition-all shadow-lg active:scale-95"
+                        >
+                          {t('kds.acceptOrder')}
+                        </button>
+                      )}
+                      {order.status === OrderStatus.CONFIRMED && (
+                        <button
+                          onClick={() => updateStatus(order.id, OrderStatus.COOKING)}
+                          className="w-full bg-orange-100 text-orange-900 py-4 rounded-2xl font-black text-sm hover:bg-orange-200 transition-all shadow-lg active:scale-95"
+                        >
+                          {t('kds.startCooking')}
+                        </button>
+                      )}
+                      {order.status === OrderStatus.COOKING && (
+                        <button
+                          onClick={() => updateStatus(order.id, OrderStatus.READY)}
+                          className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-sm hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 size={18} /> {t('kds.markReady')}
+                        </button>
+                      )}
+                      {order.status === OrderStatus.READY && (
+                         <div className="text-center py-4 bg-green-50 rounded-2xl text-green-700 font-black text-xs uppercase tracking-widest border border-green-100">
+                           {t('kds.waitingHandover')}
+                         </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>
