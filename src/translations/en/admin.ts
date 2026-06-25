@@ -29,6 +29,7 @@ const admin = {
   "pos.scanningOrders": "Scanning orders...",
   "pos.error": "Sync Error",
   "pos.refresh": "Force Refresh",
+  "pos.cancelItem": "Cancel Item",
   "kds.title": "KITCHEN MONITOR",
   "kds.activePreparations": "Active Preparations",
   "kds.openTickets": "Open Tickets",

@@ -738,7 +738,7 @@ export function PosDashboard() {
                             })}
                           >
                             <X size={12} />
-                            Cancel Item
+                            {t('pos.cancelItem') || 'Cancel Item'}
                           </button>
                         )}
                       </>
@@ -867,7 +867,7 @@ export function PosDashboard() {
                     disabled={actionLoading}
                     className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-500 rounded-lg shadow-sm transition disabled:opacity-50"
                   >
-                    {actionLoading ? 'Splitting...' : 'Cancel Item'}
+                    {actionLoading ? 'Splitting...' : (t('pos.cancelItem') || 'Cancel Item')}
                   </button>
                 </div>
               </div>
