@@ -102,7 +102,7 @@ export class BillingRepository {
       return {
         tenant_id: tenantId,
         stripe_customer_id: (registry[tenantId] as any).stripe_customer_id,
-        email: (registry[tenantId] as any).stripe_customer_email || 'tenant@jomorder.com',
+        email: (registry[tenantId] as any).stripe_customer_email || 'tenant@sikmatye.com',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -392,7 +392,7 @@ export class BillingRepository {
         console.log("[BillingRepository] plan_features table is empty, seeding defaults...");
         const featuresToSeed = Object.keys(BillingRepository.DEFAULT_PLAN_FEATURES).map(code => ({
           plan_code: code,
-          name: code === 'starter' ? 'JomOrder Starter' : code === 'growth' ? 'JomOrder Growth' : 'JomOrder Pro',
+          name: code === 'starter' ? 'Sikmatye Starter' : code === 'growth' ? 'Sikmatye Growth' : 'Sikmatye Pro',
           max_outlets: code === 'starter' ? 1 : code === 'growth' ? 3 : 9999,
           can_qr_order: true,
           can_basic_pos: true,

@@ -48,6 +48,7 @@ const admin = {
   "admin.tablesQR": "Tables / QR",
   "admin.orderHistory": "Order History",
   "admin.analytics": "Analytics",
+  "admin.taxReporting": "Tax Reporting",
   "admin.translations": "Translations",
   "admin.staffAudits": "Staff & Audits",
   "admin.settings": "Settings",

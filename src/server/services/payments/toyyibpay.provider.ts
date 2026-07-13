@@ -24,7 +24,7 @@ export class ToyyibPayProvider implements PaymentProvider {
       const formData = new URLSearchParams();
       formData.append('userSecretKey', this.secretKey);
       formData.append('categoryCode', this.categoryCode);
-      formData.append('billName', `JomOrder Checkout - ${data.order_id}`);
+      formData.append('billName', `Sikmatye Checkout - ${data.order_id}`);
       formData.append('billDescription', `Payment for Order ${data.order_id}`);
       formData.append('billPriceSetting', '1');
       formData.append('billPayorInfo', '1');

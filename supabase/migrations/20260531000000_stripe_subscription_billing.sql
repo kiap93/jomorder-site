@@ -1,5 +1,5 @@
 -- ==========================================
--- JOMORDER STRIPE SUBSCRIPTION BILLING SCHEMA
+-- SIKMATYE STRIPE SUBSCRIPTION BILLING SCHEMA
 -- Production-Grade Multi-Tenant SaaS PostgreSQL
 -- ==========================================
 
@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS public.plan_features (
 -- Seed Plan Features metadata
 INSERT INTO public.plan_features (plan_code, name, max_outlets, can_qr_order, can_basic_pos, can_kitchen_display, can_printer_support, can_staff_roles, can_ai_translation, can_advanced_analytics, can_franchise_management)
 VALUES 
-('starter', 'JomOrder Starter', 1, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
-('growth', 'JomOrder Growth', 3, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE),
-('pro', 'JomOrder Pro', 9999, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+('starter', 'Sikmatye Starter', 1, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+('growth', 'Sikmatye Growth', 3, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE),
+('pro', 'Sikmatye Pro', 9999, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
 ON CONFLICT (plan_code) DO UPDATE SET
     name = EXCLUDED.name,
     max_outlets = EXCLUDED.max_outlets,

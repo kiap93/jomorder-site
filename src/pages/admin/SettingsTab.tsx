@@ -317,7 +317,7 @@ export function SettingsTab({
                   <div>
                     <h4 className="text-xs font-black text-gray-900">Multi-Country Global Architecture</h4>
                     <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
-                      JomOrder SaaS is configured for worldwide operations. Changing the Country Profile below automatically pre-configures currency codes, tax systems (SST/GST/VAT), date guidelines, timezones, and system languages.
+                      Sikmatye SaaS is configured for worldwide operations. Changing the Country Profile below automatically pre-configures currency codes, tax systems (SST/GST/VAT), date guidelines, timezones, and system languages.
                     </p>
                   </div>
                 </div>
@@ -713,7 +713,7 @@ export function SettingsTab({
                                 : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
                             }`}
                           >
-                            <div className="text-xs">JomOrder Account (Managed)</div>
+                            <div className="text-xs">Sikmatye Account (Managed)</div>
                             <div className="text-[10px] font-medium opacity-85 mt-0.5">We handle payouts, deducting a shared transaction charge.</div>
                           </button>
                         </div>
@@ -953,7 +953,7 @@ export function SettingsTab({
                   <div>
                     <h4 className="font-bold text-gray-700 mb-0.5 uppercase tracking-wide text-[9px]">Future Expansion Pipelines</h4>
                     <p className="text-[10px] leading-relaxed">
-                      JomOrder adapters for <span className="font-extrabold text-[#FF6B35]">ToyyibPay</span>, <span className="font-extrabold">iPay88</span>, and <span className="font-extrabold">Revenue Monster</span> are currently under sandbox certification. Drop us an alignment note to request early custom activation models.
+                      Sikmatye adapters for <span className="font-extrabold text-[#FF6B35]">ToyyibPay</span>, <span className="font-extrabold">iPay88</span>, and <span className="font-extrabold">Revenue Monster</span> are currently under sandbox certification. Drop us an alignment note to request early custom activation models.
                     </p>
                   </div>
                 </div>

@@ -82,7 +82,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlanCode, onSelectPla
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-100 dark:border-zinc-800">
           <div>
-            <h3 className="text-xl font-bold font-sans text-zinc-950 dark:text-zinc-50">Select Your JomOrder Subscription Plan</h3>
+            <h3 className="text-xl font-bold font-sans text-zinc-950 dark:text-zinc-50">Select Your Sikmatye Subscription Plan</h3>
             <p className="text-sm text-zinc-500">Accelerate your retail workflows. Change tiers anytime.</p>
           </div>
           <button 

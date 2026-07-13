@@ -1,4 +1,4 @@
--- Migration to support JomOrder Onboarding Setup Wizard progress persistence
+-- Migration to support Sikmatye Onboarding Setup Wizard progress persistence
 
 CREATE TABLE IF NOT EXISTS public.business_setup_progress (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -168,8 +168,8 @@ export function Landing() {
   // FAQs Array
   const faqsArr = [
     {
-      q: "Do I need proprietary POS hardware machines to start using JomOrder?",
-      a: "Absolutely not. JomOrder is architected to run on any tablet, iPad, smartphone, PC, or Android terminal. You can use hardware you already own or lease standard thermal network printers from third parties."
+      q: "Do I need proprietary POS hardware machines to start using Sikmatye?",
+      a: "Absolutely not. Sikmatye is architected to run on any tablet, iPad, smartphone, PC, or Android terminal. You can use hardware you already own or lease standard thermal network printers from third parties."
     },
     {
       q: "How does the Offline-First POS capability operate if local internet cuts out?",
@@ -185,7 +185,7 @@ export function Landing() {
     },
     {
       q: "Can customers pay online directly from the QR menu?",
-      a: "Absolutely. JomOrder includes dynamic payment gateways supporting local banking options (FPX, credit cards, GrabPay, TouchnGo, and Apple Pay). Transactions integrate directly inside your shift registers."
+      a: "Absolutely. Sikmatye includes dynamic payment gateways supporting local banking options (FPX, credit cards, GrabPay, TouchnGo, and Apple Pay). Transactions integrate directly inside your shift registers."
     },
     {
       q: "How does the 14-day trial work, and do I have to submit credit card data?",
@@ -194,17 +194,17 @@ export function Landing() {
   ];
 
   return (
-    <div id="jomorder-saas" className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-orange-500 selection:text-white">
+    <div id="sikmatye-saas" className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-orange-500 selection:text-white">
       
       {/* 1. TOP SAAS NAVBAR */}
       <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200/50 dark:border-zinc-900/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <ChefHat size={20} className="text-white" />
+            <div className="w-10 h-10 bg-orange-50 dark:bg-zinc-900 rounded-xl flex items-center justify-center shadow-lg overflow-hidden border border-zinc-200/50 dark:border-zinc-800">
+              <img src="/logo.png" className="w-full h-full object-cover" alt="Sikmatye Logo" referrerPolicy="no-referrer" />
             </div>
             <div>
-              <span className="text-lg font-black tracking-tight text-zinc-900 dark:text-zinc-50">JomOrder</span>
+              <span className="text-lg font-black tracking-tight text-zinc-900 dark:text-zinc-50">Sikmatye</span>
               <span className="text-[10px] block font-semibold text-orange-600 uppercase tracking-widest leading-none">Operating System</span>
             </div>
           </div>
@@ -518,12 +518,12 @@ export function Landing() {
                               <Wifi size={16} className="text-emerald-500 shrink-0" />
                             )}
                             <h4 className="text-sm font-bold text-zinc-850 dark:text-zinc-100">
-                              {isNetworkOutageActive ? "Internet Outage Active (Offline Mode)" : "Connected to JomOrder Clouds"}
+                              {isNetworkOutageActive ? "Internet Outage Active (Offline Mode)" : "Connected to Sikmatye Clouds"}
                             </h4>
                           </div>
                           <p className="text-xs text-zinc-500 leading-normal max-w-lg">
                             {isNetworkOutageActive 
-                              ? "SIMULATOR: In standard environments, loss of internet blocks normal POS models. JomOrder caches inputs locally to IndexedDB seamlessly. Cash registers, checkout tables remain 100% active." 
+                              ? "SIMULATOR: In standard environments, loss of internet blocks normal POS models. Sikmatye caches inputs locally to IndexedDB seamlessly. Cash registers, checkout tables remain 100% active." 
                               : "Toggle the switch to cut offline and evaluate how the client applet maintains shift records smoothly without crash interruptions."}
                           </p>
                         </div>
@@ -577,7 +577,7 @@ export function Landing() {
                       <div className="space-y-2">
                         <h4 className="text-xs font-black uppercase text-zinc-500 tracking-wider">AI Instant Menu Multi-Translation Engine</h4>
                         <p className="text-xs text-zinc-550 dark:text-zinc-400">
-                          Configure a single English description. JomOrder automatically translates to Malay, Chinese, Tamil, or Japanese for foreign tourists with Gemini AI.
+                          Configure a single English description. Sikmatye automatically translates to Malay, Chinese, Tamil, or Japanese for foreign tourists with Gemini AI.
                         </p>
                       </div>
 
@@ -713,7 +713,7 @@ export function Landing() {
               Everything Your Restaurant Needs in One Platform
             </h2>
             <p className="text-sm md:text-base text-zinc-500 dark:text-zinc-400">
-              By replacing fragmented tools, JomOrder functions as a singular, robust operating core for every element of customer ordering, cashier totals, and kitchen dispatch.
+              By replacing fragmented tools, Sikmatye functions as a singular, robust operating core for every element of customer ordering, cashier totals, and kitchen dispatch.
             </p>
           </div>
 
@@ -833,7 +833,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 6. SECTION 5: WHY JOMORDER (COMPARISON TABLE) */}
+      {/* 6. SECTION 5: WHY SIKMATYE (COMPARISON TABLE) */}
       <section className="py-20 md:py-28 bg-zinc-50 dark:bg-zinc-900 border-y border-zinc-200/50 dark:border-zinc-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
@@ -843,7 +843,7 @@ export function Landing() {
               More Than Just a QR Ordering System
             </h2>
             <p className="text-sm md:text-base text-zinc-500 dark:text-zinc-400">
-              Why use limited standalone tools when you can run your entire business from JomOrder? See the differences below:
+              Why use limited standalone tools when you can run your entire business from Sikmatye? See the differences below:
             </p>
           </div>
 
@@ -859,7 +859,7 @@ export function Landing() {
                     <th className="p-4 pl-6">Capabilities</th>
                     <th className="p-4 text-center">QR Menu Only</th>
                     <th className="p-4 text-center">Basic Ordering</th>
-                    <th className="p-4 text-center bg-orange-50/20 dark:bg-orange-950/20 font-black text-orange-600 dark:text-orange-400 text-xs">JomOrder OS</th>
+                    <th className="p-4 text-center bg-orange-50/20 dark:bg-orange-950/20 font-black text-orange-600 dark:text-orange-400 text-xs">Sikmatye OS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-850 text-zinc-700 dark:text-zinc-350">
@@ -886,7 +886,7 @@ export function Landing() {
 
             <div className="p-6 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-150 dark:border-zinc-800 text-center">
               <p className="text-xs text-zinc-500 leading-normal">
-                🛡️ JomOrder coordinates your entire F&B brand logistics in a single operational platform. No additional hardware required.
+                🛡️ Sikmatye coordinates your entire F&B brand logistics in a single operational platform. No additional hardware required.
               </p>
             </div>
           </div>
@@ -904,7 +904,7 @@ export function Landing() {
               Enterprise Features Designed For Scaling
             </h2>
             <p className="text-sm md:text-base text-zinc-500 dark:text-zinc-400">
-              Each module of JomOrder is built with high detail to run diners, food parks, bubble tea trucks, or regional dine franchises cleanly.
+              Each module of Sikmatye is built with high detail to run diners, food parks, bubble tea trucks, or regional dine franchises cleanly.
             </p>
           </div>
 
@@ -1132,7 +1132,7 @@ export function Landing() {
               Built for Restaurants in Malaysia & Singapore
             </h2>
             <p className="text-sm md:text-base text-zinc-500 dark:text-zinc-400">
-              Hear from actual dining captains, coffee roasters, and franchise founders running JomOrder coordinates perfectly every day:
+              Hear from actual dining captains, coffee roasters, and franchise founders running Sikmatye coordinates perfectly every day:
             </p>
           </div>
 
@@ -1140,7 +1140,7 @@ export function Landing() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
               {
-                quote: "Before JomOrder, we were losing 10-15 tickets during the busy weekend dinner rush. Now, smartphone orders flow straight to kitchen printers and KDS panels. General wait times decreased by 18 minutes average.",
+                quote: "Before Sikmatye, we were losing 10-15 tickets during the busy weekend dinner rush. Now, smartphone orders flow straight to kitchen printers and KDS panels. General wait times decreased by 18 minutes average.",
                 author: "Chef Raymond Tan",
                 role: "Operations Director, Mamak Bistro Kajang",
                 outlets: "2 Outlets Active"
@@ -1266,7 +1266,7 @@ export function Landing() {
               Ready to Modernize Your Restaurant?
             </h2>
             <p className="text-sm sm:text-base text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto leading-relaxed">
-              Join leading dining spots using JomOrder to simplify customer ordering, process fast kitchen prints, and improve financial reporting.
+              Join leading dining spots using Sikmatye to simplify customer ordering, process fast kitchen prints, and improve financial reporting.
             </p>
           </div>
 
@@ -1304,13 +1304,13 @@ export function Landing() {
             {/* Brand descriptor */}
             <div className="space-y-4 md:col-span-2">
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center">
-                  <ChefHat size={16} className="text-white" />
+                <div className="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center overflow-hidden border border-zinc-800">
+                  <img src="/logo.png" className="w-full h-full object-cover" alt="Sikmatye Logo" referrerPolicy="no-referrer" />
                 </div>
-                <span className="text-base font-black tracking-tight text-white">JomOrder OS</span>
+                <span className="text-base font-black tracking-tight text-white">Sikmatye OS</span>
               </div>
               <p className="text-xs text-zinc-500 max-w-sm leading-relaxed">
-                JomOrder is the complete Restaurant Operating System linking QR online ordering, kitchen display feeds (KDS), thermal printing nodes, and offline-first shifting POS structures seamlessly.
+                Sikmatye is the complete Restaurant Operating System linking QR online ordering, kitchen display feeds (KDS), thermal printing nodes, and offline-first shifting POS structures seamlessly.
               </p>
             </div>
 
@@ -1339,7 +1339,7 @@ export function Landing() {
           </div>
 
           <div className="pt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-zinc-650">
-            <span>© 2026 JomOrder Inc. All rights reserve coordinates globally.</span>
+            <span>© 2026 Sikmatye Inc. All rights reserve coordinates globally.</span>
             <div className="flex space-x-4">
               <span>RM Currency processing handled safely via Stripe API.</span>
             </div>
@@ -1372,7 +1372,7 @@ export function Landing() {
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
                   <h3 className="text-lg font-black text-zinc-900 dark:text-zinc-50 font-sans">
-                    Book JomOrder Expert Consultation
+                    Book Sikmatye Expert Consultation
                   </h3>
                   <p className="text-xs text-zinc-500">
                     Get custom suggestions regarding kitchen layouts, ticketing printers, and offline setups.

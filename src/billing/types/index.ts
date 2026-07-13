@@ -1,4 +1,4 @@
-// TypeScript interfaces defining public parameters for Stripe Subscription Billing in JomOrder.
+// TypeScript interfaces defining public parameters for Stripe Subscription Billing in Sikmatye.
 
 export type PlanCode = 'starter' | 'growth' | 'pro';
 

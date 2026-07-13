@@ -1,4 +1,4 @@
--- JomOrder: Enterprise Multi-Tenant Restaurant Hub Schema
+-- Sikmatye: Enterprise Multi-Tenant Restaurant Hub Schema
 -- Full Idempotent Version
 
 -- 1. CORE ARCHITECTURE

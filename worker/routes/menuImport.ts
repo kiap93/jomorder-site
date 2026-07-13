@@ -192,7 +192,7 @@ menuImportRoutes.get("/api/menu-import/templates", async (c) => {
     
     // Set headers manually in Hono response
     c.header("Content-Type", "application/zip");
-    c.header("Content-Disposition", "attachment; filename=jomorder_menu_template.zip");
+    c.header("Content-Disposition", "attachment; filename=sikmatye_menu_template.zip");
     return c.body(buffer);
   } catch (err: any) {
     return c.json({ error: "Could not assemble templates: " + err.message }, 500);
@@ -472,7 +472,7 @@ menuImportRoutes.get("/api/menu-import/export", authenticate, async (c) => {
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     
     c.header("Content-Type", "application/zip");
-    c.header("Content-Disposition", "attachment; filename=jomorder_exported_menu.zip");
+    c.header("Content-Disposition", "attachment; filename=sikmatye_exported_menu.zip");
     return c.body(zipBuffer);
   } catch (err: any) {
     return c.json({ error: "Could not export menu database files: " + err.message }, 500);

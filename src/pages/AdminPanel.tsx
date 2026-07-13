@@ -23,6 +23,8 @@ import { StaffTab } from './admin/StaffTab';
 import { OfflineSyncTab } from './admin/OfflineSyncTab';
 import { MenuImportTab } from './admin/MenuImportTab';
 import { FileSpreadsheet } from 'lucide-react';
+import { TaxReportingDashboard } from './admin/TaxReportingDashboard';
+import { Percent } from 'lucide-react';
 
 const VisibilityManager = ({ 
   value, 
@@ -117,13 +119,13 @@ export function AdminPanel() {
   const canManageStaff = isActualOwner || hasStaffManagementPermission;
 
   // Map and translate URL parameters dynamically
-  const mapUrlToTab = (urlTab: string | undefined): 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' => {
+  const mapUrlToTab = (urlTab: string | undefined): 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' | 'tax-reporting' => {
     if (!urlTab) return 'menu';
     const tab = urlTab.toLowerCase();
     if (tab === 'staff-audits') return 'staff';
     
-    const validTabs: Array<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export'> = [
-      'menu', 'categories', 'tables', 'analytics', 'localization', 'settings', 'orders', 'staff', 'printers', 'offline-sync', 'import-export'
+    const validTabs: Array<'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' | 'tax-reporting'> = [
+      'menu', 'categories', 'tables', 'analytics', 'localization', 'settings', 'orders', 'staff', 'printers', 'offline-sync', 'import-export', 'tax-reporting'
     ];
     if (validTabs.includes(tab as any)) {
       return tab as any;
@@ -138,7 +140,7 @@ export function AdminPanel() {
 
   const activeTab = mapUrlToTab(tabFromUrl);
   
-  const setActiveTab = (tabId: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export') => {
+  const setActiveTab = (tabId: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' | 'tax-reporting') => {
     const urlSegment = mapTabToUrl(tabId);
     navigate(`/restaurant/${restId}/admin/${urlSegment}`, { replace: true });
   };
@@ -1641,13 +1643,14 @@ export function AdminPanel() {
             { id: 'printers', icon: Printer, name: 'Kitchen Printers', key: 'admin.kitchenPrinters' },
             { id: 'orders', icon: ClipboardList, key: 'admin.orderHistory' },
             { id: 'analytics', icon: BarChart2, key: 'admin.analytics' },
+            { id: 'tax-reporting', icon: Percent, name: 'Tax Reporting', key: 'admin.taxReporting' },
             { id: 'localization', icon: Globe, key: 'admin.translations' },
             ...(canManageStaff ? [{ id: 'staff', icon: Users, key: 'admin.staffAudits' }] : []),
             { id: 'offline-sync', icon: RefreshCw, name: 'Sync & Conflicts', key: 'admin.offlineSync' },
             { id: 'import-export', icon: FileSpreadsheet, name: 'Import/Export', key: 'admin.importExport' },
             { id: 'settings', icon: Save, key: 'admin.settings' }
           ] as Array<{
-            id: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export';
+            id: 'menu' | 'categories' | 'tables' | 'analytics' | 'localization' | 'settings' | 'orders' | 'staff' | 'printers' | 'offline-sync' | 'import-export' | 'tax-reporting';
             icon: React.ComponentType<{ size?: number }>;
             key: string;
             name?: string;
@@ -1733,6 +1736,10 @@ export function AdminPanel() {
           isAnalyticsLoading={isAnalyticsLoading}
           t={t}
         />
+      )}
+
+      {activeTab === 'tax-reporting' && (
+        <TaxReportingDashboard restaurantId={restId || ''} />
       )}
 
       {/* analytics dead block removed */}

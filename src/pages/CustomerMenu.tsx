@@ -1364,7 +1364,7 @@ export function CustomerMenu() {
   //       </div>
 
   //       <div className="mt-16 text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">
-  //         JomOrder System • Branch v1.0
+  //         Sikmatye System • Branch v1.0
   //       </div>
   //     </div>
   //   );
@@ -1963,8 +1963,8 @@ export function CustomerMenu() {
               className="w-full bg-zinc-900 border border-zinc-800 text-white p-4 rounded-3xl flex items-center justify-between shadow-2xl active:scale-[0.98] transition-transform"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-2xl bg-orange-500 flex items-center justify-center">
-                  <ChefHat size={20} className="text-white" />
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center overflow-hidden border border-zinc-800">
+                  <img src="/logo.png" className="w-full h-full object-cover" alt="Sikmatye Logo" referrerPolicy="no-referrer" />
                 </div>
                 <div className="text-left">
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 leading-none mb-1">Your Order</p>

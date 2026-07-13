@@ -55,7 +55,7 @@ billingRoutes.post("/api/billing/create-checkout-session", authenticate, async (
     return c.json({ error: "You must specify a target subscription plan." }, 400);
   }
 
-  const email = user.email || "client@jomorder.com";
+  const email = user.email || "client@sikmatye.com";
   let origin = body.origin || c.req.header('origin');
   if (!origin) {
     const referer = c.req.header('referer');

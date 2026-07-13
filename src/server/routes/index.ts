@@ -13,6 +13,7 @@ import paymentsRoutes from "./payments.routes";
 import publicRoutes from "./public.routes";
 import setupRoutes from "./setup.routes";
 import billingRoutes from "../../billing/routes/billing.routes";
+import taxRoutes from "./tax.routes";
 
 const router = Router();
 
@@ -31,5 +32,6 @@ router.use("/api", ordersRoutes);
 router.use("/api", sessionsRoutes);
 router.use("/api", paymentsRoutes);
 router.use("/api/public", publicRoutes);
+router.use("/api", taxRoutes);
 
 export default router;

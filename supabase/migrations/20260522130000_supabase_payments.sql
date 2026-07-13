@@ -1,4 +1,4 @@
--- JomOrder Payment Engine Schema
+-- Sikmatye Payment Engine Schema
 -- Handles transactions, lifecycle, and audit trials
 
 -- 1. Payments Table

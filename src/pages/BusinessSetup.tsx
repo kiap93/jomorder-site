@@ -394,11 +394,11 @@ export function BusinessSetup() {
             {/* STEP 1: WELCOME SCREEN */}
             {currentStep === 1 && (
               <div className="space-y-6 text-center py-10 my-auto">
-                <div className="w-20 h-20 bg-orange-500/10 text-orange-600 rounded-3xl flex items-center justify-center mx-auto border border-orange-500/25">
-                  <Sparkles size={38} className="animate-pulse" />
+                <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center mx-auto border border-orange-500/20 overflow-hidden shadow-md">
+                  <img src="/logo.png" className="w-full h-full object-cover" alt="Sikmatye Logo" referrerPolicy="no-referrer" />
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-2xl font-black text-gray-950 tracking-tight">Welcome to JomOrder 🎉</h2>
+                  <h2 className="text-2xl font-black text-gray-950 tracking-tight">Welcome to Sikmatye 🎉</h2>
                   <p className="text-xs text-gray-500 font-medium max-w-sm mx-auto leading-relaxed">
                     Let's configure your newly established business in a few elegant, responsive workspace setups. We'll pre-engineer defaults so you can accept dynamic orders immediately.
                   </p>

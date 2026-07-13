@@ -42,9 +42,22 @@ export interface UsageTracking {
   updated_at: string;
 }
 
+export interface Invoice {
+  id: string;
+  number: string;
+  date: string;
+  description: string;
+  amount: string;
+  status: 'paid' | 'trial_invoice' | 'unpaid' | 'trial';
+  receiptUrl: string;
+  isMock: boolean;
+  planCode?: PlanCode;
+}
+
 export interface BillingOverview {
   subscription: TenantSubscription | null;
   plan: PlanFeature;
   usage: UsageTracking[];
   trialDaysLeft: number;
+  invoices: Invoice[];
 }

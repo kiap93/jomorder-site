@@ -27,19 +27,19 @@ export function getStripeClient(apiKey?: string): Stripe {
 // Plan Prices Map dictionary (RM monthly rates)
 export const PLAN_PRICES = {
   starter: {
-    priceId: process.env.STRIPE_PRICE_STARTER || "price_JomOrder_Starter_RM18",
+    priceId: process.env.STRIPE_PRICE_STARTER || "price_Sikmatye_Starter_RM18",
     priceAmount: 18.00,
     currency: "MYR",
     planName: "Starter Plan"
   },
   growth: {
-    priceId: process.env.STRIPE_PRICE_GROWTH || "price_JomOrder_Growth_RM38",
+    priceId: process.env.STRIPE_PRICE_GROWTH || "price_Sikmatye_Growth_RM38",
     priceAmount: 38.00,
     currency: "MYR",
     planName: "Growth Plan"
   },
   pro: {
-    priceId: process.env.STRIPE_PRICE_PRO || "price_JomOrder_Pro_RM98",
+    priceId: process.env.STRIPE_PRICE_PRO || "price_Sikmatye_Pro_RM98",
     priceAmount: 98.00,
     currency: "MYR",
     planName: "Pro Enterprise Plan"

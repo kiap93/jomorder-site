@@ -26,7 +26,7 @@ export class SenangPayProvider implements PaymentProvider {
     }
 
     const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
-    const description = `Order ${data.order_id} at JomOrder`;
+    const description = `Order ${data.order_id} at Sikmatye`;
     
     // Hash md5 signature is standard for senangPay: md5(secretkey + detail + amount + order_id)
     // Here we compute signature and simulate redirection URL.

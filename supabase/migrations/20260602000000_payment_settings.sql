@@ -1,4 +1,4 @@
--- Migration to support JomOrder Multi-Tenant Payment Management System
+-- Migration to support Sikmatye Multi-Tenant Payment Management System
 CREATE TABLE IF NOT EXISTS public.payment_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES public.restaurants(id) ON DELETE CASCADE,

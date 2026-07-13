@@ -189,7 +189,7 @@ router.get("/menu-import/templates", async (req, res) => {
 
     const buffer = await zip.generateAsync({ type: "nodebuffer" });
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", "attachment; filename=jomorder_menu_template.zip");
+    res.setHeader("Content-Disposition", "attachment; filename=sikmatye_menu_template.zip");
     res.send(buffer);
   } catch (err: any) {
     res.status(500).json({ error: "Could not assemble templates: " + err.message });
@@ -458,7 +458,7 @@ router.get("/menu-import/export", authenticateJWT, requireTenantIsolation(), req
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", "attachment; filename=jomorder_exported_menu.zip");
+    res.setHeader("Content-Disposition", "attachment; filename=sikmatye_exported_menu.zip");
     res.send(zipBuffer);
   } catch (err: any) {
     res.status(500).json({ error: "Could not export menu database files: " + err.message });

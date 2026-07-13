@@ -66,7 +66,7 @@ export class StripeProvider implements PaymentProvider {
             price_data: {
               currency: "myr",
               product_data: {
-                name: `JomOrder Checkout - Order #${data.order_id.substring(0, 8)}`,
+                name: `Sikmatye Checkout - Order #${data.order_id.substring(0, 8)}`,
               },
               unit_amount: Math.round(data.amount * 100), // convert to cents
             },

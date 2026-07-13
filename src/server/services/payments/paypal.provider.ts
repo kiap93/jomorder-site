@@ -57,7 +57,7 @@ export class PayPalProvider implements PaymentProvider {
             currency_code: "USD", // PayPal standard or dynamic if desired
             value: data.amount.toFixed(2)
           },
-          description: `JomOrder Checkout - Order ${data.order_id}`
+          description: `Sikmatye Checkout - Order ${data.order_id}`
         }],
         application_context: {
           return_url: data.redirect_url,

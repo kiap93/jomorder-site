@@ -759,7 +759,7 @@ class PrinterService {
       </head>
       <body>
         ${reprintNotice}
-        <div class="title">JOMORDER KOT</div>
+        <div class="title">SIKMATYE KOT</div>
         
         <div class="header-accent">ORDER #${payload.orderId}</div>
         

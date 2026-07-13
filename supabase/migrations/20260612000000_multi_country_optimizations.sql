@@ -1,4 +1,4 @@
--- Migration to transform JomOrder into a multi-country, multi-currency, multi-language system
+-- Migration to transform Sikmatye into a multi-country, multi-currency, multi-language system
 
 CREATE TABLE IF NOT EXISTS public.business_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

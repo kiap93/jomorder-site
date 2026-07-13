@@ -51,7 +51,7 @@ router.post("/billing/create-checkout-session", authenticateJWT, async (req: Aut
     return res.status(400).json({ error: "You must specify a target subscription plan." });
   }
 
-  const email = user.email || "client@jomorder.com";
+  const email = user.email || "client@sikmatye.com";
   // The frontend billing panel URL to return back to once stripe checkout completes 
   let origin = req.body.origin || req.headers.origin;
   if (!origin) {

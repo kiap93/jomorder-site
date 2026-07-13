@@ -60,7 +60,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
           await repo.upsertBillingCustomer({
             tenant_id: tenantId,
             stripe_customer_id: customerId,
-            email: session.customer_details?.email || "billing@jomorder.com"
+            email: session.customer_details?.email || "billing@sikmatye.com"
           });
 
           // Retrieve active subscription parameters to get actual trial and period bounds

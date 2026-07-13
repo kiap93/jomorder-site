@@ -450,7 +450,7 @@ superadminRoutes.get("/api/superadmin/orders/:id/debug", authenticate, requireSu
         response_message: "SUCCESS",
         customer_ip: "192.168.1.104",
         raw_gateway_callback: {
-          merchId: "MID_JOMORDER_99",
+          merchId: "MID_SIKMATYE_99",
           txnAmount: totalAmount,
           currency: "MYR",
           signature: "sha256HashOfCredentials_SecureAndMatching",
@@ -531,7 +531,7 @@ superadminRoutes.get("/api/superadmin/orders/:id/debug", authenticate, requireSu
       response_message: "SUCCESS",
       customer_ip: "192.168.1.104",
       raw_gateway_callback: {
-        merchId: "MID_JOMORDER_99",
+        merchId: "MID_SIKMATYE_99",
         txnAmount: order.totalPrice || order.total_price || 0,
         currency: "MYR",
         signature: "sha256HashOfCredentials_SecureAndMatching",

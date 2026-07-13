@@ -292,8 +292,8 @@ export function PaymentSuccess() {
 
         <div class="footer">
           THANK YOU FOR DINING WITH US!<br/>
-          JOMORDER MOBILE CHECKOUTS<br/>
-          POWERED BY JOMORDER (SaaS)
+          SIKMATYE MOBILE CHECKOUTS<br/>
+          POWERED BY SIKMATYE (SaaS)
         </div>
       </body>
       </html>

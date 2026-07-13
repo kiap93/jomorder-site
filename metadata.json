@@ -1,5 +1,5 @@
 {
-  "name": "JomOrder POS & Payment Engine",
+  "name": "Sikmatye POS & Payment Engine",
   "description": "Enterprise Restaurant POS with integrated QR ordering, AI-powered localization, and a robust Payment Engine for scalable financial workflows (QR Pay, Split Payments, Settlements).",
   "requestFramePermissions": ["identity-credentials-get"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

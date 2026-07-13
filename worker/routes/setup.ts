@@ -173,7 +173,7 @@ setupRoutes.post("/api/setup/finalize/:restaurantId", authenticate, async (c) =>
   const supabase = getSupabase(c.env);
   const isOwner = await isRestaurantOwner(supabase, user.id, restaurantId, user.role, user.platform_role);
   if (!isOwner) {
-    return c.json({ error: "Forbidden: Only the Business Owner can finalize JomOrder setup." }, 403);
+    return c.json({ error: "Forbidden: Only the Business Owner can finalize Sikmatye setup." }, 403);
   }
 
   if (!wizard_data) {
@@ -197,7 +197,7 @@ setupRoutes.post("/api/setup/finalize/:restaurantId", authenticate, async (c) =>
     const { error: restErr } = await supabase
       .from('restaurants')
       .update({
-        name: step2.business_name || "New JomOrder Restaurant",
+        name: step2.business_name || "New Sikmatye Restaurant",
         currency: baseCurrency,
         sst: taxRate / 100, // sst decimal representation
         payment_mode: paymentMode

@@ -10,7 +10,7 @@ interface LanguageState {
 }
 
 const getBrowserLanguage = (): LanguageCode => {
-  const local = localStorage.getItem('jomorder_locale');
+  const local = localStorage.getItem('sikmatye_locale');
   if (local === 'en' || local === 'zh' || local === 'ms') {
     return local;
   }
@@ -23,7 +23,7 @@ const getBrowserLanguage = (): LanguageCode => {
 export const useLanguageStore = create<LanguageState>((set, get) => ({
   language: getBrowserLanguage(),
   setLanguage: (lang: LanguageCode) => {
-    localStorage.setItem('jomorder_locale', lang);
+    localStorage.setItem('sikmatye_locale', lang);
     set({ language: lang });
   },
   t: (key: string, variables?: Record<string, string | number>) => {

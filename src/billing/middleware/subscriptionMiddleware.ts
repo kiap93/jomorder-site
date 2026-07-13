@@ -62,7 +62,7 @@ export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, 
       let registrationDate = new Date();
       
       // Fetch tenant email and created_at if possible
-      let email = "business@jomorder.com";
+      let email = "business@sikmatye.com";
       try {
         const { data: restData } = await supabaseAdmin
           .from("restaurants")
@@ -75,7 +75,7 @@ export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, 
             registrationDate = new Date(restData.created_at);
           }
           if (restData.name) {
-            email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+            email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@Sikmatye.com`;
           }
         } else {
           const { data: orgData } = await supabaseAdmin
@@ -88,7 +88,7 @@ export async function requireSubscriptionEnforcement(req: AuthenticatedRequest, 
               registrationDate = new Date(orgData.created_at);
             }
             if (orgData.name) {
-              email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+              email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@Sikmatye.com`;
             }
           }
         }

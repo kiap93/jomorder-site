@@ -48,6 +48,7 @@ const admin = {
   "admin.tablesQR": "Meja & Kod QR",
   "admin.orderHistory": "Sejarah Pesanan",
   "admin.analytics": "Analisis Data",
+  "admin.taxReporting": "Laporan Cukai F&B",
   "admin.translations": "Terjemahan Menu",
   "admin.staffAudits": "Pengurusan Kakitangan & Audit",
   "admin.settings": "Tetapan Cawangan",

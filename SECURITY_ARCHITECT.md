@@ -62,7 +62,7 @@ We prevent high latency database roundtrips for raw authentication by packaging 
 ### Detailed JWT Payload Schema
 ```json
 {
-  "iss": "jomorder-saas-auth",
+  "iss": "sikmatye-saas-auth",
   "sub": "user_01H8XST5GPY8N2JZ73A9Z56T1W",
   "iat": 1693004800,
   "exp": 1693091200,

@@ -80,7 +80,7 @@ export const paymentEngine = {
       paymentId: payment.id,
       provider: payment.provider,
       paymentMethod: payment.payment_method,
-      qrData: isQrCode ? (checkoutUrl || `https://jomorder.my/pay/mock-qr?id=${payment.id}`) : undefined,
+      qrData: isQrCode ? (checkoutUrl || `https://sikmatye.my/pay/mock-qr?id=${payment.id}`) : undefined,
       redirectUrl: !isQrCode ? checkoutUrl : undefined
     };
   },

@@ -31,7 +31,7 @@ export function BillingPage() {
       try {
         setLoading(true);
         if (billingStatus === "success") {
-          setSuccessMsg("Payment completed successfully! Your JomOrder subscription has been updated.");
+          setSuccessMsg("Payment completed successfully! Your Sikmatye subscription has been updated.");
           const newUrl = window.location.pathname;
           window.history.replaceState({}, document.title, newUrl);
         } else if (billingStatus === "cancelled") {
@@ -109,7 +109,7 @@ export function BillingPage() {
 
   const handleCancelSub = async () => {
     if (!restId) return;
-    if (!confirm("Are you sure you want to cancel your JomOrder subscription? Access limits will revert on period ends.")) return;
+    if (!confirm("Are you sure you want to cancel your Sikmatye subscription? Access limits will revert on period ends.")) return;
     
     setActionLoading("cancel");
     setError(null);
@@ -150,6 +150,7 @@ export function BillingPage() {
       <div className="max-w-6xl mx-auto p-4 md:p-8">
         <BillingHistoryPage 
           subscription={overview.subscription} 
+          invoices={overview.invoices || []}
           onBack={() => setIsViewHistoryOpen(false)} 
         />
       </div>
@@ -186,7 +187,7 @@ export function BillingPage() {
       {/* Header section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-100 dark:border-zinc-850 pb-6">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-zinc-950 dark:text-zinc-50 font-sans">JomOrder SaaS Subscription Dashboard</h1>
+          <h1 className="text-2xl font-black tracking-tight text-zinc-950 dark:text-zinc-50 font-sans">Sikmatye SaaS Subscription Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">
             Manage your corporate billing plans, scale locations capacity, and toggle AI translations interfaces.
           </p>
@@ -361,7 +362,7 @@ export function BillingPage() {
                   />
                 </div>
                 <p className="text-xs text-zinc-500">
-                  AI Translation with dynamic menu sync features require JomOrder Pro.
+                  AI Translation with dynamic menu sync features require Sikmatye Pro.
                 </p>
               </div>
             </div>

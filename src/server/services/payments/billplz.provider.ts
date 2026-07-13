@@ -30,7 +30,7 @@ export class BillplzProvider implements PaymentProvider {
         amount: Math.round(data.amount * 100), // in cents
         callback_url: data.callback_url,
         redirect_url: data.redirect_url,
-        description: `Order ${data.order_id} at JomOrder`
+        description: `Order ${data.order_id} at Sikmatye`
       };
 
       const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");

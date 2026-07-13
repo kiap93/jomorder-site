@@ -1,12 +1,12 @@
 import crypto from "crypto";
 
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
-const ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || 'jomorder-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
+const ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || 'sikmatye-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
 
 export function encrypt(text: string, customKey?: string): string {
   if (!text) return "";
   try {
-    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || 'jomorder-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
+    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || 'sikmatye-super-secret-key-32-chars-max!').substring(0, 32).padEnd(32, '0');
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
     let encrypted = cipher.update(text, "utf8");
@@ -31,7 +31,7 @@ export function decrypt(text: string, customKey?: string): string {
       customKey,
       process.env.PAYMENT_ENCRYPTION_KEY,
       "123",
-      "jomorder-super-secret-key-32-chars-max!"
+      "sikmatye-super-secret-key-32-chars-max!"
     ].filter((k): k is string => typeof k === 'string' && k.trim() !== '');
 
     const candidateKeys = Array.from(new Set(
