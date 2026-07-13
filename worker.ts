@@ -15,6 +15,7 @@ import diningSessionRoutes from './worker/routes/dining_sessions';
 import billingRoutes from './worker/routes/billing';
 import menuImportRoutes from './worker/routes/menuImport';
 import setupRoutes from './worker/routes/setup';
+import taxRoutes from './worker/routes/tax';
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -94,5 +95,6 @@ app.route('/', diningSessionRoutes);
 app.route('/', billingRoutes);
 app.route('/', menuImportRoutes);
 app.route('/', setupRoutes);
+app.route('/', taxRoutes);
 
 export default app;

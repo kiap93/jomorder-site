@@ -1277,7 +1277,7 @@ var init_voidService = __esm({
 });
 
 // server.ts
-var import_express16 = __toESM(require("express"), 1);
+var import_express17 = __toESM(require("express"), 1);
 var import_path2 = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_cookie_parser = __toESM(require("cookie-parser"), 1);
@@ -1563,7 +1563,7 @@ async function translateTextWithGemini(text, targetLang, restaurantContext) {
 }
 
 // src/server/routes/index.ts
-var import_express15 = require("express");
+var import_express16 = require("express");
 
 // src/server/routes/auth.routes.ts
 var import_express = require("express");
@@ -2207,7 +2207,7 @@ router.post("/login", async (req, res) => {
         console.error("Failed to list or create auth user for express superadmin:", e);
       }
       const idToInsert = authUserId || import_crypto2.default.randomUUID();
-      const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
+      const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").upsert({
         id: idToInsert,
         email,
         role: "admin",
@@ -2294,7 +2294,7 @@ router.post("/register", async (req, res) => {
     if (!authUser.user) {
       throw new Error("User creation failed: No user returned");
     }
-    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").insert({
+    const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").upsert({
       id: authUser.user.id,
       email,
       role: "staff"
@@ -2369,7 +2369,7 @@ router.post("/google-login", async (req, res) => {
           console.error("Failed to list or create auth user for google express superadmin:", e);
         }
         const idToInsert = authUserId || import_crypto2.default.randomUUID();
-        const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").insert({
+        const { data: inserted, error: insertError } = await supabaseAdmin.from("profiles").upsert({
           id: idToInsert,
           email,
           role: "admin",
@@ -3914,7 +3914,7 @@ router4.get("/menu-import/templates", async (req, res) => {
     zip.file("combo-choice-options.csv", comboChoiceOptionsCsv);
     const buffer = await zip.generateAsync({ type: "nodebuffer" });
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", "attachment; filename=jomorder_menu_template.zip");
+    res.setHeader("Content-Disposition", "attachment; filename=sikmatye_menu_template.zip");
     res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: "Could not assemble templates: " + err.message });
@@ -4128,7 +4128,7 @@ router4.get("/menu-import/export", authenticateJWT, requireTenantIsolation(), re
     zip.file("combo-choice-options.csv", generateCSV(["option_code", "group_code", "child_item_code", "custom_name", "price_delta", "default_selected", "sort_order"], comboChoiceOptionsRows));
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", "attachment; filename=jomorder_exported_menu.zip");
+    res.setHeader("Content-Disposition", "attachment; filename=sikmatye_exported_menu.zip");
     res.send(zipBuffer);
   } catch (err) {
     res.status(500).json({ error: "Could not export menu database files: " + err.message });
@@ -5874,7 +5874,7 @@ router7.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req,
         response_message: "SUCCESS",
         customer_ip: "192.168.1.104",
         raw_gateway_callback: {
-          merchId: "MID_JOMORDER_99",
+          merchId: "MID_SIKMATYE_99",
           txnAmount: totalAmount,
           currency: "MYR",
           signature: "sha256HashOfCredentials_SecureAndMatching",
@@ -5942,7 +5942,7 @@ router7.get("/orders/:id/debug", authenticateJWT, requireSuperAdmin, async (req,
       response_message: "SUCCESS",
       customer_ip: "192.168.1.104",
       raw_gateway_callback: {
-        merchId: "MID_JOMORDER_99",
+        merchId: "MID_SIKMATYE_99",
         txnAmount: order.totalPrice || 0,
         currency: "MYR",
         signature: "sha256HashOfCredentials_SecureAndMatching",
@@ -6621,7 +6621,7 @@ var BillplzProvider = class {
         // in cents
         callback_url: data.callback_url,
         redirect_url: data.redirect_url,
-        description: `Order ${data.order_id} at JomOrder`
+        description: `Order ${data.order_id} at Sikmatye`
       };
       const authHeader = Buffer.from(`${this.apiKey}:`).toString("base64");
       const res = await fetch("https://www.billplz.com/api/v3/bills", {
@@ -6727,7 +6727,7 @@ var SenangPayProvider = class {
       };
     }
     const referenceId = `sp_${Math.random().toString(36).substr(2, 9)}`;
-    const description = `Order ${data.order_id} at JomOrder`;
+    const description = `Order ${data.order_id} at Sikmatye`;
     const hashString = `${this.secretKey}${description}${data.amount}${referenceId}`;
     const hash = import_crypto4.default.createHash("md5").update(hashString).digest("hex");
     const queryParams = new URLSearchParams({
@@ -6871,7 +6871,7 @@ var StripeProvider = class {
             price_data: {
               currency: "myr",
               product_data: {
-                name: `JomOrder Checkout - Order #${data.order_id.substring(0, 8)}`
+                name: `Sikmatye Checkout - Order #${data.order_id.substring(0, 8)}`
               },
               unit_amount: Math.round(data.amount * 100)
               // convert to cents
@@ -7028,7 +7028,7 @@ var ToyyibPayProvider = class {
       const formData = new URLSearchParams();
       formData.append("userSecretKey", this.secretKey);
       formData.append("categoryCode", this.categoryCode);
-      formData.append("billName", `JomOrder Checkout - ${data.order_id}`);
+      formData.append("billName", `Sikmatye Checkout - ${data.order_id}`);
       formData.append("billDescription", `Payment for Order ${data.order_id}`);
       formData.append("billPriceSetting", "1");
       formData.append("billPayorInfo", "1");
@@ -7166,7 +7166,7 @@ var PayPalProvider = class {
             // PayPal standard or dynamic if desired
             value: data.amount.toFixed(2)
           },
-          description: `JomOrder Checkout - Order ${data.order_id}`
+          description: `Sikmatye Checkout - Order ${data.order_id}`
         }],
         application_context: {
           return_url: data.redirect_url,
@@ -7256,11 +7256,11 @@ var PayPalProvider = class {
 // src/server/services/payments/cryptoUtils.ts
 var import_crypto5 = __toESM(require("crypto"), 1);
 var ENCRYPTION_ALGORITHM = "aes-256-cbc";
-var ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
+var ENCRYPTION_KEY = (process.env.PAYMENT_ENCRYPTION_KEY || "sikmatye-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
 function encrypt(text, customKey) {
   if (!text) return "";
   try {
-    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || "jomorder-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
+    const keyToUse = (customKey || process.env.PAYMENT_ENCRYPTION_KEY || "sikmatye-super-secret-key-32-chars-max!").substring(0, 32).padEnd(32, "0");
     const iv = import_crypto5.default.randomBytes(16);
     const cipher = import_crypto5.default.createCipheriv(ENCRYPTION_ALGORITHM, Buffer.from(keyToUse), iv);
     let encrypted = cipher.update(text, "utf8");
@@ -7282,7 +7282,7 @@ function decrypt(text, customKey) {
       customKey,
       process.env.PAYMENT_ENCRYPTION_KEY,
       "123",
-      "jomorder-super-secret-key-32-chars-max!"
+      "sikmatye-super-secret-key-32-chars-max!"
     ].filter((k) => typeof k === "string" && k.trim() !== "");
     const candidateKeys = Array.from(new Set(
       candidatesStr.map((k) => k.substring(0, 32).padEnd(32, "0"))
@@ -8632,7 +8632,7 @@ router13.post("/setup/finalize/:restaurantId", authenticateJWT, async (req, res)
   }
   const isOwner = await isRestaurantOwner(user.id, restaurantId);
   if (!isOwner) {
-    return res.status(403).json({ error: "Forbidden: Only the Business Owner can finalize JomOrder setup." });
+    return res.status(403).json({ error: "Forbidden: Only the Business Owner can finalize Sikmatye setup." });
   }
   if (!wizard_data) {
     return res.status(400).json({ error: "Invalid setup wizard data payload." });
@@ -8649,7 +8649,7 @@ router13.post("/setup/finalize/:restaurantId", authenticateJWT, async (req, res)
     const taxRate = hasTax ? Number(step4.tax_percentage || 6) : 0;
     const taxType = hasTax ? step4.tax_name || "SST" : "No Tax";
     const { error: restErr } = await supabaseAdmin.from("restaurants").update({
-      name: step2.business_name || "New JomOrder Restaurant",
+      name: step2.business_name || "New Sikmatye Restaurant",
       currency: baseCurrency,
       sst: taxRate / 100,
       // sst decimal representation
@@ -8864,7 +8864,7 @@ var BillingRepository = class _BillingRepository {
       return {
         tenant_id: tenantId,
         stripe_customer_id: registry[tenantId].stripe_customer_id,
-        email: registry[tenantId].stripe_customer_email || "tenant@jomorder.com",
+        email: registry[tenantId].stripe_customer_email || "tenant@sikmatye.com",
         created_at: (/* @__PURE__ */ new Date()).toISOString(),
         updated_at: (/* @__PURE__ */ new Date()).toISOString()
       };
@@ -9087,7 +9087,7 @@ var BillingRepository = class _BillingRepository {
         console.log("[BillingRepository] plan_features table is empty, seeding defaults...");
         const featuresToSeed = Object.keys(_BillingRepository.DEFAULT_PLAN_FEATURES).map((code) => ({
           plan_code: code,
-          name: code === "starter" ? "JomOrder Starter" : code === "growth" ? "JomOrder Growth" : "JomOrder Pro",
+          name: code === "starter" ? "Sikmatye Starter" : code === "growth" ? "Sikmatye Growth" : "Sikmatye Pro",
           max_outlets: code === "starter" ? 1 : code === "growth" ? 3 : 9999,
           can_qr_order: true,
           can_basic_pos: true,
@@ -9131,19 +9131,19 @@ function getStripeClient(apiKey) {
 }
 var PLAN_PRICES = {
   starter: {
-    priceId: process.env.STRIPE_PRICE_STARTER || "price_JomOrder_Starter_RM18",
+    priceId: process.env.STRIPE_PRICE_STARTER || "price_Sikmatye_Starter_RM18",
     priceAmount: 18,
     currency: "MYR",
     planName: "Starter Plan"
   },
   growth: {
-    priceId: process.env.STRIPE_PRICE_GROWTH || "price_JomOrder_Growth_RM38",
+    priceId: process.env.STRIPE_PRICE_GROWTH || "price_Sikmatye_Growth_RM38",
     priceAmount: 38,
     currency: "MYR",
     planName: "Growth Plan"
   },
   pro: {
-    priceId: process.env.STRIPE_PRICE_PRO || "price_JomOrder_Pro_RM98",
+    priceId: process.env.STRIPE_PRICE_PRO || "price_Sikmatye_Pro_RM98",
     priceAmount: 98,
     currency: "MYR",
     planName: "Pro Enterprise Plan"
@@ -9238,12 +9238,100 @@ var BillingService = class {
       trialDaysLeft = Math.ceil(diffTime / (1e3 * 60 * 60 * 24));
       if (trialDaysLeft < 0) trialDaysLeft = 0;
     }
+    let invoices = [];
+    try {
+      const customerMap = await this.repo.getBillingCustomer(dbTenantId);
+      if (customerMap && customerMap.stripe_customer_id && !customerMap.stripe_customer_id.startsWith("cus_mock") && customerMap.stripe_customer_id !== "cus_fallback") {
+        const stripe = getStripeClient(this.stripeApiKey);
+        const stripeInvoices = await stripe.invoices.list({
+          customer: customerMap.stripe_customer_id,
+          limit: 20
+        });
+        invoices = stripeInvoices.data.map((inv) => ({
+          id: inv.id,
+          number: inv.number || inv.id,
+          date: new Date(inv.created * 1e3).toISOString().split("T")[0],
+          description: inv.description || `Sikmatye Plan Subscription Renewal - ${subscription?.plan_code?.toUpperCase() || "STARTER"}`,
+          amount: `${inv.currency ? inv.currency.toUpperCase() : "RM"}${(inv.total / 100).toFixed(2)}`,
+          status: inv.status === "paid" ? "paid" : "trial_invoice",
+          receiptUrl: inv.invoice_pdf || inv.hosted_invoice_url || "#",
+          isMock: false,
+          planCode: subscription.plan_code
+        }));
+      }
+    } catch (err) {
+      console.warn("[BillingService] Error fetching live Stripe invoices, falling back to simulated history:", err);
+    }
+    if (invoices.length === 0) {
+      invoices = this.generateDynamicInvoices(subscription);
+    }
     return {
       subscription,
       plan,
       usage: usageLimits,
-      trialDaysLeft
+      trialDaysLeft,
+      invoices
     };
+  }
+  /**
+   * Generate realistic past statements derived from active database subscription parameters
+   */
+  generateDynamicInvoices(subscription) {
+    const list = [];
+    const planName = subscription.plan_code === "pro" ? "Pro Enterprise Plan" : subscription.plan_code === "growth" ? "Growth Plan" : "Starter Plan";
+    const planRate = subscription.plan_code === "pro" ? "RM98.00" : subscription.plan_code === "growth" ? "RM38.00" : "RM18.00";
+    const startDateStr = subscription.current_period_start || (/* @__PURE__ */ new Date()).toISOString();
+    const startDate = new Date(startDateStr);
+    if (subscription.status === "trialing") {
+      list.push({
+        id: `INV-TRIAL-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        number: `INV-TRIAL-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        date: startDate.toISOString().split("T")[0],
+        description: "Sikmatye Onboarding Trial Bootstrap Session",
+        amount: "RM0.00",
+        status: "trial_invoice",
+        receiptUrl: "#",
+        isMock: true,
+        planCode: subscription.plan_code
+      });
+    } else {
+      list.push({
+        id: `INV-${startDate.getFullYear()}${(startDate.getMonth() + 1).toString().padStart(2, "0")}-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        number: `INV-${startDate.getFullYear()}${(startDate.getMonth() + 1).toString().padStart(2, "0")}-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        date: startDate.toISOString().split("T")[0],
+        description: `Sikmatye Plan Subscription Renewal - ${planName}`,
+        amount: planRate,
+        status: "paid",
+        receiptUrl: "#",
+        isMock: true,
+        planCode: subscription.plan_code
+      });
+      const prevDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1e3);
+      list.push({
+        id: `INV-${prevDate.getFullYear()}${(prevDate.getMonth() + 1).toString().padStart(2, "0")}-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        number: `INV-${prevDate.getFullYear()}${(prevDate.getMonth() + 1).toString().padStart(2, "0")}-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        date: prevDate.toISOString().split("T")[0],
+        description: `Sikmatye Plan Subscription Renewal - ${planName}`,
+        amount: planRate,
+        status: "paid",
+        receiptUrl: "#",
+        isMock: true,
+        planCode: subscription.plan_code
+      });
+      const trialDate = new Date(startDate.getTime() - 44 * 24 * 60 * 60 * 1e3);
+      list.push({
+        id: `INV-TRIAL-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        number: `INV-TRIAL-${subscription.tenant_id.slice(0, 4).toUpperCase()}`,
+        date: trialDate.toISOString().split("T")[0],
+        description: "Sikmatye Onboarding Trial Bootstrap Session",
+        amount: "RM0.00",
+        status: "trial_invoice",
+        receiptUrl: "#",
+        isMock: true,
+        planCode: subscription.plan_code
+      });
+    }
+    return list;
   }
   /**
    * Bootstrap immediate 14-day free trial on signup if missing
@@ -9251,7 +9339,7 @@ var BillingService = class {
   async bootstrapTrial(tenantId, orgId) {
     const trialDays = 14;
     let registrationDate = /* @__PURE__ */ new Date();
-    let email = "business@jomorder.com";
+    let email = "business@sikmatye.com";
     try {
       const { data: restData } = await this.supabaseClient.from("restaurants").select("name, created_at").eq("id", tenantId).maybeSingle();
       if (restData) {
@@ -9259,7 +9347,7 @@ var BillingService = class {
           registrationDate = new Date(restData.created_at);
         }
         if (restData.name) {
-          email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+          email = `${restData.name.toLowerCase().replace(/\s+/g, "")}@Sikmatye.com`;
         }
       } else {
         const { data: orgData } = await this.supabaseClient.from("organizations").select("name, created_at").eq("id", orgId).maybeSingle();
@@ -9268,7 +9356,7 @@ var BillingService = class {
             registrationDate = new Date(orgData.created_at);
           }
           if (orgData.name) {
-            email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+            email = `${orgData.name.toLowerCase().replace(/\s+/g, "")}@Sikmatye.com`;
           }
         }
       }
@@ -9337,11 +9425,11 @@ var BillingService = class {
         mode: "subscription",
         line_items: [
           {
-            price: config.priceId.startsWith("price_JomOrder") ? void 0 : config.priceId,
-            price_data: config.priceId.startsWith("price_JomOrder") ? {
+            price: config.priceId.startsWith("price_Sikmatye") || config.priceId.startsWith("price_Sikmatye") ? void 0 : config.priceId,
+            price_data: config.priceId.startsWith("price_Sikmatye") || config.priceId.startsWith("price_Sikmatye") ? {
               currency: "myr",
               product_data: {
-                name: `JomOrder ${config.planName}`,
+                name: `Sikmatye ${config.planName}`,
                 description: `Monthly recurring subscription for ${config.planName}`
               },
               unit_amount: Math.round(config.priceAmount * 100),
@@ -9370,11 +9458,11 @@ var BillingService = class {
     const stripe = getStripeClient(this.stripeApiKey);
     let customerMap = await this.repo.getBillingCustomer(dbTenantId);
     const ensureCustomer = async () => {
-      let email = "business@jomorder.com";
+      let email = "business@sikmatye.com";
       try {
         const { data } = await this.supabaseClient.from("organizations").select("name").eq("id", dbTenantId).maybeSingle();
         if (data?.name) {
-          email = `${data.name.toLowerCase().replace(/\s+/g, "")}@jomorder.com`;
+          email = `${data.name.toLowerCase().replace(/\s+/g, "")}@Sikmatye.com`;
         }
       } catch (_) {
       }
@@ -9510,7 +9598,7 @@ router14.post("/billing/create-checkout-session", authenticateJWT, async (req, r
   if (!plan) {
     return res.status(400).json({ error: "You must specify a target subscription plan." });
   }
-  const email = user.email || "client@jomorder.com";
+  const email = user.email || "client@sikmatye.com";
   let origin = req.body.origin || req.headers.origin;
   if (!origin) {
     const referer = req.headers.referer;
@@ -9601,23 +9689,513 @@ router14.post("/billing/sandbox-simulate", authenticateJWT, async (req, res) => 
 });
 var billing_routes_default = router14;
 
-// src/server/routes/index.ts
+// src/server/routes/tax.routes.ts
+var import_express15 = require("express");
+
+// src/server/services/taxReportingService.ts
+init_dbService();
+
+// src/server/services/taxCalculationService.ts
+function roundToCents(num) {
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+}
+function calculateOrderTax(order, orderItems, taxRatePercent, isInclusive = false, serviceChargePercent = 0, businessDate) {
+  const orderId = order.id;
+  const receiptNumber = order.id.substring(0, 8).toUpperCase();
+  const status = order.status || "completed";
+  const created_at = order.created_at || (/* @__PURE__ */ new Date()).toISOString();
+  let grossSales = 0;
+  let discounts = 0;
+  let serviceCharges = 0;
+  let taxableSales = 0;
+  let nonTaxableSales = 0;
+  let taxCollected = 0;
+  let refunds = 0;
+  let taxRefunded = 0;
+  const suspiciousReasons = [];
+  let orderSubtotal = 0;
+  let totalVoids = 0;
+  let totalRefunds = 0;
+  orderItems.forEach((item) => {
+    const originalPrice = Number(item.original_unit_price || item.price || 0);
+    const finalPrice = Number(item.final_unit_price || originalPrice);
+    const quantity = Number(item.quantity || 0);
+    const originalQty = Number(item.original_quantity || quantity);
+    const cancelledQty = Number(item.cancelled_quantity || 0);
+    const lineGross = originalPrice * originalQty;
+    const lineItemDiscounts = (originalPrice - finalPrice) * originalQty;
+    const lineNet = lineGross - lineItemDiscounts;
+    if (item.status === "cancelled" || item.status === "voided" || item.voided) {
+      totalVoids += lineGross;
+      return;
+    }
+    grossSales += lineGross;
+    discounts += lineItemDiscounts;
+    orderSubtotal += lineNet;
+    if (cancelledQty > 0) {
+      const refundAmt = Number(item.refund_amount || 0);
+      refunds += refundAmt;
+      totalRefunds += refundAmt;
+    }
+  });
+  let orderDiscountAmt = 0;
+  const orderDiscountObj = order.discount;
+  if (orderDiscountObj && orderSubtotal > 0) {
+    if (orderDiscountObj.type === "percentage") {
+      orderDiscountAmt = orderSubtotal * (Number(orderDiscountObj.value) / 100);
+    } else {
+      orderDiscountAmt = Math.min(orderSubtotal, Number(orderDiscountObj.value));
+    }
+    discounts += orderDiscountAmt;
+  }
+  const finalNetSubtotal = Math.max(0, orderSubtotal - orderDiscountAmt);
+  const serviceChargeRate = serviceChargePercent / 100;
+  const taxRate = taxRatePercent / 100;
+  let serviceChargeAmt = 0;
+  let taxAmt = 0;
+  if (isInclusive) {
+    const baseAmount = finalNetSubtotal / (1 + taxRate);
+    taxAmt = finalNetSubtotal - baseAmount;
+    taxableSales = baseAmount;
+    serviceChargeAmt = baseAmount * serviceChargeRate;
+  } else {
+    taxableSales = finalNetSubtotal;
+    serviceChargeAmt = finalNetSubtotal * serviceChargeRate;
+    taxAmt = (finalNetSubtotal + serviceChargeAmt) * taxRate;
+  }
+  serviceCharges = roundToCents(serviceChargeAmt);
+  taxCollected = roundToCents(taxAmt);
+  discounts = roundToCents(discounts);
+  grossSales = roundToCents(grossSales);
+  if (taxRatePercent === 0) {
+    nonTaxableSales = roundToCents(finalNetSubtotal);
+    taxableSales = 0;
+  } else {
+    taxableSales = roundToCents(taxableSales);
+    nonTaxableSales = 0;
+  }
+  if (refunds > 0 && finalNetSubtotal > 0) {
+    const refundRatio = refunds / (finalNetSubtotal + serviceCharges + taxCollected);
+    taxRefunded = roundToCents(taxCollected * refundRatio);
+  }
+  const netTaxPayable = roundToCents(taxCollected - taxRefunded);
+  const netSales = roundToCents(finalNetSubtotal + serviceCharges);
+  const totalCollected = roundToCents(finalNetSubtotal + serviceCharges + taxCollected - refunds);
+  if (totalVoids > 0 && totalVoids / (grossSales + totalVoids) > 0.4) {
+    suspiciousReasons.push(`Excessive voids: RM ${totalVoids.toFixed(2)} voided on RM ${(grossSales + totalVoids).toFixed(2)} gross sales.`);
+  }
+  if (refunds > 0 && refunds / (finalNetSubtotal + serviceCharges + taxCollected) > 0.3) {
+    suspiciousReasons.push(`High refund amount: RM ${refunds.toFixed(2)} refunded on RM ${(finalNetSubtotal + serviceCharges + taxCollected).toFixed(2)} total order value.`);
+  }
+  if (discounts > 0 && discounts / grossSales > 0.5) {
+    suspiciousReasons.push(`High manual discount applied: RM ${discounts.toFixed(2)} discount is over 50% of gross sales.`);
+  }
+  if (order.voided) {
+    suspiciousReasons.push(`Paid order was voided entirely on ${order.voided_at ? new Date(order.voided_at).toLocaleString() : "unknown time"}.`);
+  }
+  const isSuspicious = suspiciousReasons.length > 0;
+  return {
+    orderId,
+    receiptNumber,
+    status,
+    created_at,
+    businessDate,
+    grossSales,
+    discounts,
+    serviceCharges,
+    taxableSales,
+    nonTaxableSales,
+    taxRate: taxRatePercent,
+    taxCollected,
+    refunds: roundToCents(refunds),
+    taxRefunded,
+    netTaxPayable,
+    netSales,
+    totalCollected,
+    isSuspicious,
+    suspiciousReasons
+  };
+}
+
+// src/server/services/taxReportingService.ts
+function getLocalDateTime(utcString, timezone) {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    });
+    const parts = formatter.formatToParts(new Date(utcString));
+    const year = parts.find((p) => p.type === "year")?.value || "2026";
+    const month = parts.find((p) => p.type === "month")?.value || "01";
+    const day = parts.find((p) => p.type === "day")?.value || "01";
+    const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+    return {
+      dateStr: `${year}-${month}-${day}`,
+      hour
+    };
+  } catch (err) {
+    const date = new Date(utcString);
+    const dateStr = date.toISOString().split("T")[0];
+    const hour = date.getUTCHours();
+    return { dateStr, hour };
+  }
+}
+function getBusinessDate(utcString, timezone, closeTimeStr = "04:00") {
+  const { dateStr, hour } = getLocalDateTime(utcString, timezone);
+  const closeHour = parseInt(closeTimeStr.split(":")[0], 10) || 4;
+  if (hour < closeHour) {
+    const d = /* @__PURE__ */ new Date(dateStr + "T12:00:00");
+    d.setDate(d.getDate() - 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return dateStr;
+}
+async function getRestaurantConfig(restaurantId, supabaseClient) {
+  const client = supabaseClient || supabaseAdmin;
+  const defaultSettings = {
+    timezone: "Asia/Kuala_Lumpur",
+    business_day_close_time: "04:00",
+    tax_rate: 6,
+    tax_inclusive: false,
+    service_charge: 10
+  };
+  try {
+    const { data: restaurant, error: restErr } = await client.from("restaurants").select("*, business_settings(*), tax_profiles(*)").eq("id", restaurantId).maybeSingle();
+    if (restErr || !restaurant) {
+      return defaultSettings;
+    }
+    const businessSettings = restaurant.business_settings && restaurant.business_settings[0] || {};
+    const activeTaxProfile = restaurant.tax_profiles?.find((tp) => tp.is_active);
+    return {
+      timezone: businessSettings.timezone || restaurant.timezone || defaultSettings.timezone,
+      business_day_close_time: businessSettings.business_day_close_time || "04:00",
+      tax_rate: activeTaxProfile ? Number(activeTaxProfile.tax_rate) : businessSettings.tax_rate || restaurant.sst || defaultSettings.tax_rate,
+      tax_inclusive: activeTaxProfile ? Boolean(activeTaxProfile.is_inclusive) : businessSettings.tax_inclusive || false,
+      service_charge: Number(restaurant.serviceCharge !== void 0 ? restaurant.serviceCharge : restaurant.service_charge || defaultSettings.service_charge)
+    };
+  } catch (err) {
+    console.warn("[TaxReportingService] Error getting restaurant config, fallback applied:", err);
+    return defaultSettings;
+  }
+}
+async function generateTaxReport(restaurantId, startDateStr, endDateStr, reportType, supabaseClient) {
+  const config = await getRestaurantConfig(restaurantId, supabaseClient);
+  const client = supabaseClient || supabaseAdmin;
+  const startBufferDate = new Date(startDateStr);
+  startBufferDate.setDate(startBufferDate.getDate() - 1);
+  const endBufferDate = new Date(endDateStr);
+  endBufferDate.setDate(endBufferDate.getDate() + 2);
+  const startUtcIso = `${startBufferDate.toISOString().split("T")[0]}T00:00:00.000Z`;
+  const endUtcIso = `${endBufferDate.toISOString().split("T")[0]}T23:59:59.999Z`;
+  const { data: orders, error: ordersErr } = await client.from("orders").select("*").eq("restaurant_id", restaurantId).gte("created_at", startUtcIso).lte("created_at", endUtcIso);
+  if (ordersErr) {
+    throw new Error(`Failed to fetch orders: ${ordersErr.message}`);
+  }
+  const filteredOrders = (orders || []).filter((order) => {
+    const isValidStatus = ["completed", "paid"].includes(order.status) || order.voided === true;
+    if (!isValidStatus) return false;
+    const bDate = getBusinessDate(order.created_at, config.timezone, config.business_day_close_time);
+    return bDate >= startDateStr && bDate <= endDateStr;
+  });
+  const orderIds = filteredOrders.map((o) => o.id);
+  let orderItems = [];
+  if (orderIds.length > 0) {
+    const { data: items, error: itemsErr } = await client.from("order_items").select("*").in("order_id", orderIds);
+    if (!itemsErr && items) {
+      orderItems = items;
+    }
+  }
+  const calculatedOrders = [];
+  const anomalies = [];
+  const itemsByOrder = {};
+  orderItems.forEach((item) => {
+    if (!itemsByOrder[item.order_id]) {
+      itemsByOrder[item.order_id] = [];
+    }
+    itemsByOrder[item.order_id].push(item);
+  });
+  filteredOrders.forEach((order) => {
+    const bDate = getBusinessDate(order.created_at, config.timezone, config.business_day_close_time);
+    const orderLines = itemsByOrder[order.id] || [];
+    const orderCalc = calculateOrderTax(
+      order,
+      orderLines,
+      config.tax_rate,
+      config.tax_inclusive,
+      config.service_charge,
+      bDate
+    );
+    calculatedOrders.push(orderCalc);
+    if (orderCalc.isSuspicious) {
+      anomalies.push({
+        orderId: orderCalc.orderId,
+        receiptNumber: orderCalc.receiptNumber,
+        reasons: orderCalc.suspiciousReasons,
+        timestamp: orderCalc.created_at
+      });
+    }
+  });
+  let grossSalesSum = 0;
+  let discountsSum = 0;
+  let serviceChargesSum = 0;
+  let taxableSalesSum = 0;
+  let nonTaxableSalesSum = 0;
+  let taxCollectedSum = 0;
+  let refundsSum = 0;
+  let taxRefundedSum = 0;
+  let netTaxPayableSum = 0;
+  let netSalesSum = 0;
+  let totalCollectedSum = 0;
+  const rateBreakdown = {};
+  calculatedOrders.forEach((o) => {
+    grossSalesSum += o.grossSales;
+    discountsSum += o.discounts;
+    serviceChargesSum += o.serviceCharges;
+    taxableSalesSum += o.taxableSales;
+    nonTaxableSalesSum += o.nonTaxableSales;
+    taxCollectedSum += o.taxCollected;
+    refundsSum += o.refunds;
+    taxRefundedSum += o.taxRefunded;
+    netTaxPayableSum += o.netTaxPayable;
+    netSalesSum += o.netSales;
+    totalCollectedSum += o.totalCollected;
+    const rate = o.taxRate;
+    if (!rateBreakdown[rate]) {
+      rateBreakdown[rate] = {
+        taxableAmount: 0,
+        taxCollected: 0,
+        taxRefunded: 0,
+        netTax: 0
+      };
+    }
+    rateBreakdown[rate].taxableAmount += o.taxableSales;
+    rateBreakdown[rate].taxCollected += o.taxCollected;
+    rateBreakdown[rate].taxRefunded += o.taxRefunded;
+    rateBreakdown[rate].netTax += o.netTaxPayable;
+  });
+  grossSalesSum = roundToCents(grossSalesSum);
+  discountsSum = roundToCents(discountsSum);
+  serviceChargesSum = roundToCents(serviceChargesSum);
+  taxableSalesSum = roundToCents(taxableSalesSum);
+  nonTaxableSalesSum = roundToCents(nonTaxableSalesSum);
+  taxCollectedSum = roundToCents(taxCollectedSum);
+  refundsSum = roundToCents(refundsSum);
+  taxRefundedSum = roundToCents(taxRefundedSum);
+  netTaxPayableSum = roundToCents(netTaxPayableSum);
+  netSalesSum = roundToCents(netSalesSum);
+  totalCollectedSum = roundToCents(totalCollectedSum);
+  Object.keys(rateBreakdown).forEach((rKey) => {
+    rateBreakdown[rKey] = {
+      taxableAmount: roundToCents(rateBreakdown[rKey].taxableAmount),
+      taxCollected: roundToCents(rateBreakdown[rKey].taxCollected),
+      taxRefunded: roundToCents(rateBreakdown[rKey].taxRefunded),
+      netTax: roundToCents(rateBreakdown[rKey].netTax)
+    };
+  });
+  return {
+    business_id: restaurantId,
+    reportType,
+    startDate: startDateStr,
+    endDate: endDateStr,
+    totalOrdersCount: calculatedOrders.length,
+    grossSalesSum,
+    discountsSum,
+    serviceChargesSum,
+    taxableSalesSum,
+    nonTaxableSalesSum,
+    taxCollectedSum,
+    refundsSum,
+    taxRefundedSum,
+    netTaxPayableSum,
+    netSalesSum,
+    totalCollectedSum,
+    rateBreakdown,
+    anomalies,
+    details: calculatedOrders
+  };
+}
+function convertReportToCSV(summary) {
+  const headers = [
+    "Receipt Number",
+    "Order ID",
+    "Business Date",
+    "Gross Sales (RM)",
+    "Discounts (RM)",
+    "Service Charge (RM)",
+    "Taxable Sales (RM)",
+    "Non-Taxable Sales (RM)",
+    "Tax Collected (RM)",
+    "Refunds (RM)",
+    "Tax Refunded (RM)",
+    "Net Tax Payable (RM)",
+    "Net Sales (RM)",
+    "Total Collected (RM)",
+    "Status"
+  ];
+  const rows = summary.details.map((d) => [
+    d.receiptNumber,
+    d.orderId,
+    d.businessDate,
+    d.grossSales.toFixed(2),
+    d.discounts.toFixed(2),
+    d.serviceCharges.toFixed(2),
+    d.taxableSales.toFixed(2),
+    d.nonTaxableSales.toFixed(2),
+    d.taxCollected.toFixed(2),
+    d.refunds.toFixed(2),
+    d.taxRefunded.toFixed(2),
+    d.netTaxPayable.toFixed(2),
+    d.netSales.toFixed(2),
+    d.totalCollected.toFixed(2),
+    d.status
+  ]);
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.map((val) => `"${val}"`).join(","))
+  ].join("\n");
+  return csvContent;
+}
+
+// src/server/routes/tax.routes.ts
+init_dbService();
+init_auditService();
 var router15 = (0, import_express15.Router)();
-router15.use("/api", auth_routes_default);
-router15.use("/api", translation_routes_default);
-router15.use("/api", menu_routes_default);
-router15.use("/api", menuImport_routes_default);
-router15.use("/api", staff_routes_default);
-router15.use("/api", workspace_routes_default);
-router15.use("/api", setup_routes_default);
-router15.use("/api", billing_routes_default);
-router15.use("/api/superadmin", superadmin_routes_default);
-router15.use("/api", tables_routes_default);
-router15.use("/api", orders_routes_default);
-router15.use("/api", sessions_routes_default);
-router15.use("/api", payments_routes_default);
-router15.use("/api/public", public_routes_default);
-var routes_default = router15;
+router15.get(
+  "/restaurants/:restId/tax/summary",
+  authenticateJWT,
+  requireTenantIsolation("restId"),
+  requireAnyPermission("settings.manage", "orders.view"),
+  async (req, res) => {
+    const { restId } = req.params;
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const type = req.query.type || "custom";
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: "Parameters startDate and endDate are required." });
+    }
+    try {
+      const summary = await generateTaxReport(restId, startDate, endDate, type);
+      return res.json(summary);
+    } catch (err) {
+      console.error("[TaxRoutes] Error compiling tax report summary:", err);
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  }
+);
+router15.get(
+  "/restaurants/:restId/tax/csv",
+  authenticateJWT,
+  requireTenantIsolation("restId"),
+  requireAnyPermission("settings.manage", "orders.view"),
+  async (req, res) => {
+    const { restId } = req.params;
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const type = req.query.type || "custom";
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: "Parameters startDate and endDate are required." });
+    }
+    try {
+      const summary = await generateTaxReport(restId, startDate, endDate, type);
+      const csv = convertReportToCSV(summary);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="tax_report_${restId}_${startDate}_to_${endDate}.csv"`
+      );
+      return res.send(csv);
+    } catch (err) {
+      console.error("[TaxRoutes] Error downloading CSV tax report:", err);
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  }
+);
+router15.get(
+  "/restaurants/:restId/tax/config",
+  authenticateJWT,
+  requireTenantIsolation("restId"),
+  requireAnyPermission("settings.manage", "orders.view"),
+  async (req, res) => {
+    const { restId } = req.params;
+    try {
+      const config = await getRestaurantConfig(restId);
+      return res.json(config);
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  }
+);
+router15.post(
+  "/restaurants/:restId/tax/config",
+  authenticateJWT,
+  requireTenantIsolation("restId"),
+  requireAnyPermission("settings.manage"),
+  async (req, res) => {
+    const { restId } = req.params;
+    const { business_day_close_time } = req.body;
+    const caller = req.user;
+    if (!business_day_close_time || !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(business_day_close_time)) {
+      return res.status(400).json({ error: "Invalid business_day_close_time. Must match HH:MM format." });
+    }
+    try {
+      const { data: businessSettings, error: selectErr } = await supabaseAdmin.from("business_settings").select("*").eq("restaurant_id", restId).maybeSingle();
+      if (selectErr) throw selectErr;
+      if (businessSettings) {
+        const { error: updateErr } = await supabaseAdmin.from("business_settings").update({ business_day_close_time }).eq("restaurant_id", restId);
+        if (updateErr) throw updateErr;
+      } else {
+        const { error: insertErr } = await supabaseAdmin.from("business_settings").insert({
+          restaurant_id: restId,
+          business_id: restId,
+          business_day_close_time
+        });
+        if (insertErr) throw insertErr;
+      }
+      if (caller && caller.email) {
+        logToAudit(
+          caller.id,
+          caller.email,
+          caller.role,
+          `Updated F&B business closing hour to ${business_day_close_time}`,
+          restId
+        );
+      }
+      return res.json({ success: true, business_day_close_time });
+    } catch (err) {
+      console.error("[TaxRoutes] Error updating business hours closing time configuration:", err);
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  }
+);
+var tax_routes_default = router15;
+
+// src/server/routes/index.ts
+var router16 = (0, import_express16.Router)();
+router16.use("/api", auth_routes_default);
+router16.use("/api", translation_routes_default);
+router16.use("/api", menu_routes_default);
+router16.use("/api", menuImport_routes_default);
+router16.use("/api", staff_routes_default);
+router16.use("/api", workspace_routes_default);
+router16.use("/api", setup_routes_default);
+router16.use("/api", billing_routes_default);
+router16.use("/api/superadmin", superadmin_routes_default);
+router16.use("/api", tables_routes_default);
+router16.use("/api", orders_routes_default);
+router16.use("/api", sessions_routes_default);
+router16.use("/api", payments_routes_default);
+router16.use("/api/public", public_routes_default);
+router16.use("/api", tax_routes_default);
+var routes_default = router16;
 
 // src/billing/webhooks/stripeWebhook.ts
 var repo2 = new BillingRepository();
@@ -9662,7 +10240,7 @@ async function handleStripeWebhook(req, res) {
           await repo2.upsertBillingCustomer({
             tenant_id: tenantId,
             stripe_customer_id: customerId,
-            email: session.customer_details?.email || "billing@jomorder.com"
+            email: session.customer_details?.email || "billing@sikmatye.com"
           });
           let trialEnd = null;
           let currentPeriodStart = (/* @__PURE__ */ new Date()).toISOString();
@@ -9839,11 +10417,11 @@ async function handleStripeWebhook(req, res) {
 
 // server.ts
 import_dotenv3.default.config();
-var app = (0, import_express16.default)();
+var app = (0, import_express17.default)();
 var PORT = 3e3;
 app.use((0, import_cors.default)());
-app.post("/api/billing/webhook", import_express16.default.raw({ type: "application/json" }), handleStripeWebhook);
-app.use(import_express16.default.json({
+app.post("/api/billing/webhook", import_express17.default.raw({ type: "application/json" }), handleStripeWebhook);
+app.use(import_express17.default.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
@@ -9977,7 +10555,7 @@ async function start() {
     app.use(vite.middlewares);
   } else {
     const distPath = import_path2.default.join(process.cwd(), "dist");
-    app.use(import_express16.default.static(distPath));
+    app.use(import_express17.default.static(distPath));
   }
   app.all("/api/*", (req, res) => {
     console.warn(`[API 404 Catch-all] ${req.method} ${req.originalUrl}`);

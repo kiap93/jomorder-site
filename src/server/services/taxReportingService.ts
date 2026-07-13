@@ -96,7 +96,8 @@ export function getBusinessDate(utcString: string, timezone: string, closeTimeSt
 /**
  * Fetches restaurant config settings, including timezone, business day closing time, tax rate.
  */
-export async function getRestaurantConfig(restaurantId: string): Promise<BusinessConfig> {
+export async function getRestaurantConfig(restaurantId: string, supabaseClient?: any): Promise<BusinessConfig> {
+  const client = supabaseClient || supabaseAdmin;
   const defaultSettings: BusinessConfig = {
     timezone: 'Asia/Kuala_Lumpur',
     business_day_close_time: '04:00',
@@ -106,7 +107,7 @@ export async function getRestaurantConfig(restaurantId: string): Promise<Busines
   };
 
   try {
-    const { data: restaurant, error: restErr } = await supabaseAdmin
+    const { data: restaurant, error: restErr } = await client
       .from('restaurants')
       .select('*, business_settings(*), tax_profiles(*)')
       .eq('id', restaurantId)
@@ -141,9 +142,11 @@ export async function generateTaxReport(
   restaurantId: string,
   startDateStr: string, // YYYY-MM-DD
   endDateStr: string,   // YYYY-MM-DD
-  reportType: 'daily' | 'monthly' | 'custom'
+  reportType: 'daily' | 'monthly' | 'custom',
+  supabaseClient?: any
 ): Promise<TaxReportSummary> {
-  const config = await getRestaurantConfig(restaurantId);
+  const config = await getRestaurantConfig(restaurantId, supabaseClient);
+  const client = supabaseClient || supabaseAdmin;
 
   // Buffer date selection to catch overnight shifts
   // Query 1 day before and 1 day after the calendar range to ensure zero leakage
@@ -156,7 +159,7 @@ export async function generateTaxReport(
   const endUtcIso = `${endBufferDate.toISOString().split('T')[0]}T23:59:59.999Z`;
 
   // Fetch orders
-  const { data: orders, error: ordersErr } = await supabaseAdmin
+  const { data: orders, error: ordersErr } = await client
     .from('orders')
     .select('*')
     .eq('restaurant_id', restaurantId)
@@ -168,7 +171,7 @@ export async function generateTaxReport(
   }
 
   // Filter and compute business date
-  const filteredOrders = (orders || []).filter(order => {
+  const filteredOrders = (orders || []).filter((order: any) => {
     // Rely on PAID, COMPLETED, or fully VOIDED/REFUNDED transactions
     const isValidStatus = ['completed', 'paid'].includes(order.status) || order.voided === true;
     if (!isValidStatus) return false;
@@ -178,12 +181,12 @@ export async function generateTaxReport(
   });
 
   // Fetch all order items for active orders
-  const orderIds = filteredOrders.map(o => o.id);
+  const orderIds = filteredOrders.map((o: any) => o.id);
   let orderItems: any[] = [];
   
   if (orderIds.length > 0) {
     // Batch query to stay within request performance bounds
-    const { data: items, error: itemsErr } = await supabaseAdmin
+    const { data: items, error: itemsErr } = await client
       .from('order_items')
       .select('*')
       .in('order_id', orderIds);
@@ -205,7 +208,7 @@ export async function generateTaxReport(
   });
 
   // Process and compile single order details
-  filteredOrders.forEach(order => {
+  filteredOrders.forEach((order: any) => {
     const bDate = getBusinessDate(order.created_at, config.timezone, config.business_day_close_time);
     const orderLines = itemsByOrder[order.id] || [];
     

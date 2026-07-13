@@ -58,7 +58,7 @@ authRoutes.post('/api/login', async (c) => {
 
       const { data: inserted, error: insertError } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: idToInsert,
           email: email,
           role: 'admin',
@@ -157,7 +157,7 @@ authRoutes.post('/api/register', async (c) => {
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .insert({
+      .upsert({
         id: authUser.user.id,
         email: email,
         role: 'staff',
@@ -237,7 +237,7 @@ authRoutes.post('/api/google-login', async (c) => {
 
       const { data: inserted, error: insertError } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: idToInsert,
           email: email,
           role: 'admin',
@@ -307,7 +307,7 @@ authRoutes.post('/api/google-login', async (c) => {
         if (authUserId) {
           const { data: newProfile, error: profileError } = await supabase
             .from('profiles')
-            .insert({
+            .upsert({
               id: authUserId,
               email: email,
               role: 'staff',

@@ -56,7 +56,7 @@ router.post("/login", async (req, res) => {
 
       const { data: inserted, error: insertError } = await supabaseAdmin
         .from('profiles')
-        .insert({
+        .upsert({
           id: idToInsert,
           email: email,
           role: 'admin',
@@ -178,7 +178,7 @@ router.post("/register", async (req, res) => {
     // We use service role to ensure bypass of RLS during initial setup
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({
+      .upsert({
         id: authUser.user.id,
         email: email,
         role: 'staff', // Default role for new registrations
@@ -290,7 +290,7 @@ router.post("/google-login", async (req, res) => {
 
         const { data: inserted, error: insertError } = await supabaseAdmin
           .from('profiles')
-          .insert({
+          .upsert({
             id: idToInsert,
             email: email,
             role: 'admin',
