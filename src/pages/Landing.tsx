@@ -1332,7 +1332,6 @@ export function Landing() {
                 <li><a href="#" className="hover:text-white transition">Contact Hub</a></li>
                 <li><a href="#" className="hover:text-white transition">Privacy Policy</a></li>
                 <li><a href="#" className="hover:text-white transition">Terms of Service</a></li>
-                <li><a href="/internal/audit-hub" className="hover:text-white transition font-mono uppercase text-[9px] bg-zinc-800 border border-zinc-700 px-1 py-0.5 rounded text-orange-400">System Audit</a></li>
               </ul>
             </div>
 
